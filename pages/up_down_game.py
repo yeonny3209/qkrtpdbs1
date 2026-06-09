@@ -1,18 +1,7 @@
 import streamlit as st
 import random
 
-st.set_page_config(
-    page_title="나만의 첫 스트림릿 앱",
-    page_icon="🌟",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-with st.sidebar:
-    st.header("📌 메뉴")
-    menu = st.radio("이동할 페이지를 선택하세요", ["홈 화면", "업다운 게임"])
-
-if menu == "홈 화면":
+def home_page():
     st.title("🌟 환영합니다! 나만의 첫 웹 페이지입니다.")
     st.subheader("스트림릿(Streamlit)으로 만든 멋진 첫 화면에 오신 것을 환영해요!")
     st.divider()
@@ -35,7 +24,7 @@ if menu == "홈 화면":
             else:
                 st.warning("이름을 먼저 입력해 주세요.")
 
-elif menu == "업다운 게임":
+def game_page():
     st.title("🎮 업다운(Up-Down) 게임")
     st.write("컴퓨터가 1부터 100 사이의 숫자 하나를 생각했습니다. 맞춰보세요!")
 
@@ -44,9 +33,11 @@ elif menu == "업다운 게임":
         st.session_state.game_over = False
         st.session_state.attempts = 0
 
-    user_guess = st.number_input("숫자를 입력하세요 (1~100)", min_value=1, max_value=100, step=1)
+    with st.form(key="updown_form", clear_on_submit=False):
+        user_guess = st.number_input("숫자를 입력하세요 (1~100)", min_value=1, max_value=100, step=1)
+        submit_button = st.form_submit_button(label="정답 확인")
 
-    if st.button("정답 확인"):
+    if submit_button:
         if not st.session_state.game_over:
             st.session_state.attempts += 1
             
@@ -65,3 +56,15 @@ elif menu == "업다운 게임":
         st.session_state.game_over = False
         st.session_state.attempts = 0
         st.rerun()
+
+st.set_page_config(
+    page_title="나만의 첫 스트림릿 앱",
+    page_icon="🌟",
+    layout="wide"
+)
+
+home = st.Page(home_page, title="홈 화면", icon="🌟")
+game = st.Page(game_page, title="업다운 게임", icon="🎮")
+
+pg = st.navigation([home, game])
+pg.run()
