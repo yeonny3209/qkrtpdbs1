@@ -34,22 +34,27 @@ def game_page():
         st.session_state.attempts = 0
 
     with st.form(key="updown_form", clear_on_submit=False):
-        user_guess = st.number_input("숫자를 입력하세요 (1~100)", min_value=1, max_value=100, step=1)
+        user_input = st.text_input("숫자를 입력하고 엔터를 누르세요 (1~100)")
         submit_button = st.form_submit_button(label="정답 확인")
 
     if submit_button:
-        if not st.session_state.game_over:
-            st.session_state.attempts += 1
+        if user_input.isdigit():
+            user_guess = int(user_input)
             
-            if user_guess < st.session_state.target_number:
-                st.info(f"🔺 UP! 컴퓨터가 생각한 숫자가 더 큽니다. (시도 횟수: {st.session_state.attempts}회)")
-            elif user_guess > st.session_state.target_number:
-                st.info(f"🔻 DOWN! 컴퓨터가 생각한 숫자가 더 작습니다. (시도 횟수: {st.session_state.attempts}회)")
+            if not st.session_state.game_over:
+                st.session_state.attempts += 1
+                
+                if user_guess < st.session_state.target_number:
+                    st.info(f"🔺 UP! 컴퓨터가 생각한 숫자가 더 큽니다. (시도 횟수: {st.session_state.attempts}회)")
+                elif user_guess > st.session_state.target_number:
+                    st.info(f"🔻 DOWN! 컴퓨터가 생각한 숫자가 더 작습니다. (시도 횟수: {st.session_state.attempts}회)")
+                else:
+                    st.success(f"🎉 정답입니다! {st.session_state.attempts}번 만에 맞추셨습니다!")
+                    st.session_state.game_over = True
             else:
-                st.success(f"🎉 정답입니다! {st.session_state.attempts}번 만에 맞추셨습니다!")
-                st.session_state.game_over = True
+                st.warning("게임이 끝났습니다. 새로운 게임을 시작하려면 아래 재시작 버튼을 눌러주세요.")
         else:
-            st.warning("게임이 끝났습니다. 새로운 게임을 시작하려면 아래 재시작 버튼을 눌러주세요.")
+            st.error("숫자만 정확하게 입력해 주세요!")
 
     if st.button("게임 재시작"):
         st.session_state.target_number = random.randint(1, 100)
