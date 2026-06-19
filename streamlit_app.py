@@ -82,26 +82,25 @@ def board_page():
     if "custom_names" not in st.session_state:
         st.session_state.custom_names = ["플레이어 1", "플레이어 2", "플레이어 3", "플레이어 4"]
 
-    if st.session_state.winner is None:
-        st.subheader("👥 게임 인원 및 이름 설정")
-        new_num_players = st.selectbox("참여할 플레이어 수를 선택하세요", [2, 3, 4], index=st.session_state.board_players - 2)
-        
-        if new_num_players != st.session_state.board_players:
-            st.session_state.board_players = new_num_players
-            st.session_state.positions = [1, 1, 1, 1]
-            st.session_state.turn = 0
-            st.session_state.log = ["인원이 변경되어 게임을 리셋합니다!"]
-            st.session_state.winner = None
-            st.rerun()
+    st.subheader("👥 게임 인원 및 이름 설정")
+    new_num_players = st.selectbox("참여할 플레이어 수를 선택하세요", [2, 3, 4], index=st.session_state.board_players - 2)
+    
+    if new_num_players != st.session_state.board_players:
+        st.session_state.board_players = new_num_players
+        st.session_state.positions = [1, 1, 1, 1]
+        st.session_state.turn = 0
+        st.session_state.log = ["인원이 변경되어 게임을 리셋합니다!"]
+        st.session_state.winner = None
+        st.rerun()
 
-        name_cols = st.columns(st.session_state.board_players)
-        for i in range(st.session_state.board_players):
-            with name_cols[i]:
-                default_name = f"플레이어 {i+1}"
-                if st.session_state.custom_names[i] == f"플레이어 {i+1}" or st.session_state.custom_names[i] == "":
-                    st.session_state.custom_names[i] = st.text_input(f"{emojis[i]} 이름 입력", value=default_name, key=f"p_name_{i}")
-                else:
-                    st.session_state.custom_names[i] = st.text_input(f"{emojis[i]} 이름 입력", value=st.session_state.custom_names[i], key=f"p_name_{i}")
+    name_cols = st.columns(st.session_state.board_players)
+    for i in range(st.session_state.board_players):
+        with name_cols[i]:
+            default_name = f"플레이어 {i+1}"
+            if st.session_state.custom_names[i] == f"플레이어 {i+1}" or st.session_state.custom_names[i] == "":
+                st.session_state.custom_names[i] = st.text_input(f"{emojis[i]} 이름 입력", value=default_name, key=f"p_name_{i}")
+            else:
+                st.session_state.custom_names[i] = st.text_input(f"{emojis[i]} 이름 입력", value=st.session_state.custom_names[i], key=f"p_name_{i}")
 
     display_names = []
     for i in range(4):
