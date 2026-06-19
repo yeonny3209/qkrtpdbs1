@@ -88,6 +88,56 @@ def board_page():
 
     st.divider()
 
+    st.subheader("🗺️ 실시간 게임 보드판")
+    board_html = "<div style='display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; background-color: #f5f5f5; padding: 15px; border-radius: 12px; border: 2px solid #ccc; max-width: 900px; margin: auto;'>"
+    
+    for r in range(4, -1, -1):
+        for c in range(10):
+            if r % 2 == 0:
+                num = r * 10 + 1 + c
+            else:
+                num = r * 10 + 10 - c
+            
+            present_players = ""
+            for p_idx in range(st.session_state.board_players):
+                if st.session_state.positions[p_idx] == num:
+                    present_players += colors[p_idx].split()[0]
+            
+            bg_color = "#ffffff"
+            note = ""
+            border_style = "1px solid #ddd"
+            
+            if num == 1:
+                bg_color = "#fff9db"
+                note = "START"
+                border_style = "2px solid #fcc419"
+            elif num == 50:
+                bg_color = "#e3fafc"
+                note = "GOAL"
+                border_style = "2px solid #22b8cf"
+            elif num in ladders:
+                note = f"🪜 ➔ {ladders[num]}"
+                bg_color = "#ebfbee"
+            elif num in snakes:
+                note = f"🐍 ➔ {snakes[num]}"
+                bg_color = "#fff5f5"
+            elif num in ladders.values():
+                bg_color = "#f4fbf7"
+            elif num in snakes.values():
+                bg_color = "#fffafb"
+            
+            board_html += f"""
+            <div style='background-color: {bg_color}; border: {border_style}; border-radius: 8px; padding: 6px; text-align: center; min-height: 75px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 1px 1px 4px rgba(0,0,0,0.04);'>
+                <div style='font-size: 12px; font-weight: bold; color: #495057; text-align: left;'>{num}</div>
+                <div style='font-size: 18px; margin: 2px 0; min-height: 24px;'>{present_players}</div>
+                <div style='font-size: 9px; color: #868e96; font-weight: bold;'>{note}</div>
+            </div>
+            """
+    board_html += "</div>"
+    st.markdown(board_html, unsafe_allow_html=True)
+
+    st.divider()
+
     cols = st.columns(st.session_state.board_players)
     for i in range(st.session_state.board_players):
         with cols[i]:
@@ -99,14 +149,14 @@ def board_page():
         st.success(f"🎉 축하합니다! {st.session_state.winner} 팀이 50번 칸에 먼저 골인하여 승리했습니다!")
     else:
         current_player = colors[st.session_state.turn]
-        st.subheader(f"👉 현재 차례: {current_player} 팀")
+        st.subheader(f"👉 현재 차례: {current_player}")
         
         if st.button("🎲 주사위 던지기"):
             dice_roll = random.randint(1, 6)
             old_pos = st.session_state.positions[st.session_state.turn]
             new_pos = old_pos + dice_roll
             
-            log_msg = f"{current_player} 팀이 주사위 {dice_roll}을(를) 굴렸습니다. ({old_pos} ➡️ {new_pos})"
+            log_msg = f"{current_player}이(가) 주사위 {dice_roll}을(를) 굴렸습니다. ({old_pos} ➔ {new_pos})"
             
             if new_pos >= 50:
                 new_pos = 50
