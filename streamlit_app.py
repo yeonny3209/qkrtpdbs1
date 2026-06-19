@@ -67,7 +67,7 @@ def board_page():
     
     ladders = {3: 15, 12: 28, 20: 34, 31: 43}
     snakes = {18: 6, 32: 10, 41: 25, 48: 22}
-    colors = ["🔴 빨강", "🔵 파랑", "🟡 노랑", "🟢 초록"]
+    emojis = ["🔴", "🔵", "🟡", "🟢"]
 
     if "board_players" not in st.session_state:
         st.session_state.board_players = 2
@@ -75,9 +75,12 @@ def board_page():
         st.session_state.turn = 0
         st.session_state.log = ["게임을 시작합니다!"]
         st.session_state.winner = None
+        st.session_state.custom_names = ["플레이어 1", "플레이어 2", "플레이어 3", "플레이어 4"]
 
     if st.session_state.winner is None:
-        new_num_players = st.selectbox("플레이어 인원 선택 (인원 변경 시 게임이 새롭게 리셋됩니다)", [2, 3, 4], index=st.session_state.board_players - 2)
+        st.subheader("👥 게임 인원 및 이름 설정")
+        new_num_players = st.selectbox("참여할 플레이어 수를 선택하세요", [2, 3, 4], index=st.session_state.board_players - 2)
+        
         if new_num_players != st.session_state.board_players:
             st.session_state.board_players = new_num_players
             st.session_state.positions = [1, 1, 1, 1]
@@ -85,6 +88,19 @@ def board_page():
             st.session_state.log = ["인원이 변경되어 게임을 리셋합니다!"]
             st.session_state.winner = None
             st.rerun()
+
+        name_cols = st.columns(st.session_state.board_players)
+        for i in range(st.session_state.board_players):
+            with name_cols[i]:
+                default_name = f"플레이어 {i+1}"
+                if st.session_state.custom_names[i] == f"플레이어 {i+1}" or st.session_state.custom_names[i] == "":
+                    st.session_state.custom_names[i] = st.text_input(f"{emojis[i]} 이름 입력", value=default_name, key=f"p_name_{i}")
+                else:
+                    st.session_state.custom_names[i] = st.text_input(f"{emojis[i]} 이름 입력", value=st.session_state.custom_names[i], key=f"p_name_{i}")
+
+    display_names = []
+    for i in range(4):
+        display_names.append(f"{emojis[i]} {st.session_state.custom_names[i]}")
 
     st.divider()
 
@@ -102,7 +118,7 @@ def board_page():
             present_players = ""
             for p_idx in range(st.session_state.board_players):
                 if st.session_state.positions[p_idx] == num:
-                    present_players += colors[p_idx].split()[0]
+                    present_players += emojis[p_idx]
             
             bg_color = "#ffffff"
             note = ""
@@ -142,14 +158,14 @@ def board_page():
     cols = st.columns(st.session_state.board_players)
     for i in range(st.session_state.board_players):
         with cols[i]:
-            st.metric(label=colors[i], value=f"{st.session_state.positions[i]}번 칸")
+            st.metric(label=display_names[i], value=f"{st.session_state.positions[i]}번 칸")
 
     st.divider()
 
     if st.session_state.winner:
         st.success(f"🎉 축하합니다! {st.session_state.winner} 팀이 50번 칸에 먼저 골인하여 승리했습니다!")
     else:
-        current_player = colors[st.session_state.turn]
+        current_player = display_names[st.session_state.turn]
         st.subheader(f"👉 현재 차례: {current_player}")
         
         if st.button("🎲 주사위 던지기"):
