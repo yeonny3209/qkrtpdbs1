@@ -1,4 +1,3 @@
-
 import streamlit as st
 import random
 
@@ -152,5 +151,4 @@ game = st.Page(game_page, title="업다운 게임", icon="🎮")
 board = st.Page(board_page, title="말판 게임", icon="🎲")
 
 pg = st.navigation([home, game, board])
-pg.run()
 pg.run()
