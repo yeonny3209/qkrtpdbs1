@@ -201,6 +201,7 @@ def board_page():
     for msg in st.session_state.log[:5]:
         st.write(msg)
 
+
 # ==========================================
 # 4. 쿼리도 두뇌 게임 페이지
 # ==========================================
@@ -300,7 +301,7 @@ def quoridor_page():
             m_cols = st.columns(4)
             if m_cols[0].button("⬆️ 위", disabled=not (cr > 0 and not st.session_state.q_walls_h[cr-1][cc]), key="qu"):
                 st.session_state.q_positions[curr] = [cr-1, cc]
-                if curr == 0 and cr-1 == 0: st.session_state.q_winner = st.session_state.q_names[curr]
+                if curr == 0 and r-1 == 0: st.session_state.q_winner = st.session_state.q_names[curr]
                 st.session_state.q_turn = (curr + 1) % st.session_state.q_players
                 st.rerun()
             if m_cols[1].button("⬇️ 아래", disabled=not (cr < 8 and not st.session_state.q_walls_h[cr][cc]), key="qd"):
@@ -346,17 +347,106 @@ def quoridor_page():
                     st.rerun()
                 else: st.error("벽을 놓을 수 없거나 길을 완전히 막습니다!")
 
+
 # ==========================================
-# 5. [업그레이드] 전략 스킬/다양한 적 RPG 페이지
+# 5. RPG 게임 도우미 함수 (세이브 / 로드 / 전투 처리)
 # ==========================================
 SAVE_FILE = "rpg_save_data.json"
 
+def save_rpg():
+    data = {
+        "lvl": st.session_state.r_lvl,
+        "exp": st.session_state.r_exp,
+        "max_exp": st.session_state.r_max_exp,
+        "gold": st.session_state.r_gold,
+        "max_hp": st.session_state.r_max_hp,
+        "hp": st.session_state.r_hp,
+        "b_atk": st.session_state.r_b_atk,
+        "b_def": st.session_state.r_b_def,
+        "w_name": st.session_state.r_w_name,
+        "w_atk": st.session_state.r_w_atk,
+        "a_name": st.session_state.r_a_name,
+        "a_def": st.session_state.r_a_def,
+        "has_skill": st.session_state.r_has_skill,
+        "has_ult": st.session_state.r_has_ult
+    }
+    with open(SAVE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def load_rpg():
+    if os.path.exists(SAVE_FILE):
+        with open(SAVE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        st.session_state.r_lvl = data["lvl"]
+        st.session_state.r_exp = data["exp"]
+        st.session_state.r_max_exp = data["max_exp"]
+        st.session_state.r_gold = data["gold"]
+        st.session_state.r_max_hp = data["max_hp"]
+        st.session_state.r_hp = data["hp"]
+        st.session_state.r_b_atk = data["b_atk"]
+        st.session_state.r_b_def = data["b_def"]
+        st.session_state.r_w_name = data["w_name"]
+        st.session_state.r_w_atk = data["w_atk"]
+        st.session_state.r_a_name = data["a_name"]
+        st.session_state.r_a_def = data["a_def"]
+        st.session_state.r_has_skill = data.get("has_skill", False)
+        st.session_state.r_has_ult = data.get("has_ult", False)
+        return True
+    return False
+
+def enemy_turn_process(m, total_def):
+    # 스킬 쿨타임 처리
+    if st.session_state.r_skill_cd > 0:
+        st.session_state.r_skill_cd -= 1
+    if st.session_state.r_ult_cd > 0:
+        st.session_state.r_ult_cd -= 1
+
+    # 1. 몬스터 사망 판정
+    if m["hp"] <= 0:
+        st.session_state.r_battle = False
+        st.session_state.r_gold += m["gold"]
+        st.session_state.r_exp += m["exp"]
+        
+        boss_bonus = "⭐ 보스 몬스터 토벌 성공!" if m["is_boss"] else "일반 몬스터 처단"
+        st.session_state.r_log.insert(0, f"🏁 [{boss_bonus}] [{m['name']}]을 쓰러뜨렸습니다! 보상: 💰 {m['gold']}G / ✨ {m['exp']}EXP")
+        
+        # 레벨업 판정
+        if st.session_state.r_exp >= st.session_state.r_max_exp:
+            st.session_state.r_lvl += 1
+            st.session_state.r_exp -= st.session_state.r_max_exp
+            st.session_state.r_max_exp = int(st.session_state.r_max_exp * 1.55)
+            st.session_state.r_max_hp += 25
+            st.session_state.r_b_atk += 5
+            st.session_state.r_b_def += 3
+            st.session_state.r_hp = st.session_state.r_max_hp
+            st.session_state.r_log.insert(0, f"✨ LEVEL UP! 용사의 레벨이 Lv.{st.session_state.r_lvl}이 되었습니다! 체력이 전원 회복되고 스탯이 상승합니다.")
+        
+        save_rpg()
+        return
+
+    # 2. 적의 공격 처리
+    m_dmg = max(1, m["atk"] - total_def)
+    st.session_state.r_hp -= m_dmg
+    st.session_state.r_log.insert(0, f"💥 [{m['name']}]의 반격! 용사에게 {m_dmg}의 대미지!")
+
+    # 3. 용사 사망 판정
+    if st.session_state.r_hp <= 0:
+        st.session_state.r_battle = False
+        st.session_state.r_hp = int(st.session_state.r_max_hp * 0.25) # 부활 체력 페널티
+        p_lost = int(st.session_state.r_gold * 0.15)
+        st.session_state.r_gold -= p_lost
+        st.session_state.r_log.insert(0, f"💀 패배했습니다... 마을 신전에서 긴급 부활했습니다. 소지 골드 손실: -{p_lost}G")
+        save_rpg()
+
+
+# ==========================================
+# 6. 메인 RPG 게임 화면 페이지
+# ==========================================
 def rpg_page():
     st.title("⚔️ 용사 키우기 대확장 패치 (Ver 2.0)")
     st.write("화려한 전투 스킬과 궁극기를 마스터하고 10마리의 강적과 3종의 전설급 보스 레이드에 도전하세요!")
 
-    # [💡 고품질 리팩토링] 세션 상태 변수 안전 검사 및 개별 초기화
-    # 이미 다른 변수가 세션에 있어도, 새로 추가된 변수만 골라서 안전하게 생성해 줍니다.
+    # 세션 상태 안전 변수 초기화 로직
     defaults = {
         "r_lvl": 1,
         "r_exp": 0,
@@ -403,7 +493,7 @@ def rpg_page():
 
     tab1, tab2, tab3 = st.tabs(["🏹 차원 던전 관문", "🛒 장비 & 무공 비급 상점", "💾 모험의 서 저장"])
 
-    # --- 1번 탭: 10마리 몬스터 + 3마리 보스 전투 시스템 ---
+    # --- 1번 탭: 전투 시스템 ---
     with tab1:
         enemies = {
             "🟢 초록 슬라임 (Lv.1)": {"hp": 30, "atk": 5, "def": 1, "exp": 3, "gold": 15, "is_boss": False},
@@ -431,7 +521,7 @@ def rpg_page():
                 st.session_state.r_battle = True
                 st.session_state.r_skill_cd = 0
                 st.session_state.r_ult_cd = 0
-                st.session_state.r_log.insert(0, f"[{m_choice}] 진영에 난입했습니다! 생존 투쟁이 시작됩니다.")
+                st.session_state.r_log.insert(0, f"[{m_choice}] 진영에 입장했습니다! 전투가 시작됩니다.")
                 st.rerun()
         else:
             m = st.session_state.m_cur
@@ -441,6 +531,7 @@ def rpg_page():
 
             bc1, bc2, bc3, bc4 = st.columns(4)
             
+            # 기본공격
             if bc1.button("🗡️ 기본공격", use_container_width=True):
                 p_dmg = max(1, total_atk - m["def"])
                 m["hp"] -= p_dmg
@@ -448,6 +539,7 @@ def rpg_page():
                 enemy_turn_process(m, total_def)
                 st.rerun()
 
+            # 전투스킬
             skill_label = "⚡ 전투스킬 [질풍 연격]"
             if not st.session_state.r_has_skill:
                 skill_label += " (미해금)"
@@ -458,10 +550,11 @@ def rpg_page():
                 p_dmg = max(5, int(total_atk * 1.8) - m["def"])
                 m["hp"] -= p_dmg
                 st.session_state.r_skill_cd = 3
-                st.session_state.r_log.insert(0, f"⚡ [전투스킬] 신속한 질풍 연격 폭사! [{m['name']}]에게 {p_dmg}의 파괴적 대미지!")
+                st.session_state.r_log.insert(0, f"⚡ [전투스킬] 신속한 질풍 연격! [{m['name']}]에게 {p_dmg}의 강력한 대미지!")
                 enemy_turn_process(m, total_def)
                 st.rerun()
 
+            # 궁극기
             ult_label = "🔱 궁극기 [성운 붕괴 폭발]"
             if not st.session_state.r_has_ult:
                 ult_label += " (미해금)"
@@ -469,19 +562,19 @@ def rpg_page():
                 ult_label += f" ({st.session_state.r_ult_cd}턴 대기)"
                 
             if bc3.button(ult_label, disabled=(not st.session_state.r_has_ult or st.session_state.r_ult_cd > 0), use_container_width=True):
-                p_dmg = int(total_atk * 3.2)
+                p_dmg = int(total_atk * 3.2) # 방어무시 고정딜 공식
                 m["hp"] -= p_dmg
                 st.session_state.r_ult_cd = 5
-                st.session_state.r_log.insert(0, f"🔱 [궁극기] 차원을 가르는 성운 붕괴 폭발 시전! 적 방어무시 {p_dmg}의 파멸적인 대미지 고정 타격!")
+                st.session_state.r_log.insert(0, f"🔱 [궁극기] 성운 붕괴 폭발! 적의 방어력을 무시하고 {p_dmg}의 치명적인 대미지 고정 타격!")
                 enemy_turn_process(m, total_def)
                 st.rerun()
 
             if bc4.button("🏃 후방 퇴각", use_container_width=True):
                 st.session_state.r_battle = False
-                st.session_state.r_log.insert(0, "💨 위기 상황을 감지하고 전장 작전구역에서 이탈했습니다.")
+                st.session_state.r_log.insert(0, "💨 전장에서 안전하게 탈출했습니다.")
                 st.rerun()
 
-    # --- 2번 탭: 장비 및 무공 비급 상점 ---
+    # --- 2번 탭: 상점 및 비급 무공 상점 ---
     with tab2:
         st.subheader("⚔️ 무기고 대장간")
         st.write(f"현재 무기: **{st.session_state.r_w_name}** (+{st.session_state.r_w_atk}) | 현재 방어구: **{st.session_state.r_a_name}** (+{st.session_state.r_a_def})")
@@ -492,7 +585,7 @@ def rpg_page():
             {"name": "🪵 훈련용 장단 목검", "atk": 5, "price": 40},
             {"name": "⚔️ 정련된 강철 롱소드", "atk": 15, "price": 120},
             {"name": "✨ 마력 주입된 기사창", "atk": 35, "price": 320},
-            {"name": "☄️ 천공의 성광 대검", "atk": 75, "price": 750},
+            {"name": "☄️ 天공의 성광 대검", "atk": 75, "price": 750},
             {"name": "🔥 드래곤 슬레이어 오리진", "atk": 160, "price": 1800}
         ]
         for idx, w in enumerate(w_list):
@@ -502,10 +595,10 @@ def rpg_page():
                         st.session_state.r_gold -= w['price']
                         st.session_state.r_w_name = w['name']
                         st.session_state.r_w_atk = w['atk']
-                        st.session_state.r_log.insert(0, f"🛒 무기 [{w['name']}]을(를) 구매하여 주 무기로 커스텀 세팅했습니다.")
+                        st.session_state.r_log.insert(0, f"🛒 무기 [{w['name']}]을(를) 장착했습니다.")
                         save_rpg()
                         st.rerun()
-                    else: st.error("군자금이 부족합니다.")
+                    else: st.error("골드가 부족합니다.")
 
         st.divider()
         st.subheader("🛡️ 방어구 보급소")
@@ -523,10 +616,10 @@ def rpg_page():
                         st.session_state.r_gold -= a['price']
                         st.session_state.r_a_name = a['name']
                         st.session_state.r_a_def = a['def']
-                        st.session_state.r_log.insert(0, f"🛒 신형 기갑 방어구 [{a['name']}]을(를) 인수했습니다.")
+                        st.session_state.r_log.insert(0, f"🛒 방어구 [{a['name']}]을(를) 착용했습니다.")
                         save_rpg()
                         st.rerun()
-                    else: st.error("군자금이 부족합니다.")
+                    else: st.error("골드가 부족합니다.")
 
         st.divider()
         st.subheader("📜 영웅 무공 비급 상점 (스킬 상점)")
@@ -534,7 +627,7 @@ def rpg_page():
         
         with s_col1:
             st.write("### ⚡ 전투스킬 [질풍 연격]")
-            st.write("공격력의 **1.8배** 피해를 가합니다. (재사용 대기시간: 3턴)")
+            st.write("공격력의 **1.8배** 피해를 가합니다. (쿨타임: 3턴)")
             if st.session_state.r_has_skill:
                 st.success("✅ 비급 연마 완료 (사용 가능)")
             else:
@@ -542,14 +635,14 @@ def rpg_page():
                     if st.session_state.r_gold >= 250:
                         st.session_state.r_gold -= 250
                         st.session_state.r_has_skill = True
-                        st.session_state.r_log.insert(0, "✨ 스킬 [질풍 연격]을 깨달았습니다!")
+                        st.session_state.r_log.insert(0, "✨ 스킬 [질풍 연격]의 비급을 배워 사용할 수 있게 되었습니다!")
                         save_rpg()
                         st.rerun()
                     else: st.error("골드가 부족합니다.")
 
         with s_col2:
             st.write("### 🔱 궁극기 [성운 붕괴 폭발]")
-            st.write("적 방어력을 **100% 무시**하고 공격력의 **3.2배** 고정 대미지를 날립니다. (재사용 대기시간: 5턴)")
+            st.write("적의 방어력을 **100% 무시**하고 공격력의 **3.2배** 고정 대미지를 입힙니다. (쿨타임: 5턴)")
             if st.session_state.r_has_ult:
                 st.success("✅ 무공 마스터 완료 (사용 가능)")
             else:
@@ -557,7 +650,7 @@ def rpg_page():
                     if st.session_state.r_gold >= 650:
                         st.session_state.r_gold -= 650
                         st.session_state.r_has_ult = True
-                        st.session_state.r_log.insert(0, "✨ 궁극기 [성운 붕괴 폭발] 연마에 성공했습니다!")
+                        st.session_state.r_log.insert(0, "✨ 궁극기 [성운 붕괴 폭발] 마스터에 성공했습니다!")
                         save_rpg()
                         st.rerun()
                     else: st.error("골드가 부족합니다.")
@@ -566,32 +659,34 @@ def rpg_page():
         if st.button("💖 엘릭서 특급 성수 복용 (체력 전면 회복) | 💰 25 G"):
             if st.session_state.r_gold >= 25:
                 if st.session_state.r_hp == st.session_state.r_max_hp:
-                    st.warning("신체 에너지가 최대 충전 상태입니다.")
+                    st.warning("이미 체력이 가득 차 있습니다.")
                 else:
                     st.session_state.r_gold -= 25
                     st.session_state.r_hp = st.session_state.r_max_hp
-                    st.session_state.r_log.insert(0, "🧪 성수를 흡수하여 완벽히 회복되었습니다.")
+                    st.session_state.r_log.insert(0, "🧪 엘릭서를 마셔 신체 상태가 완벽하게 회복되었습니다.")
                     save_rpg()
                     st.rerun()
             else: st.error("골드가 부족합니다.")
 
-    # --- 3번 탭: 세이브 시스템 연동부 ---
+    # --- 3번 탭: 세이브 연동 시스템 ---
     with tab3:
         st.write("### 💾 영웅 데이터베이스 파일 입출력")
         sm1, sm2 = st.columns(2)
         if sm1.button("💾 동기화 데이터 쓰기 (Save)"):
             save_rpg()
-            st.success("보유 스킬정보를 포함하여 파일에 저장되었습니다.")
+            st.success("보유한 장비 및 스킬 학습 정보가 무사히 파일에 기록되었습니다.")
         if sm2.button("📂 동기화 데이터 읽기 (Load)"):
             if load_rpg():
-                st.success("성공적으로 세이브 스탯 및 스킬 정보를 불러왔습니다!")
+                st.success("성공적으로 저장된 세이브 스탯 및 잠금 해제 스킬을 로드했습니다!")
                 st.rerun()
-            else: st.error("연결 가능한 세이브 파일이 로컬 디렉토리에 없습니다.")
+            else: st.error("가용한 세이브 파일(.json)이 현재 디렉토리에 감지되지 않습니다.")
 
     st.divider()
     st.write("### 📜 배틀 로깅 시스템 기록창")
     for log in st.session_state.r_log[:5]:
         st.write(log)
+
+
 # ==========================================
 # 7. 메인 네비게이션 진입 게이트웨이
 # ==========================================
