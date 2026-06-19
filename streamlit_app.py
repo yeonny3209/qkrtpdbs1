@@ -6,7 +6,7 @@ import random
 # ==========================================
 def home_page():
     st.title("🌟 파이썬 종합 두뇌 게임 허브")
-    st.write("원하는 게임을 왼쪽 사이드바 메뉴에서 선택하여 즐겨보세요! 모든 게임은 실시간으로 점수와 상태가 저장됩니다.")
+    st.write("원하는 게임을 왼쪽 사이드바 메뉴에서 선택하여 즐겨보세요! 모든 게임은 실시간으로 상태가 저장됩니다.")
     st.divider()
     
     col1, col2 = st.columns(2)
@@ -18,7 +18,7 @@ def home_page():
         
     with col2:
         st.subheader("🎲 운과 성장 시뮬레이션")
-        st.success("**⚔️ 성장형 RPG 게임:** 몬스터를 사냥하고 레벨업하며 장비를 강화하는 텍스트 RPG")
+        st.success("**⚔️ 성장형 던전 RPG:** 몬스터 사냥, 전설 장비 뽑기, 스탯 강화가 가미된 고품질 텍스트 RPG")
         st.success("**🎲 뱀사다리 말판 게임:** 주사위를 굴려 뱀과 사다리를 타고 30번 고지에 먼저 도달하는 게임")
         st.success("**🎮 업다운 게임:** 1부터 100 사이의 숨겨진 숫자를 최소한의 힌트로 맞추는 스피드 게임")
 
@@ -67,7 +67,6 @@ def board_page():
         st.session_state.sm_log = "게임 시작! 주사위를 굴려주세요."
         st.session_state.sm_dice = 0
 
-    # 사다리와 뱀 워프 딕셔너리 정의
     ladders = {3: 12, 8: 18, 15: 25}
     snakes = {14: 4, 22: 11, 29: 13}
 
@@ -90,11 +89,9 @@ def board_page():
                 st.session_state.sm_pos = next_pos
                 st.session_state.sm_log = f"🎲 주사위 {dice}가 나와서 {next_pos}번 칸으로 이동했습니다."
                 
-                # 사다리 체크
                 if next_pos in ladders:
                     st.session_state.sm_pos = ladders[next_pos]
                     st.session_state.sm_log += f" 🚀 [사다리 활성!] {ladders[next_pos]}번 칸으로 초고속 워프!"
-                # 뱀 체크
                 elif next_pos in snakes:
                     st.session_state.sm_pos = snakes[next_pos]
                     st.session_state.sm_log += f" 🐍 [뱀에게 물림!] {snakes[next_pos]}번 칸으로 미끄러졌습니다.. ㅜㅜ"
@@ -106,20 +103,19 @@ def board_page():
             st.rerun()
 
 # ==========================================
-# 4. 쿼리도(Quoridor) 미니 두뇌 게임 페이지
+# 4. 쿼리도(Quoridor) 미니 두뇌 게임 페이지 (오류 수정 완료)
 # ==========================================
 def quoridor_page():
     st.title("🧱 미니 쿼리도 챌린지")
     st.write("상대방보다 먼저 반대편 끝줄에 도달하면 승리합니다! 내 턴에 움직이거나 장애물(벽)을 배치하세요.")
 
     if "q_board" not in st.session_state:
-        # 5x5 보드 (0: 빈칸, 1: 플레이어A, 2: 플레이어B, 9: 벽/장애물)
         st.session_state.q_board = [[0]*5 for _ in range(5)]
-        st.session_state.q_board[0][2] = 1 # A는 탑 중앙 시작
-        st.session_state.q_board[4][2] = 2 # B는 바텀 중앙 시작
+        st.session_state.q_board[0][2] = 1 
+        st.session_state.q_board[4][2] = 2 
         st.session_state.q_posA = (0, 2)
         st.session_state.q_posB = (4, 2)
-        st.session_state.q_turn = 1 # 1: A차례, 2: B차례
+        st.session_state.q_turn = 1 
         st.session_state.q_over = False
         st.session_state.q_msg = "🔵 블루(A) 플레이어 차례입니다. 한 칸 이동하거나 벽을 세우세요."
 
@@ -131,7 +127,6 @@ def quoridor_page():
     st.subheader(f"현재 턴: {'🔵 블루(A)' if turn == 1 else '🟠 오렌지(B)'}")
     st.info(st.session_state.q_msg)
 
-    # 보드판 시각화
     for r in range(5):
         cols = st.columns(5)
         for c in range(5):
@@ -152,7 +147,6 @@ def quoridor_page():
             m_cols = st.columns(4)
             cr, cc = (rA, cA) if turn == 1 else (rB, cB)
             
-            # 이동 제어 상하좌우
             if m_cols[0].button("▲ 상", key="mv_u", disabled=cr==0):
                 nr, nc = cr-1, cc
                 if board[nr][nc] == 0:
@@ -161,7 +155,6 @@ def quoridor_page():
                     if turn == 1: st.session_state.q_posA = (nr, nc)
                     else: st.session_state.q_posB = (nr, nc)
                     
-                    # 승리 조건 검사
                     if turn == 1 and nr == 4: st.session_state.q_over, st.session_state.q_msg = True, "🏆 블루(A) 플레이어가 남쪽 고지에 선점하여 승리했습니다!"
                     elif turn == 2 and nr == 0: st.session_state.q_over, st.session_state.q_msg = True, "🏆 오렌지(B) 플레이어가 북쪽 고지에 선점하여 승리했습니다!"
                     else:
@@ -211,8 +204,8 @@ def quoridor_page():
             wr = st.selectbox("행 선택(0~4)", list(range(5)), key="w_row")
             wc = st.selectbox("열 선택(0~4)", list(range(5)), key="w_col")
             if st.button("🧱 선택한 좌표에 벽 배치", use_container_width=True):
-                if board[wr][w] == 0:
-                    board[wr][w] = 9
+                if board[wr][wc] == 0: # 기존 버그 수정 완료 (w -> wc)
+                    board[wr][wc] = 9
                     st.session_state.q_turn = 2 if turn == 1 else 1
                     st.session_state.q_msg = f"({wr}, {wc}) 좌표에 장벽이 세워졌습니다. 턴이 교체됩니다."
                     st.rerun()
@@ -405,76 +398,127 @@ def connect_four_page():
         st.rerun()
 
 # ==========================================
-# 7. 성장형 던전 RPG 게임 페이지
+# 7. 고품질 성장형 던전 RPG 게임 페이지 (밸런스 업그레이드)
 # ==========================================
 def rpg_page():
-    st.title("⚔️ 무한 성장 텍스트 RPG")
-    st.write("몬스터를 처치하여 경험치와 골드를 획득하고 강력한 장비를 구매해 한계에 도전하세요!")
+    st.title("⚔️ 무한 루프 무한 성장 RPG")
+    st.write("몬스터를 무찌르고 전설적인 장비를 수집하며 한계를 극복하는 고품질 텍스트 RPG 시뮬레이터입니다.")
 
+    # 세션 데이터 완전 초기화
     if "rpg_hero" not in st.session_state:
-        st.session_state.rpg_hero = {"레벨": 1, "경험치": 0, "골드": 100, "공격력": 10, "체력": 100, "최대체력": 100}
-        st.session_state.rpg_log = "⚔️ 모험가가 광장에 입장했습니다. 무기를 정비하고 던전으로 진입하세요!"
+        st.session_state.rpg_hero = {
+            "레벨": 1, "경험치": 0, "골드": 150, "기본공격력": 10, "장비공격력": 0,
+            "체력": 100, "최대체력": 100, "무기이름": "훈련용 목검 (일반)", "강화수치": 0
+        }
+        st.session_state.rpg_log = "⚔️ 환영합니다 모험가님! 아래 명령을 내려 모험을 시작하십시오."
 
     hero = st.session_state.rpg_hero
+    total_atk = hero["기본공격력"] + hero["장비공격력"]
 
-    rc1, rc2, rc3 = st.columns(3)
-    rc1.metric("🏅 영웅 레벨 (EXP)", f"Lv.{hero['레벨']} ({hero['경험치']}/100)")
-    rc2.metric("❤️ 생명력 (HP)", f"{hero['체력']} / {hero['최대체력']}")
-    rc3.metric("💰 보유 골드 / 공격력", f"{hero['골드']} G / ⚔️ {hero['공격력']}")
+    # 대시보드 스탯 창 구성
+    stat1, stat2, stat3, stat4 = st.columns(4)
+    stat1.metric("🏅 영웅 레벨", f"Lv. {hero['레벨']}", f"EXP {hero['경험치']}/100")
+    stat2.metric("❤️ 생명력 (HP)", f"{hero['체력']} / {hero['최대체력']}")
+    stat3.metric("⚔️ 총 공격력", f"{total_atk}", f"장비 +{hero['장비공격력']}")
+    stat4.metric("💰 보유 자금", f"{hero['골드']} G")
 
+    st.code(f"🛡️ 현재 착용 무기: {hero['무기이름']} (+{hero['강화수치']} 강화)", language="text")
     st.info(st.session_state.rpg_log)
 
-    action_cols = st.columns(3)
+    st.subheader("🕹️ 모험단 행동 명령")
+    act_cols = st.columns(4)
 
-    # 사냥 기능
-    if action_cols[0].button("🐉 일반 몬스터 사냥터 이동", use_container_width=True):
-        if hero["체력"] <= 20:
-            st.session_state.rpg_log = "❌ 체력이 너무 부족합니다! 여관에서 휴식을 먼저 취하세요."
+    # 1. 사냥터 기능
+    if act_cols[0].button("🐉 차원 균열 사냥터 진입", use_container_width=True):
+        if hero["체력"] <= 15:
+            st.session_state.rpg_log = "❌ [경고] 체력이 부족합니다! 여관에서 안전하게 휴식을 취하세요."
         else:
-            dmg_taken = random.randint(10, 25)
-            gold_gain = random.randint(15, 40)
-            exp_gain = random.randint(20, 35)
+            # 적 스펙 생성 및 전투 연산
+            monster_names = ["돌연변이 슬라임", "고블린 정찰병", "심연의 스켈레톤", "지옥 가고일"]
+            mon = random.choice(monster_names)
             
+            # 공격력에 따라 받는 피해 감소 및 처치 효율 증가
+            dmg_taken = max(5, random.randint(15, 30) - (total_atk // 5))
+            gold_gain = random.randint(20, 50) + (hero["레벨"] * 2)
+            exp_gain = random.randint(25, 40)
+
             hero["체력"] -= dmg_taken
             hero["골드"] += gold_gain
             hero["경험치"] += exp_gain
-            
-            log_text = f"⚔️ 몬스터를 격파했습니다! (-{dmg_taken} HP / +{gold_gain} Gold / +{exp_gain} EXP)"
-            
+
+            log = f"⚔️ [{mon}]을(를) 격파했습니다! 피해: -{dmg_taken}HP | 전리품: +{gold_gain}G, +{exp_gain}EXP"
+
+            # 레벨업 판정
             if hero["경험치"] >= 100:
                 hero["레벨"] += 1
-                hero["경험치"] -= 100
-                hero["공격력"] += 5
-                hero["최대체력"] += 20
-                hero["체력"] = hero["최대체력"]
-                log_text += " ✨ [LEVEL UP!] 능력치가 상승하고 체력이 모두 회복되었습니다!"
-                
-            st.session_state.rpg_log = log_text
+                hero["경험치"] = max(0, hero["경험치"] - 100)
+                hero["기본공격력"] += 4
+                hero["최대체력"] += 15
+                hero["체력"] = hero["최대체력"] # 완치
+                log += f"\n✨ [LEVEL UP!] Lv.{hero['레벨']}(으)로 성장했습니다! 스탯 증가 및 체력 완전 회복!"
+
+            st.session_state.rpg_log = log
         st.rerun()
 
-    # 휴식 기능
-    if action_cols[1].button("🏡 여관에서 휴식하기 (-20 Gold)", use_container_width=True):
+    # 2. 휴식 기능
+    if act_cols[1].button("🏡 포근한 여관 휴식 (-20G)", use_container_width=True):
         if hero["골드"] >= 20:
             hero["골드"] -= 20
             hero["체력"] = hero["최대체력"]
-            st.session_state.rpg_log = "💤 아늑한 침대에서 휴식을 완료했습니다. 체력이 전부 회복되었습니다!"
+            st.session_state.rpg_log = "💤 따뜻한 수프와 침대 덕분에 피로가 완전히 가셨습니다! (HP 100% 회복)"
         else:
-            st.session_state.rpg_log = "❌ 골드가 부족하여 여관에서 쫓겨났습니다..."
+            st.session_state.rpg_log = "❌ 골드가 부족하여 여관에서 쫓겨났습니다. 몬스터를 더 잡으세요."
         st.rerun()
 
-    # 강화 기능
-    upgrade_cost = hero["공격력"] * 5
-    if action_cols[2].button(f"⚒️ 무기 강화하기 (-{upgrade_cost} G)", use_container_width=True):
-        if hero["골드"] >= upgrade_cost:
-            hero["골드"] -= upgrade_cost
-            hero["공격력"] += 4
-            st.session_state.rpg_log = f"⚒️ 대장장이가 무기를 예리하게 벼려냈습니다! 공격력 +4 상승!"
+    # 3. 장비 뽑기 보물상자
+    if act_cols[2].button("🎁 고대 장비 상자 뽑기 (-80G)", use_container_width=True):
+        if hero["골드"] >= 80:
+            hero["골드"] -= 80
+            
+            # 장비 티어 랜덤 가챠
+            rand_val = random.random()
+            if rand_val < 0.05: # 5%
+                hero["무기이름"] = "🔥 신화의 파멸 대검"
+                hero["장비공격력"] = 50
+                st.session_state.rpg_log = "등급: [神話] 🔴 미라클! 붉은 빛의 전설을 뛰어넘는 최고의 대검을 뽑았습니다!! (공격력 +50)"
+            elif rand_val < 0.20: # 15%
+                hero["무기이름"] = "✨ 드래곤 슬레이어 장검"
+                hero["장비공격력"] = 25
+                st.session_state.rpg_log = "등급: [전설] 🟡 심장이 웅장해지는 고대의 용 사냥꾼 검을 획득했습니다! (공격력 +25)"
+            elif rand_val < 0.55: # 35%
+                hero["무기이름"] = "🔷 기사단의 강철 기검"
+                hero["장비공격력"] = 12
+                st.session_state.rpg_log = "등급: [희귀] 🔵 단단하게 제련된 정예 기사용 장검을 장착했습니다. (공격력 +12)"
+            else:
+                hero["무기이름"] = "🪵 무디어진 녹슨 철검"
+                hero["장비공격력"] = 4
+                st.session_state.rpg_log = "등급: [일반] 🟢 평범하디 평범한 무기를 건졌습니다. (공격력 +4)"
+            
+            hero["강화수치"] = 0 # 새 무기는 강철 강화도 초기화
         else:
-            st.session_state.rpg_log = "❌ 강화 비용이 부족합니다. 사냥을 더 진행해 주세요."
+            st.session_state.rpg_log = "❌ 골드가 모자라 장비 상자를 열지 못했습니다. (비용: 80 G)"
+        st.rerun()
+
+    # 4. 장비 주문서 주문 강화
+    up_cost = 30 + (hero["강화수치"] * 15)
+    if act_cols[3].button(f"⚒️ 장비 주문서 강화 (-{up_cost}G)", use_container_width=True):
+        if hero["골드"] >= up_cost:
+            hero["골드"] -= up_cost
+            
+            # 확률형 강화 시스템 적용
+            success_rate = max(0.2, 1.0 - (hero["강화수치"] * 0.1))
+            if random.random() < success_rate:
+                hero["강화수치"] += 1
+                hero["장비공격력"] += 3
+                st.session_state.rpg_log = f"⚒️ [강화 성공] 짜릿한 불꽃과 함께 무기가 더욱 예리해집니다! (+{hero['강화수치']} 강화 달성)"
+            else:
+                st.session_state.rpg_log = "💥 [강화 실패] 주문서의 빛이 흐려지며 강화에 실패했습니다. (장비 파괴는 면했습니다!)"
+        else:
+            st.session_state.rpg_log = f"❌ 무기 강화 비용({up_cost} G)이 부족합니다."
         st.rerun()
 
     st.divider()
-    if st.button("🔄 캐릭터 초기화 및 환생"):
+    if st.button("🔄 전설의 영웅으로 전생 (데이터 초기화)"):
         if "rpg_hero" in st.session_state: del st.session_state.rpg_hero
         st.rerun()
 
@@ -487,7 +531,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 각각의 페이지 오브젝트 생성 및 맵핑
+# 각각의 페이지 오브젝트 맵핑
 home = st.Page(home_page, title="홈 화면", icon="🌟")
 game = st.Page(game_page, title="업다운 게임", icon="🎮")
 board = st.Page(board_page, title="뱀사다리 말판 게임", icon="🎲")
@@ -496,6 +540,6 @@ othello = st.Page(othello_page, title="오셀로 두뇌 게임", icon="⚫")
 c4_game = st.Page(connect_four_page, title="중력 사목 게임", icon="🟡")
 rpg = st.Page(rpg_page, title="성장형 RPG 게임", icon="⚔️")
 
-# 세션 상태 기반 사이드바 라우터 작동
+# 내비게이션 바 바인딩
 pg = st.navigation([home, game, board, quoridor, othello, c4_game, rpg])
 pg.run()
