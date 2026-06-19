@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>세윤이의 코딩 모험 일지 🌟</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #311042 100%);
+            --card-bg: rgba(255, 255, 255, 0.07);
+            --card-border: rgba(255, 255, 255, 0.12);
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --accent-blue: #38bdf8;
+            --accent-pink: #f472b6;
+            --accent-green: #34d399;
+            --accent-purple: #c084fc;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', 'Noto Sans KR', sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem 1rem;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        /* Header Styling */
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 900;
+            background: linear-gradient(to right, var(--accent-blue), var(--accent-pink), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            letter-spacing: -1px;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.2rem;
+            font-weight: 400;
+        }
+
+        .badge {
+            background: linear-gradient(45deg, var(--accent-purple), var(--accent-pink));
+            padding: 0.4rem 1.2rem;
+            border-radius: 50px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            display: inline-block;
+            margin-bottom: 1.2rem;
+            box-shadow: 0 4px 15px rgba(192, 132, 252, 0.4);
+            letter-spacing: 0.5px;
+        }
+
+        /* Glassmorphism Card */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 24px;
+            padding: 2.5rem;
+            margin-bottom: 2.5rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 25px 50px rgba(56, 189, 248, 0.15);
+            border-color: rgba(56, 189, 248, 0.3);
+        }
+
+        h2 {
+            font-size: 1.7rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            color: var(--accent-blue);
+            font-weight: 700;
+        }
+
+        h2 span {
+            color: white;
+        }
+
+        p.intro-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        /* File Grid */
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .file-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 20px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .file-card:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent-pink);
+            transform: translateY(-2px);
+        }
+
+        .file-title {
+            font-weight: 700;
+            font-size: 1.15rem;
+            margin-bottom: 0.6rem;
+            color: var(--accent-pink);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .file-desc {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* Concept Block */
+        .concept-block {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .concept-item {
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 4px solid var(--accent-purple);
+            padding: 1rem 1.5rem;
+            border-radius: 0 16px 16px 0;
+        }
+
+        .concept-item h3 {
+            font-size: 1.2rem;
+            color: var(--accent-purple);
+            margin-bottom: 0.4rem;
+        }
+
+        /* Command Box */
+        .cmd-box {
+            background: #090d16;
+            border-radius: 14px;
+            padding: 1.2rem 1.5rem;
+            font-family: 'Courier New', Courier, monospace;
+            color: var(--accent-green);
+            margin: 1.2rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(52, 211, 153, 0.2);
+            font-size: 0.95rem;
+        }
+
+        .copy-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            padding: 0.4rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+        }
+
+        .copy-btn:hover {
+            background: var(--accent-blue);
+            transform: scale(1.05);
+        }
+
+        /* Git Step List */
+        .step-list {
+            list-style: none;
+            padding-left: 0;
+            margin-top: 1.5rem;
+        }
+
+        .step-item {
+            position: relative;
+            padding-left: 3rem;
+            margin-bottom: 2rem;
+        }
+
+        .step-item::before {
+            content: '';
+            position: absolute;
+            left: 1rem;
+            top: 2rem;
+            bottom: -2rem;
+            width: 2px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .step-item:last-child::before {
+            display: none;
+        }
+
+        .step-number {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 2rem;
+            height: 2rem;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 0.95rem;
+            box-shadow: 0 4px 10px rgba(56, 189, 248, 0.35);
+        }
+
+        .step-title {
+            font-weight: 700;
+            font-size: 1.2rem;
+            margin-bottom: 0.4rem;
+            color: var(--text-primary);
+        }
+
+        .step-desc {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        /* Interactive Quiz */
+        .quiz-container {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 1.8rem;
+            margin-top: 1.5rem;
+        }
+
+        .quiz-question {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 1.2rem;
+            color: var(--accent-pink);
+        }
+
+        .quiz-options {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .quiz-option {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 1rem 1.2rem;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: left;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-family: inherit;
+        }
+
+        .quiz-option:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent-blue);
+        }
+
+        .quiz-option.correct {
+            background: rgba(52, 211, 153, 0.15);
+            border-color: var(--accent-green);
+            color: #a7f3d0;
+            font-weight: 600;
+        }
+
+        .quiz-option.incorrect {
+            background: rgba(244, 114, 182, 0.15);
+            border-color: var(--accent-pink);
+            color: #fbcfe8;
+        }
+
+        .quiz-feedback {
+            margin-top: 1rem;
+            font-weight: 700;
+            font-size: 1.05rem;
+            min-height: 1.5rem;
+            transition: all 0.3s;
+        }
+
+        .quiz-feedback.success {
+            color: var(--accent-green);
+        }
+
+        .quiz-feedback.fail {
+            color: var(--accent-pink);
+        }
+
+        .highlight {
+            color: var(--accent-blue);
+            font-weight: 700;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 4rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 상단 헤더 -->
+        <header>
+            <div class="badge">코딩 모험 1단계 완료! 🎉</div>
+            <h1>세윤이의 코딩 공부방 🌟</h1>
+            <p>우리가 함께 만든 게임 월드를 공부하고 직접 실행해 보세요!</p>
+        </header>
+
+        <!-- 인트로 소개 -->
+        <div class="card">
+            <h2>👋 <span>반가워요, 미래의 게임 제작자님!</span></h2>
+            <p class="intro-text">
+                우리는 방금 인터넷에서 게임 코드를 다운로드하고, 홈 화면의 이름을 <span class="highlight">"세윤이의 게임 월드"</span>로 바꾼 뒤 다시 인터넷 저장소(GitHub)로 안전하게 올려보냈어요. 이 모든 과정에서 쓰인 핵심 도구들과 방법을 알아봅시다!
+            </p>
+        </div>
+
+        <!-- 1. 핵심 개념 카드 -->
+        <div class="card">
+            <h2>🧩 <span>중요한 코딩 삼총사</span></h2>
+            <div class="concept-block">
+                <div class="concept-item">
+                    <h3>💡 1. 스트림릿 (Streamlit)</h3>
+                    <p>파이썬 코드를 마법처럼 예쁜 웹사이트로 만들어 주는 도구예요. 디자인 코드를 직접 쓰지 않아도 알아서 버튼과 텍스트를 이쁘게 그려줘요!</p>
+                </div>
+                <div class="concept-item" style="border-color: var(--accent-blue);">
+                    <h3 style="color: var(--accent-blue);">⏰ 2. 깃 (Git)</h3>
+                    <p>코드의 <span class="highlight">타임머신</span>이에요. 코드가 작동하지 않거나 실수했을 때, 옛날에 잘 저장해 둔 시점으로 언제든지 돌아갈 수 있게 기록을 남겨 줘요.</p>
+                </div>
+                <div class="concept-item" style="border-color: var(--accent-pink);">
+                    <h3 style="color: var(--accent-pink);">☁️ 3. 깃허브 (GitHub)</h3>
+                    <p>내 코드가 지워지지 않도록 인터넷 클라우드에 안전하게 보관하고, 다른 친구들에게 내 게임을 보여주는 <span class="highlight">온라인 전시장</span>이에요.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 워크스페이스의 파일들 -->
+        <div class="card">
+            <h2>📁 <span>우리 폴더의 보물 지도</span></h2>
+            <p class="intro-text">현재 폴더 안에는 다음과 같은 소중한 코드 파일들이 들어있어요:</p>
+            <div class="file-grid">
+                <div class="file-card">
+                    <div class="file-title">📄 streamlit_app.py</div>
+                    <div class="file-desc">우리 웹사이트의 <strong>대문(홈페이지)</strong> 역할을 하는 메인 파일이에요. 타이틀 글씨를 수정한 곳이에요!</div>
+                </div>
+                <div class="file-card">
+                    <div class="file-title">🎮 up_down_game.py</div>
+                    <div class="file-desc"><code>pages</code> 폴더 안에 들어있어요. 컴퓨터가 생각한 숫자를 맞추는 <strong>업다운 게임</strong> 소스코드예요.</div>
+                </div>
+                <div class="file-card">
+                    <div class="file-title">🗒️ requirements.txt</div>
+                    <div class="file-desc">이 프로그램을 실행하기 위해 설치해야 하는 파이썬 패키지(도구)의 <strong>목록 적힌 영수증</strong>이에요.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 게임 실행 방법 -->
+        <div class="card">
+            <h2>🚀 <span>내 컴퓨터에서 게임 실행하기</span></h2>
+            <p class="intro-text">수정한 게임 월드를 내 브라우저에서 켜보고 싶다면 터미널에 아래 명령어를 치면 돼요:</p>
+            
+            <div class="cmd-box">
+                <span id="cmd-run">python -m streamlit run streamlit_app.py</span>
+                <button class="copy-btn" onclick="copyText('cmd-run')">복사하기</button>
+            </div>
+            <p style="font-size: 0.95rem; color: var(--text-secondary);">
+                💡 이 명령어를 치고 나면 브라우저 창이 열리면서 <code>http://localhost:8501</code> 주소에서 내 게임이 실행되는 것을 볼 수 있어요!
+            </p>
+        </div>
+
+        <!-- 4. 깃허브로 코드 보내기 -->
+        <div class="card">
+            <h2>☁️ <span>깃허브(GitHub)에 내 코드 동기화하기</span></h2>
+            <p class="intro-text">우리가 코드를 수정하고, 인터넷 깃허브로 보낼 때 사용한 4단계 흐름이에요:</p>
+            
+            <ul class="step-list">
+                <li class="step-item">
+                    <span class="step-number">1</span>
+                    <div class="step-title">파일 준비하기 (Stage)</div>
+                    <div class="step-desc">내가 수정한 파일들을 택배 상자에 담는 과정이에요. <br><code style="color: var(--accent-blue);">git add streamlit_app.py</code></div>
+                </li>
+                <li class="step-item">
+                    <span class="step-number">2</span>
+                    <div class="step-title">포장하고 이름표 붙이기 (Commit)</div>
+                    <div class="step-desc">상자를 포장하고 어떤 걸 고쳤는지 메모지(이름표)를 붙여요. <br><code style="color: var(--accent-blue);">git commit -m "Update title: 세윤이의 게임 월드"</code></div>
+                </li>
+                <li class="step-item">
+                    <span class="step-number">3</span>
+                    <div class="step-title">인터넷으로 트럭 발송하기 (Push)</div>
+                    <div class="step-desc">포장한 택배 상자를 인터넷 깃허브 저장소로 쏘아 올려요. <br><code style="color: var(--accent-blue);">git push -u origin main</code></div>
+                </li>
+            </ul>
+        </div>
+
+        <!-- 5. 재미있는 오늘의 복습 퀴즈 -->
+        <div class="card">
+            <h2>✏️ <span>오늘의 복습 퀴즈!</span></h2>
+            <p class="intro-text">정답을 클릭해서 방금 공부한 내용을 맞춰보세요!</p>
+            
+            <div class="quiz-container">
+                <div class="quiz-question">Q1. 우리가 수정한 메인 화면의 새 제목은 무엇인가요?</div>
+                <div class="quiz-options">
+                    <button class="quiz-option" onclick="checkAnswer(this, 1, false)">A) 세윤이의 파이썬 실험실</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 1, true)">B) 세윤이의 게임 월드 🎮</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 1, false)">C) 숫자를 맞추는 업다운 월드</button>
+                </div>
+                <div class="quiz-feedback" id="feedback-1"></div>
+            </div>
+
+            <div class="quiz-container">
+                <div class="quiz-question">Q2. 코드를 인터넷 깃허브(GitHub)로 업로드할 때 사용하는 단어는?</div>
+                <div class="quiz-options">
+                    <button class="quiz-option" onclick="checkAnswer(this, 2, false)">A) Pull (당기기)</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 2, true)">B) Push (밀어넣기) 🚀</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 2, false)">C) Reset (초기화)</button>
+                </div>
+                <div class="quiz-feedback" id="feedback-2"></div>
+            </div>
+        </div>
+
+        <!-- 푸터 -->
+        <footer>
+            <p>© 2026 세윤이의 코딩 모험 • 즐거운 파이썬 세계에 오신 것을 환영합니다!</p>
+        </footer>
+    </div>
+
+    <!-- 스크립트 효과 -->
+    <script>
+        function copyText(elementId) {
+            var text = document.getElementById(elementId).innerText;
+            navigator.clipboard.writeText(text).then(function() {
+                alert("명령어가 복사되었습니다! 터미널에 붙여넣기(Ctrl+V)해서 실행해 보세요.");
+            });
+        }
+
+        function checkAnswer(button, questionNum, isCorrect) {
+            // 해당 문제의 모든 버튼 선택 비활성화
+            var parent = button.parentElement;
+            var buttons = parent.querySelectorAll('.quiz-option');
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                btn.classList.remove('correct', 'incorrect');
+            });
+
+            var feedback = document.getElementById('feedback-' + questionNum);
+
+            if (isCorrect) {
+                button.classList.add('correct');
+                feedback.innerText = "🎉 정답이에요! 참 잘했어요! 👏";
+                feedback.className = "quiz-feedback success";
+            } else {
+                button.classList.add('incorrect');
+                feedback.innerText = "😢 아쉬워요! 다시 한 번 위 내용을 읽고 생각해 볼까요?";
+                feedback.className = "quiz-feedback fail";
+                
+                // 틀렸을 경우 다시 풀 수 있게 초기화 버튼 제공
+                setTimeout(function() {
+                    buttons.forEach(btn => btn.disabled = false);
+                }, 1500);
+            }
+        }
+    </script>
+</body>
+</html>
