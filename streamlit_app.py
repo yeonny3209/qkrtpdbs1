@@ -89,7 +89,8 @@ def board_page():
     st.divider()
 
     st.subheader("🗺️ 실시간 게임 보드판")
-    board_html = "<div style='display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; background-color: #f5f5f5; padding: 15px; border-radius: 12px; border: 2px solid #ccc; max-width: 900px; margin: auto;'>"
+    board_html = "<div style='display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; background-color: #f5f5f5; padding: 15px; border-radius: 12px; border: 2px solid #ccc; max-width: 900px; margin: auto;'>..."
+    board_html = board_html.replace("...", "")
     
     for r in range(4, -1, -1):
         for c in range(10):
@@ -126,13 +127,13 @@ def board_page():
             elif num in snakes.values():
                 bg_color = "#fffafb"
             
-            board_html += f"""
-            <div style='background-color: {bg_color}; border: {border_style}; border-radius: 8px; padding: 6px; text-align: center; min-height: 75px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 1px 1px 4px rgba(0,0,0,0.04);'>
-                <div style='font-size: 12px; font-weight: bold; color: #495057; text-align: left;'>{num}</div>
-                <div style='font-size: 18px; margin: 2px 0; min-height: 24px;'>{present_players}</div>
-                <div style='font-size: 9px; color: #868e96; font-weight: bold;'>{note}</div>
-            </div>
-            """
+            cell_style = f"background-color: {bg_color}; border: {border_style}; border-radius: 8px; padding: 6px; text-align: center; min-height: 75px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 1px 1px 4px rgba(0,0,0,0.04);"
+            board_html += f"<div style='{cell_style}'>"
+            board_html += f"<div style='font-size: 12px; font-weight: bold; color: #495057; text-align: left;'>{num}</div>"
+            board_html += f"<div style='font-size: 18px; margin: 2px 0; min-height: 24px;'>{present_players}</div>"
+            board_html += f"<div style='font-size: 9px; color: #868e96; font-weight: bold;'>{note}</div>"
+            board_html += "</div>"
+            
     board_html += "</div>"
     st.markdown(board_html, unsafe_allow_html=True)
 
