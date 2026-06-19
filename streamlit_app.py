@@ -71,10 +71,15 @@ def board_page():
 
     if "board_players" not in st.session_state:
         st.session_state.board_players = 2
+    if "positions" not in st.session_state:
         st.session_state.positions = [1, 1, 1, 1]
+    if "turn" not in st.session_state:
         st.session_state.turn = 0
+    if "log" not in st.session_state:
         st.session_state.log = ["게임을 시작합니다!"]
+    if "winner" not in st.session_state:
         st.session_state.winner = None
+    if "custom_names" not in st.session_state:
         st.session_state.custom_names = ["플레이어 1", "플레이어 2", "플레이어 3", "플레이어 4"]
 
     if st.session_state.winner is None:
