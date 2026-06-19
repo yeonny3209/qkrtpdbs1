@@ -34,27 +34,112 @@ def game_page():
         st.session_state.game_over = False
         st.session_state.attempts = 0
 
-    user_guess = st.number_input("숫자를 입력하세요 (1~100)", min_value=1, max_value=100, step=1)
+    with st.form(key="updown_form", clear_on_submit=False):
+        user_input = st.text_input("숫자를 입력하고 엔터를 누르세요 (1~100)")
+        submit_button = st.form_submit_button(label="정답 확인")
 
-    if st.button("정답 확인"):
-        if not st.session_state.game_over:
-            st.session_state.attempts += 1
+    if submit_button:
+        if user_input.isdigit():
+            user_guess = int(user_input)
             
-            if user_guess < st.session_state.target_number:
-                st.info(f"🔺 UP! 컴퓨터가 생각한 숫자가 더 큽니다. (시도 횟수: {st.session_state.attempts}회)")
-            elif user_guess > st.session_state.target_number:
-                st.info(f"🔻 DOWN! 컴퓨터가 생각한 숫자가 더 작습니다. (시도 횟수: {st.session_state.attempts}회)")
+            if not st.session_state.game_over:
+                st.session_state.attempts += 1
+                
+                if user_guess < st.session_state.target_number:
+                    st.info(f"🔺 UP! 컴퓨터가 생각한 숫자가 더 큽니다. (시도 횟수: {st.session_state.attempts}회)")
+                elif user_guess > st.session_state.target_number:
+                    st.info(f"🔻 DOWN! 컴퓨터가 생각한 숫자가 더 작습니다. (시도 횟수: {st.session_state.attempts}회)")
+                else:
+                    st.success(f"🎉 정답입니다! {st.session_state.attempts}번 만에 맞추셨습니다!")
+                    st.session_state.game_over = True
             else:
-                st.success(f"🎉 정답입니다! {st.session_state.attempts}번 만에 맞추셨습니다!")
-                st.session_state.game_over = True
+                st.warning("게임이 끝났습니다. 새로운 게임을 시작하려면 아래 재시작 버튼을 눌러주세요.")
         else:
-            st.warning("게임이 끝났습니다. 새로운 게임을 시작하려면 아래 재시작 버튼을 눌러주세요.")
+            st.error("숫자만 정확하게 입력해 주세요!")
 
     if st.button("게임 재시작"):
         st.session_state.target_number = random.randint(1, 100)
         st.session_state.game_over = False
         st.session_state.attempts = 0
         st.rerun()
+
+def board_page():
+    st.title("🎲 뱀사다리 말판 게임 (1~50)")
+    
+    ladders = {3: 15, 12: 28, 20: 34, 31: 43}
+    snakes = {18: 6, 32: 10, 41: 25, 48: 22}
+    colors = ["🔴 빨강", "🔵 파랑", "🟡 노랑", "🟢 초록"]
+
+    if "board_players" not in st.session_state:
+        st.session_state.board_players = 2
+        st.session_state.positions = [1, 1, 1, 1]
+        st.session_state.turn = 0
+        st.session_state.log = ["게임을 시작합니다!"]
+        st.session_state.winner = None
+
+    if st.session_state.winner is None:
+        new_num_players = st.selectbox("플레이어 인원 선택 (인원 변경 시 게임이 새롭게 리셋됩니다)", [2, 3, 4], index=st.session_state.board_players - 2)
+        if new_num_players != st.session_state.board_players:
+            st.session_state.board_players = new_num_players
+            st.session_state.positions = [1, 1, 1, 1]
+            st.session_state.turn = 0
+            st.session_state.log = ["인원이 변경되어 게임을 리셋합니다!"]
+            st.session_state.winner = None
+            st.rerun()
+
+    st.divider()
+
+    cols = st.columns(st.session_state.board_players)
+    for i in range(st.session_state.board_players):
+        with cols[i]:
+            st.metric(label=colors[i], value=f"{st.session_state.positions[i]}번 칸")
+
+    st.divider()
+
+    if st.session_state.winner:
+        st.success(f"🎉 축하합니다! {st.session_state.winner} 팀이 50번 칸에 먼저 골인하여 승리했습니다!")
+    else:
+        current_player = colors[st.session_state.turn]
+        st.subheader(f"👉 현재 차례: {current_player} 팀")
+        
+        if st.button("🎲 주사위 던지기"):
+            dice_roll = random.randint(1, 6)
+            old_pos = st.session_state.positions[st.session_state.turn]
+            new_pos = old_pos + dice_roll
+            
+            log_msg = f"{current_player} 팀이 주사위 {dice_roll}을(를) 굴렸습니다. ({old_pos} ➡️ {new_pos})"
+            
+            if new_pos >= 50:
+                new_pos = 50
+                st.session_state.positions[st.session_state.turn] = new_pos
+                st.session_state.winner = current_player
+                st.session_state.log.insert(0, log_msg + " 🏁 골인!!")
+            else:
+                if new_pos in ladders:
+                    up_pos = ladders[new_pos]
+                    log_msg += f" 🪜 사다리 발견! {new_pos}번에서 {up_pos}번 칸으로 초고속 점프!"
+                    new_pos = up_pos
+                elif new_pos in snakes:
+                    down_pos = snakes[new_pos]
+                    log_msg += f" 🐍 뱀을 만났습니다! {new_pos}번에서 {down_pos}번 칸으로 미끄러집니다..."
+                    new_pos = down_pos
+                
+                st.session_state.positions[st.session_state.turn] = new_pos
+                st.session_state.log.insert(0, log_msg)
+                st.session_state.turn = (st.session_state.turn + 1) % st.session_state.board_players
+            
+            st.rerun()
+
+    if st.button("🔄 게임 처음부터 다시 시작"):
+        st.session_state.positions = [1, 1, 1, 1]
+        st.session_state.turn = 0
+        st.session_state.log = ["게임을 리셋했습니다!"]
+        st.session_state.winner = None
+        st.rerun()
+
+    st.write("### 📜 전광판 (최신 5개 기록)")
+    for msg in st.session_state.log[:5]:
+        st.write(msg)
 
 st.set_page_config(
     page_title="나만의 첫 스트림릿 앱",
@@ -64,6 +149,8 @@ st.set_page_config(
 
 home = st.Page(home_page, title="홈 화면", icon="🌟")
 game = st.Page(game_page, title="업다운 게임", icon="🎮")
+board = st.Page(board_page, title="말판 게임", icon="🎲")
 
-pg = st.navigation([home, game])
+pg = st.navigation([home, game, board])
+pg.run()
 pg.run()
