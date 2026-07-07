@@ -370,31 +370,55 @@
                 </div>
                 <div class="concept-item" style="border-color: var(--accent-blue);">
                     <h3 style="color: var(--accent-blue);">⏰ 2. 깃 (Git)</h3>
-                    <p>코드의 <span class="highlight">타임머신</span>이에요. 코드가 작동하지 않거나 실수했을 때, 옛날에 잘 저장해 둔 시점으로 언제든지 돌아갈 수 있게 기록을 남겨 줘요.</p>
-                </div>
-                <div class="concept-item" style="border-color: var(--accent-pink);">
-                    <h3 style="color: var(--accent-pink);">☁️ 3. 깃허브 (GitHub)</h3>
-                    <p>내 코드가 지워지지 않도록 인터넷 클라우드에 안전하게 보관하고, 다른 친구들에게 내 게임을 보여주는 <span class="highlight">온라인 전시장</span>이에요.</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- 2. 워크스페이스의 파일들 -->
+                    <p>코드        <!-- 2. 워크스페이스의 파일들 -->
         <div class="card">
             <h2>📁 <span>우리 폴더의 보물 지도</span></h2>
             <p class="intro-text">현재 폴더 안에는 다음과 같은 소중한 코드 파일들이 들어있어요:</p>
             <div class="file-grid">
                 <div class="file-card">
                     <div class="file-title">📄 streamlit_app.py</div>
-                    <div class="file-desc">우리 웹사이트의 <strong>대문(홈페이지)</strong> 역할을 하는 메인 파일이에요. 타이틀 글씨를 수정한 곳이에요!</div>
+                    <div class="file-desc">우리 게임 월드의 <strong>심장(메인 코드)</strong>이에요! 홈 화면, 업다운 게임, 뱀사다리 말판, 쿼리도, 성장형 RPG, 그리고 새로 추가한 <strong>워들 퍼즐 게임</strong>의 전체 코드가 이 안에 모여 있어요.</div>
                 </div>
                 <div class="file-card">
-                    <div class="file-title">🎮 up_down_game.py</div>
-                    <div class="file-desc"><code>pages</code> 폴더 안에 들어있어요. 컴퓨터가 생각한 숫자를 맞추는 <strong>업다운 게임</strong> 소스코드예요.</div>
+                    <div class="file-title">🎮 pages/up_down_game.py</div>
+                    <div class="file-desc">Streamlit의 다중 페이지 기능을 보여주는 실습 파일이에요. 컴퓨터가 생각한 숫자를 맞추는 업다운 게임 코드가 담겨 있어요.</div>
                 </div>
                 <div class="file-card">
                     <div class="file-title">🗒️ requirements.txt</div>
-                    <div class="file-desc">이 프로그램을 실행하기 위해 설치해야 하는 파이썬 패키지(도구)의 <strong>목록 적힌 영수증</strong>이에요.</div>
+                    <div class="file-desc">이 게임 월드를 실행하기 위해 설치해야 하는 파이썬 패키지(예: <code>streamlit</code>)의 <strong>목록이 적힌 영수증</strong>이에요.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2.5. 코딩 이론 공부방 -->
+        <div class="card">
+            <h2>🧠 <span>파이썬 코딩 이론 공부방</span></h2>
+            <p class="intro-text">게임 뒤에 숨겨진 똑똑한 파이썬 개념들을 쉬운 설명으로 배워보아요!</p>
+            <div class="concept-block">
+                <div class="concept-item" style="border-color: var(--accent-blue);">
+                    <h3 style="color: var(--accent-blue);">💾 1. 세션 상태 (Session State)</h3>
+                    <p>
+                        <strong>"컴퓨터의 브레인 포스트잇 메모장"</strong><br>
+                        Streamlit은 화면에서 버튼을 누르거나 글자를 입력할 때마다, 파일의 첫 줄부터 끝 줄까지 코드를 <strong>처음부터 다시 실행(새로고침)</strong>해요. <br>
+                        이때 일반 변수는 다 까먹고 초기화되지만, <span class="highlight">st.session_state</span>에 넣어둔 값(예: 워들 정답 단어, 시도 횟수)은 컴퓨터가 포스트잇에 적어 기억하듯 잊지 않고 계속 보관해 둔답니다!
+                    </p>
+                </div>
+                <div class="concept-item" style="border-color: var(--accent-pink);">
+                    <h3 style="color: var(--accent-pink);">📦 2. 파이썬 바구니: 리스트(List)와 딕셔너리(Dictionary)</h3>
+                    <p>
+                        데이터를 이쁘게 담아두는 파이썬의 핵심 보관 상자예요:<br>
+                        - <strong style="color: var(--accent-pink);">리스트 (List)</strong>: 물건을 순서대로 줄 세워 담는 상자예요. 예: <code>w_guesses = ["APPLE", "HOUSE"]</code> (사용자가 제출한 단어들을 순서대로 담을 때 사용)<br>
+                        - <strong style="color: var(--accent-pink);">딕셔너리 (Dictionary)</strong>: '이름(Key): 값(Value)' 형태로 짝을 지어 서랍에 넣는 방식이에요. 예: <code>{'A': 'green', 'B': 'gray'}</code> (알파벳 키에 현재 어떤 색상인지 저장할 때 사용)
+                    </p>
+                </div>
+                <div class="concept-item" style="border-color: var(--accent-green);">
+                    <h3 style="color: var(--accent-green);">🎨 3. 워들 색상 판별 알고리즘 (그린 vs 옐로우)</h3>
+                    <p>
+                        제출한 단어가 정답과 얼마나 일치하는지 비교하는 3단계 논리에요:<br>
+                        - <strong style="color: var(--accent-green);">🟩 초록색 (Green)</strong>: 글자도 맞고, 위치도 정답과 <strong>완벽히 일치</strong>할 때!<br>
+                        - <strong style="color: var(--accent-purple);">🟨 노란색 (Yellow)</strong>: 단어 안에 들어있는 글자이긴 하지만, <strong>위치가 틀렸을</strong> 때!<br>
+                        - <strong style="color: var(--text-secondary);">⬛ 회색 (Gray)</strong>: 단어 안에 <strong>아예 없는</strong> 글자일 때!
+                    </p>
                 </div>
             </div>
         </div>
@@ -427,7 +451,7 @@
                 <li class="step-item">
                     <span class="step-number">2</span>
                     <div class="step-title">포장하고 이름표 붙이기 (Commit)</div>
-                    <div class="step-desc">상자를 포장하고 어떤 걸 고쳤는지 메모지(이름표)를 붙여요. <br><code style="color: var(--accent-blue);">git commit -m "Update title: 세윤이의 게임 월드"</code></div>
+                    <div class="step-desc">상자를 포장하고 어떤 걸 고쳤는지 메모지(이름표)를 붙여요. <br><code style="color: var(--accent-blue);">git commit -m "Update: Add Wordle game"</code></div>
                 </li>
                 <li class="step-item">
                     <span class="step-number">3</span>
@@ -453,13 +477,33 @@
             </div>
 
             <div class="quiz-container">
-                <div class="quiz-question">Q2. 코드를 인터넷 깃허브(GitHub)로 업로드할 때 사용하는 단어는?</div>
+                <div class="quiz-question">Q2. 코드를 인터넷 깃허브(GitHub)로 업로드할 때 사용하는 명령어 단어는?</div>
                 <div class="quiz-options">
                     <button class="quiz-option" onclick="checkAnswer(this, 2, false)">A) Pull (당기기)</button>
                     <button class="quiz-option" onclick="checkAnswer(this, 2, true)">B) Push (밀어넣기) 🚀</button>
                     <button class="quiz-option" onclick="checkAnswer(this, 2, false)">C) Reset (초기화)</button>
                 </div>
                 <div class="quiz-feedback" id="feedback-2"></div>
+            </div>
+
+            <div class="quiz-container">
+                <div class="quiz-question">Q3. 워들(Wordle) 게임에서 글자는 정답 단어에 들어있지만, 위치가 틀렸을 때 타일에 나타나는 색상은?</div>
+                <div class="quiz-options">
+                    <button class="quiz-option" onclick="checkAnswer(this, 3, false)">A) 초록색 (🟩)</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 3, true)">B) 노란색 (🟨)</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 3, false)">C) 회색 (⬛)</button>
+                </div>
+                <div class="quiz-feedback" id="feedback-3"></div>
+            </div>
+
+            <div class="quiz-container">
+                <div class="quiz-question">Q4. Streamlit 웹사이트가 새로고침되어도 변수 값을 계속 기억하게 해주는 똑똑한 메모장은 무엇일까요?</div>
+                <div class="quiz-options">
+                    <button class="quiz-option" onclick="checkAnswer(this, 4, true)">A) Session State (세션 상태)</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 4, false)">B) Print System (출력 시스템)</button>
+                    <button class="quiz-option" onclick="checkAnswer(this, 4, false)">C) Standard Input (표준 입력)</button>
+                </div>
+                <div class="quiz-feedback" id="feedback-4"></div>
             </div>
         </div>
 
@@ -479,7 +523,6 @@
         }
 
         function checkAnswer(button, questionNum, isCorrect) {
-            // 해당 문제의 모든 버튼 선택 비활성화
             var parent = button.parentElement;
             var buttons = parent.querySelectorAll('.quiz-option');
             buttons.forEach(btn => {
@@ -495,10 +538,9 @@
                 feedback.className = "quiz-feedback success";
             } else {
                 button.classList.add('incorrect');
-                feedback.innerText = "😢 아쉬워요! 다시 한 번 위 내용을 읽고 생각해 볼까요?";
+                feedback.innerText = "😢 아쉽게도 오답이에요. 공부방의 개념 설명을 다시 읽어볼까요?";
                 feedback.className = "quiz-feedback fail";
                 
-                // 틀렸을 경우 다시 풀 수 있게 초기화 버튼 제공
                 setTimeout(function() {
                     buttons.forEach(btn => btn.disabled = false);
                 }, 1500);
