@@ -453,7 +453,7 @@ def enemy_turn_process(m, total_def):
 # ==========================================
 # 6. 메인 RPG 게임 화면 페이지
 # ==========================================
-def rpg_page():
+def _legacy_rpg_page():  # (구) 성장형 RPG — 9속성 타워 디펜스로 대체됨. 미사용.
     st.title("⚔️ 전설의 용사 키우기 (Ver 3.0 Custom)")
     st.write("자신만의 스킬셋을 세팅하고 장비를 한계까지 강화하여 10대 군주 보스들을 처단하세요!")
 
@@ -807,6 +807,561 @@ def rpg_page():
     st.write("### 📜 전투 상황실 하이라이트 배틀로그")
     for log in st.session_state.r_log[:5]:
         st.write(log)
+
+
+# ==========================================
+# 6.4. 9속성 타워 디펜스 (React 임베드) — (구)RPG 페이지 대체
+# ==========================================
+TOWER_DEFENSE_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
+</script>
+<style>
+  html,body{margin:0;padding:0;background:#070b16;overflow-x:hidden;font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif;}
+  #root{min-height:100vh;}
+  .glass{background:rgba(17,24,39,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.09);}
+  .fadein{animation:fadein .35s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .pop{animation:pop .3s cubic-bezier(.2,1.4,.4,1);}
+  @keyframes pop{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+  canvas{display:block;border-radius:14px;touch-action:none;}
+  .btng{transition:transform .12s, box-shadow .12s, filter .12s;}
+  .btng:hover{transform:translateY(-2px);filter:brightness(1.12);}
+  .btng:active{transform:translateY(0);}
+  ::-webkit-scrollbar{height:8px;width:8px}::-webkit-scrollbar-thumb{background:#334155;border-radius:8px}
+  .sheen{background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.16) 50%,transparent 70%);background-size:200% 100%;animation:sheen 2.6s linear infinite;}
+  @keyframes sheen{from{background-position:200% 0}to{background-position:-200% 0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="classic-react">
+const { useState, useRef, useEffect, useCallback } = React;
+
+/* ===================== 코어 상수 ===================== */
+const COLS=12, ROWS=12, CELL=48, SIZE=COLS*CELL;
+const ELE = {
+  fire:   { name:"불",   emoji:"🔥", color:"#ef4444", glow:"#fca5a5" },
+  water:  { name:"물",   emoji:"💧", color:"#3b82f6", glow:"#93c5fd" },
+  forest: { name:"숲",   emoji:"🌿", color:"#22c55e", glow:"#86efac" },
+  metal:  { name:"금속", emoji:"⚙️", color:"#9ca3af", glow:"#e5e7eb" },
+  wind:   { name:"바람", emoji:"🌪️", color:"#38bdf8", glow:"#bae6fd" },
+  void:   { name:"공허", emoji:"🌌", color:"#a855f7", glow:"#d8b4fe" },
+  holy:   { name:"신성", emoji:"✨", color:"#eab308", glow:"#fde68a" },
+  ancient:{ name:"고대", emoji:"🏛️", color:"#b45309", glow:"#fcd34d" },
+  earth:  { name:"대지", emoji:"🪨", color:"#92400e", glow:"#d6a878" },
+};
+const EKEYS = Object.keys(ELE);
+// 상성 배율표 (타워속성 → 적속성)
+const ADV = {
+  fire:{forest:1.5,metal:1.5,water:0.5},
+  water:{fire:1.5,earth:1.5,forest:0.5},
+  forest:{earth:1.5,water:1.5,fire:0.5},
+  metal:{}, wind:{}, earth:{},
+  void:{holy:2.0}, holy:{void:2.0}, ancient:{},
+};
+function advMul(tEl,eEl){ const m=ADV[tEl]; return (m && m[eEl])!=null ? m[eEl] : 1; }
+// 타워 정의 (레벨1 기준). 역할 차별화: 금속=저격, 바람=연사, 대지=광역, 고대=최강
+const TOWER = {
+  fire:   { cost:50,  dmg:11, range:2.3, rate:1.3, splash:0,   role:"밸런스", name:"화염탑" },
+  water:  { cost:50,  dmg:12, range:2.3, rate:1.2, splash:0,   role:"밸런스", name:"해류탑" },
+  forest: { cost:50,  dmg:11, range:2.4, rate:1.25,splash:0,   role:"밸런스", name:"숲결탑" },
+  wind:   { cost:60,  dmg:6,  range:2.2, rate:3.1, splash:0,   role:"연사",   name:"질풍탑" },
+  earth:  { cost:70,  dmg:14, range:2.1, rate:0.9, splash:1.15,role:"광역",   name:"대지탑" },
+  metal:  { cost:70,  dmg:30, range:3.3, rate:0.6, splash:0,   role:"저격",   name:"강철포" },
+  void:   { cost:80,  dmg:16, range:2.6, rate:1.1, splash:0,   role:"극상성", name:"공허탑" },
+  holy:   { cost:80,  dmg:15, range:3.0, rate:1.1, splash:0,   role:"극상성", name:"성광탑" },
+  ancient:{ cost:150, dmg:34, range:3.4, rate:1.05,splash:0,   role:"초월",   name:"고대탑" },
+};
+const MAX_LV=6;
+function towerStat(el, lvl){
+  const b=TOWER[el];
+  return {
+    dmg: b.dmg*Math.pow(1.55,lvl-1),
+    range: (b.range + (lvl-1)*0.22),
+    rate: b.rate*Math.pow(1.09,lvl-1),
+    splash: b.splash,
+  };
+}
+function upgradeCost(el, lvl){ return Math.round(TOWER[el].cost * (0.85+lvl*0.55)); }
+
+/* ===== 경로 설계 (굴곡진 스네이크) ===== */
+const WP = [[-1,1],[10,1],[10,3],[1,3],[1,5],[10,5],[10,7],[1,7],[1,9],[12,9]];
+const clampC=v=>Math.max(0,Math.min(COLS-1,v));
+const PATH=new Set();
+(()=>{ for(let i=0;i<WP.length-1;i++){
+  let c1=clampC(WP[i][0]), r1=clampC(WP[i][1]), c2=clampC(WP[i+1][0]), r2=clampC(WP[i+1][1]);
+  const dc=Math.sign(c2-c1), dr=Math.sign(r2-r1); let c=c1,r=r1; PATH.add(c+","+r);
+  while(c!==c2||r!==r2){ if(c!==c2)c+=dc; else if(r!==r2)r+=dr; PATH.add(c+","+r); }
+} })();
+function isPath(c,r){ return PATH.has(c+","+r); }
+// 픽셀 세그먼트
+const cellPx = (c,r)=>({x:c*CELL+CELL/2, y:r*CELL+CELL/2});
+const SEG=[]; let TOTAL=0;
+(()=>{ for(let i=0;i<WP.length-1;i++){
+  const a=cellPx(WP[i][0],WP[i][1]), b=cellPx(WP[i+1][0],WP[i+1][1]);
+  const len=Math.hypot(b.x-a.x,b.y-a.y);
+  SEG.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y,len,cum:TOTAL}); TOTAL+=len;
+} })();
+function posAt(dist){
+  if(dist<=0) return {x:SEG[0].x1,y:SEG[0].y1,ang:0};
+  for(const s of SEG){ if(dist<=s.cum+s.len){ const t=(dist-s.cum)/s.len;
+    return {x:s.x1+(s.x2-s.x1)*t, y:s.y1+(s.y2-s.y1)*t, ang:Math.atan2(s.y2-s.y1,s.x2-s.x1)}; } }
+  const l=SEG[SEG.length-1]; return {x:l.x2,y:l.y2,ang:0};
+}
+const pick = a=>a[Math.floor(Math.random()*a.length)];
+const rand=(a,b)=>a+Math.random()*(b-a);
+
+/* ===================== 게임 컴포넌트 ===================== */
+function Game(){
+  const canvasRef = useRef(null);
+  // --- 시뮬레이션 상태(Ref, 매 프레임 갱신, 리렌더 없음) ---
+  const enemies=useRef([]), towers=useRef([]), shots=useRef([]), parts=useRef([]), floats=useRef([]);
+  const hp=useRef(20), gold=useRef(150), wave=useRef(0);
+  const phase=useRef("build"); // build | wave | over
+  const paused=useRef(false), speed=useRef(1), auto=useRef(false);
+  const queue=useRef([]), qIdx=useRef(0), waveClock=useRef(0);
+  const shake=useRef({t:0,mag:0});
+  const idc=useRef(1);
+  const uiRef=useRef({ build:null, sel:null, hover:null });
+  const bgRef=useRef(null);
+  const acc=useRef(0);
+
+  // --- HUD/UI 상태(React, 저빈도) ---
+  const [ui,setUi]=useState({hp:20,gold:150,wave:0});
+  const [phaseS,setPhaseS]=useState("build");
+  const [build,setBuild]=useState(null);
+  const [selId,setSelId]=useState(null);
+  const [tick,setTick]=useState(0);       // 패널 수치 갱신용
+  const [spd,setSpd]=useState(1);
+  const [aut,setAut]=useState(false);
+  const [result,setResult]=useState(null); // 게임오버 데이터
+
+  const syncUi=useCallback(()=>{ setUi({hp:hp.current,gold:gold.current,wave:wave.current}); },[]);
+
+  /* ---------- 배경(정적) 오프스크린 캐시 ---------- */
+  const buildBg=useCallback(()=>{
+    const bg=document.createElement("canvas"); bg.width=SIZE; bg.height=SIZE;
+    const g=bg.getContext("2d");
+    const grad=g.createLinearGradient(0,0,SIZE,SIZE);
+    grad.addColorStop(0,"#0b1226"); grad.addColorStop(.5,"#0a1020"); grad.addColorStop(1,"#0d0a1c");
+    g.fillStyle=grad; g.fillRect(0,0,SIZE,SIZE);
+    // 건설 가능 타일
+    for(let c=0;c<COLS;c++)for(let r=0;r<ROWS;r++){
+      if(isPath(c,r))continue; const x=c*CELL,y=r*CELL;
+      g.fillStyle="rgba(56,80,140,.10)"; roundRect(g,x+3,y+3,CELL-6,CELL-6,7); g.fill();
+      g.strokeStyle="rgba(120,150,220,.10)"; g.lineWidth=1; g.stroke();
+    }
+    // 길: 발광 밴드 + 점선 중심
+    g.lineCap="round"; g.lineJoin="round";
+    g.strokeStyle="rgba(80,60,140,.30)"; g.lineWidth=CELL-6; drawPath(g);
+    g.strokeStyle="#241a3a"; g.lineWidth=CELL-14; drawPath(g);
+    g.strokeStyle="rgba(168,130,255,.55)"; g.lineWidth=3; g.setLineDash([9,11]); drawPath(g); g.setLineDash([]);
+    // 시작/도착 마커
+    const st=posAt(0), en=posAt(TOTAL);
+    marker(g,st.x,st.y,"#22c55e","IN"); marker(g,en.x,en.y,"#ef4444","OUT");
+    bgRef.current=bg;
+  },[]);
+  function drawPath(g){ g.beginPath(); const p0=cellPx(clampC(WP[0][0]),clampC(WP[0][1])); g.moveTo(p0.x,p0.y);
+    for(let i=1;i<WP.length;i++){ const p=cellPx(clampC(WP[i][0]),clampC(WP[i][1])); g.lineTo(p.x,p.y);} g.stroke(); }
+  function marker(g,x,y,col,txt){ g.save(); g.shadowColor=col; g.shadowBlur=18; g.fillStyle=col;
+    g.beginPath(); g.arc(x,y,13,0,7); g.fill(); g.shadowBlur=0; g.fillStyle="#0b1020";
+    g.font="bold 9px sans-serif"; g.textAlign="center"; g.textBaseline="middle"; g.fillText(txt,x,y); g.restore(); }
+
+  /* ---------- 웨이브 생성 ---------- */
+  function startWave(){
+    if(phase.current==="wave"||phase.current==="over") return;
+    wave.current++; const w=wave.current;
+    const q=[]; const count=6+Math.floor(w*2.2);
+    const primary=EKEYS[(w-1)%9];
+    const gap=Math.max(230, 600-w*17);
+    for(let i=0;i<count;i++){
+      let kind="normal"; const rr=Math.random();
+      if(w>=3 && rr<0.16) kind="fast"; else if(w>=4 && rr<0.30) kind="tank";
+      const el = Math.random()<0.62 ? primary : pick(EKEYS);
+      q.push({el,kind,at:i*gap});
+    }
+    if(w%5===0) q.push({el:primary,kind:"boss",at:count*gap+700});
+    queue.current=q; qIdx.current=0; waveClock.current=0;
+    phase.current="wave"; setPhaseS("wave"); syncUi();
+  }
+  function makeEnemy(spec){
+    const w=wave.current; const base=16*Math.pow(1.33,w-1);
+    let ehp=base, sp=50*(1+w*0.014), size=13;
+    if(spec.kind==="fast"){ ehp*=0.55; sp*=1.7; size=11; }
+    if(spec.kind==="tank"){ ehp*=3.3; sp*=0.7; size=18; }
+    if(spec.kind==="boss"){ ehp*=17;  sp*=0.52; size=27; }
+    ehp=Math.round(ehp);
+    const reward = spec.kind==="boss" ? Math.round(ehp*0.018)+90 : Math.max(3, Math.round(ehp*0.055)+2);
+    return { id:idc.current++, el:spec.el, kind:spec.kind, dist:-rand(0,10), hp:ehp, maxHp:ehp, sp, size, flash:0, reward, dead:false };
+  }
+
+  /* ---------- 파티클/데미지 헬퍼 ---------- */
+  function burst(x,y,color,n,pow){ for(let i=0;i<n;i++){ const a=Math.random()*7, s=rand(.4,1)*(pow||70);
+    parts.current.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0,max:rand(.28,.55),size:rand(2,4.5),color}); } }
+  function floatDmg(x,y,val,crit,color){ floats.current.push({x:x+rand(-6,6),y,vy:-46,life:0,max:crit?1.0:.75,
+    val:Math.round(val),crit,color}); }
+
+  /* ---------- 발사 ---------- */
+  function fire(t){
+    const st=towerStat(t.el,t.lvl);
+    const rangePx=st.range*CELL;
+    let best=null,bestD=-1;
+    for(const e of enemies.current){ if(e.dead)continue; const p=posAt(e.dist);
+      const d=Math.hypot(p.x-t.x,p.y-t.y); if(d<=rangePx && e.dist>bestD){ bestD=e.dist; best=e; best._p=p; } }
+    if(!best) return;
+    t.ang=Math.atan2(best._p.y-t.y, best._p.x-t.x);
+    burst(t.x+Math.cos(t.ang)*16, t.y+Math.sin(t.ang)*16, ELE[t.el].glow, 5, 40);
+    shots.current.push({ id:idc.current++, el:t.el, x:t.x, y:t.y, tid:best.id, dmg:st.dmg, splash:st.splash,
+      sp: t.el==="wind"?560:t.el==="metal"?720:440, trail:[] });
+    t.cd = 1000/st.rate;
+  }
+  function dealHit(shot, e, px, py){
+    const mul=advMul(shot.el, e.el); const dmg=shot.dmg*mul;
+    e.hp-=dmg; e.flash=1; e.dist=Math.max(0,e.dist-3);
+    const crit=mul>=1.5;
+    floatDmg(px, py-e.size-6, dmg, crit, mul<1?"#94a3b8":crit?"#fde047":"#f1f5f9");
+    burst(px,py, ELE[shot.el].glow, crit?14:8, crit?120:80);
+    if(crit){ shake.current={t:170,mag:mul>=2?7:5}; }
+    if(shot.splash>0){ const rad=shot.splash*CELL; for(const o of enemies.current){ if(o.dead||o===e)continue;
+      const op=posAt(o.dist); if(Math.hypot(op.x-px,op.y-py)<=rad){ const m2=advMul(shot.el,o.el);
+        o.hp-=shot.dmg*0.5*m2; o.flash=1; floatDmg(op.x,op.y-o.size-4, shot.dmg*0.5*m2, false, "#fbbf24"); } } }
+    if(e.hp<=0 && !e.dead){ e.dead=true; gold.current+=e.reward; burst(px,py,ELE[e.el].color,e.kind==="boss"?40:16,e.kind==="boss"?200:120);
+      if(e.kind==="boss") shake.current={t:320,mag:9}; }
+  }
+
+  /* ---------- 시뮬레이션 스텝 ---------- */
+  function step(dtMs){
+    if(phase.current==="over") return;
+    const dt=dtMs/1000;
+    // 스폰
+    if(phase.current==="wave"){ waveClock.current+=dtMs;
+      while(qIdx.current<queue.current.length && queue.current[qIdx.current].at<=waveClock.current){
+        enemies.current.push(makeEnemy(queue.current[qIdx.current])); qIdx.current++; } }
+    // 적 이동
+    let reached=0;
+    for(const e of enemies.current){ if(e.dead)continue; e.dist+=e.sp*dt; if(e.flash>0)e.flash=Math.max(0,e.flash-dt*4);
+      if(e.dist>=TOTAL){ e.dead=true; reached++; } }
+    if(reached>0){ hp.current=Math.max(0,hp.current-reached); shake.current={t:200,mag:6};
+      if(hp.current<=0){ phase.current="over"; setPhaseS("over"); setResult({wave:wave.current}); } }
+    // 타워 발사
+    for(const t of towers.current){ t.cd-=dtMs; if(t.cd<=0) fire(t); }
+    // 투사체
+    for(const s of shots.current){ if(s.done)continue;
+      const e=enemies.current.find(x=>x.id===s.tid && !x.dead); let tx,ty;
+      if(e){ const p=posAt(e.dist); tx=p.x; ty=p.y; s.lx=tx; s.ly=ty; } else { tx=s.lx; ty=s.ly; if(tx==null){ s.done=true; continue; } }
+      const dx=tx-s.x, dy=ty-s.y, d=Math.hypot(dx,dy); const move=s.sp*dt;
+      s.trail.push({x:s.x,y:s.y}); if(s.trail.length>6)s.trail.shift();
+      if(d<=move+ (e?e.size:6)){ if(e) dealHit(s,e,tx,ty); else burst(tx,ty,ELE[s.el].glow,6,70); s.done=true; }
+      else { s.x+=dx/d*move; s.y+=dy/d*move; }
+    }
+    // 정리
+    enemies.current=enemies.current.filter(e=>!e.dead);
+    shots.current=shots.current.filter(s=>!s.done);
+    // 파티클/플로터
+    for(const p of parts.current){ p.life+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=180*dt; p.vx*=0.94; }
+    parts.current=parts.current.filter(p=>p.life<p.max);
+    for(const f of floats.current){ f.life+=dt; f.y+=f.vy*dt; f.vy+=52*dt; }
+    floats.current=floats.current.filter(f=>f.life<f.max);
+    if(shake.current.t>0) shake.current.t-=dtMs;
+    // 웨이브 종료 판정
+    if(phase.current==="wave" && qIdx.current>=queue.current.length && enemies.current.length===0){
+      gold.current+=18+wave.current*6; phase.current="build"; setPhaseS("build"); syncUi();
+      if(auto.current) setTimeout(()=>{ if(phase.current==="build") startWave(); }, 700);
+    }
+    // UI 동기화(저빈도)
+    acc.current+=dtMs; if(acc.current>=110){ acc.current=0; syncUi(); }
+  }
+
+  /* ---------- 렌더 ---------- */
+  function draw(){
+    const cv=canvasRef.current; if(!cv) return; const ctx=cv.getContext("2d");
+    const DPR=cv._dpr||1;
+    ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,SIZE,SIZE);
+    let sx=0,sy=0; if(shake.current.t>0){ const m=shake.current.mag*(shake.current.t/200); sx=rand(-m,m); sy=rand(-m,m); }
+    ctx.save(); ctx.translate(sx,sy);
+    if(bgRef.current) ctx.drawImage(bgRef.current,0,0);
+    // 사거리 미리보기
+    const u=uiRef.current;
+    if(u.sel!=null){ const t=towers.current.find(x=>x.id===u.sel); if(t){ rangeCircle(ctx,t.x,t.y,towerStat(t.el,t.lvl).range*CELL,ELE[t.el].glow); } }
+    else if(u.build && u.hover){ const [c,r]=u.hover; if(!isPath(c,r)){ const x=c*CELL+CELL/2,y=r*CELL+CELL/2;
+      const ok=!towers.current.some(t=>t.c===c&&t.r===r) && gold.current>=TOWER[u.build].cost;
+      rangeCircle(ctx,x,y,TOWER[u.build].range*CELL,ok?ELE[u.build].glow:"#ef4444");
+      drawTowerShape(ctx,x,y,u.build,1,0,.5); } }
+    // 타워
+    for(const t of towers.current) drawTowerShape(ctx,t.x,t.y,t.el,t.lvl,t.ang,1);
+    // 적
+    for(const e of enemies.current){ const p=posAt(e.dist); drawEnemy(ctx,p.x,p.y,e); }
+    // 투사체
+    for(const s of shots.current) drawShot(ctx,s);
+    // 파티클
+    for(const p of parts.current){ const a=1-p.life/p.max; ctx.globalAlpha=a; ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,7); ctx.fill(); } ctx.globalAlpha=1;
+    // 데미지 텍스트
+    for(const f of floats.current){ const a=1-f.life/f.max; ctx.globalAlpha=Math.max(0,a);
+      ctx.font=(f.crit?"bold 20px":"bold 13px")+" ui-monospace,monospace"; ctx.textAlign="center";
+      ctx.lineWidth=3; ctx.strokeStyle="rgba(0,0,0,.6)"; ctx.fillStyle=f.color;
+      ctx.strokeText(f.val,f.x,f.y); ctx.fillText(f.val,f.x,f.y);
+      if(f.crit){ ctx.font="bold 10px sans-serif"; ctx.fillStyle="#fde047"; ctx.fillText("CRITICAL!",f.x,f.y-18); } }
+    ctx.globalAlpha=1;
+    ctx.restore();
+  }
+  function rangeCircle(ctx,x,y,rad,col){ ctx.save(); ctx.fillStyle=col+"22"; ctx.strokeStyle=col+"aa"; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(x,y,rad,0,7); ctx.fill(); ctx.stroke(); ctx.restore(); }
+  function drawTowerShape(ctx,x,y,el,lvl,ang,alpha){
+    const c=ELE[el]; ctx.save(); ctx.globalAlpha=alpha; ctx.translate(x,y);
+    // 대좌
+    ctx.fillStyle="#1e293b"; ctx.strokeStyle=c.color; ctx.lineWidth=2;
+    hexPath(ctx,0,0,18); ctx.fill(); ctx.stroke();
+    ctx.shadowColor=c.color; ctx.shadowBlur=12;
+    hexPath(ctx,0,0,13); ctx.fillStyle=c.color+"cc"; ctx.fill(); ctx.shadowBlur=0;
+    // 포신
+    ctx.rotate(ang||0); ctx.fillStyle="#0f172a"; roundRect(ctx,-3,-4,22,8,3); ctx.fill();
+    ctx.fillStyle=c.glow; roundRect(ctx,12,-3,7,6,2); ctx.fill();
+    ctx.rotate(-(ang||0));
+    // 코어 이모지
+    ctx.font="12px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(c.emoji,0,0);
+    // 레벨 핍
+    for(let i=0;i<lvl-1;i++){ ctx.fillStyle="#fde047"; ctx.beginPath(); ctx.arc(-10+i*5,15,1.7,0,7); ctx.fill(); }
+    ctx.restore();
+  }
+  function drawEnemy(ctx,x,y,e){
+    const c=ELE[e.el]; ctx.save(); ctx.translate(x,y);
+    // 그림자
+    ctx.fillStyle="rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(0,e.size*0.7,e.size*0.8,e.size*0.32,0,0,7); ctx.fill();
+    // 몸체
+    const grd=ctx.createRadialGradient(-e.size*.3,-e.size*.3,1,0,0,e.size);
+    grd.addColorStop(0,c.glow); grd.addColorStop(1,c.color);
+    ctx.shadowColor=c.color; ctx.shadowBlur=e.kind==="boss"?20:8;
+    ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(0,0,e.size,0,7); ctx.fill(); ctx.shadowBlur=0;
+    ctx.lineWidth=2; ctx.strokeStyle="rgba(0,0,0,.4)"; ctx.stroke();
+    // 종류 표식
+    if(e.kind==="tank"){ ctx.strokeStyle="#e2e8f0"; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,e.size+3,0,7); ctx.stroke(); }
+    if(e.kind==="fast"){ ctx.fillStyle="#fff"; ctx.font="bold 10px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("»",0,0); }
+    if(e.kind==="boss"){ ctx.fillStyle="#fde047"; ctx.font="12px sans-serif"; ctx.textAlign="center"; ctx.fillText("👑",0,-e.size-6); }
+    // 눈
+    ctx.fillStyle="#0b1020"; ctx.beginPath(); ctx.arc(-e.size*.32,-e.size*.15,e.size*.16,0,7); ctx.arc(e.size*.32,-e.size*.15,e.size*.16,0,7); ctx.fill();
+    // 피격 플래시
+    if(e.flash>0){ ctx.globalAlpha=e.flash*0.8; ctx.fillStyle="#fff"; ctx.beginPath(); ctx.arc(0,0,e.size,0,7); ctx.fill(); ctx.globalAlpha=1; }
+    // HP 바
+    const w=e.size*2.1, hpr=Math.max(0,e.hp/e.maxHp);
+    ctx.fillStyle="rgba(0,0,0,.55)"; roundRect(ctx,-w/2,-e.size-9,w,4,2); ctx.fill();
+    ctx.fillStyle=hpr>.5?"#22c55e":hpr>.25?"#eab308":"#ef4444"; roundRect(ctx,-w/2,-e.size-9,w*hpr,4,2); ctx.fill();
+    ctx.restore();
+  }
+  function drawShot(ctx,s){ const c=ELE[s.el];
+    for(let i=0;i<s.trail.length;i++){ const tp=s.trail[i]; const a=(i+1)/s.trail.length*0.5;
+      ctx.globalAlpha=a; ctx.fillStyle=c.glow; ctx.beginPath(); ctx.arc(tp.x,tp.y,2.5*a+1,0,7); ctx.fill(); }
+    ctx.globalAlpha=1; ctx.shadowColor=c.color; ctx.shadowBlur=12; ctx.fillStyle=c.glow;
+    ctx.beginPath(); ctx.arc(s.x,s.y,4.5,0,7); ctx.fill();
+    ctx.fillStyle="#fff"; ctx.beginPath(); ctx.arc(s.x,s.y,1.8,0,7); ctx.fill(); ctx.shadowBlur=0;
+  }
+  function hexPath(ctx,x,y,r){ ctx.beginPath(); for(let i=0;i<6;i++){ const a=i*Math.PI/3-Math.PI/2;
+    const px=x+Math.cos(a)*r, py=y+Math.sin(a)*r; i?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.closePath(); }
+
+  /* ---------- 게임 루프(rAF) ---------- */
+  useEffect(()=>{
+    const cv=canvasRef.current; const DPR=Math.min(2, window.devicePixelRatio||1);
+    cv.width=SIZE*DPR; cv.height=SIZE*DPR; cv.style.width=SIZE+"px"; cv.style.height=SIZE+"px"; cv._dpr=DPR;
+    buildBg();
+    let raf, last=performance.now();
+    const loop=(now)=>{ let dt=now-last; last=now; if(dt>50)dt=50;
+      if(!paused.current) step(dt*speed.current); draw(); raf=requestAnimationFrame(loop); };
+    raf=requestAnimationFrame(loop);
+    return ()=>cancelAnimationFrame(raf);
+  },[]);
+
+  // React → Ref 동기화
+  useEffect(()=>{ uiRef.current.build=build; },[build]);
+  useEffect(()=>{ uiRef.current.sel=selId; },[selId]);
+  useEffect(()=>{ speed.current=spd; },[spd]);
+  useEffect(()=>{ auto.current=aut; },[aut]);
+
+  /* ---------- 입력 ---------- */
+  function cellFromEvent(ev){ const rc=canvasRef.current.getBoundingClientRect();
+    const x=(ev.clientX-rc.left), y=(ev.clientY-rc.top);
+    return [Math.floor(x/CELL), Math.floor(y/CELL)]; }
+  function onMove(ev){ uiRef.current.hover=cellFromEvent(ev); }
+  function onLeave(){ uiRef.current.hover=null; }
+  function onClick(ev){
+    const [c,r]=cellFromEvent(ev); if(c<0||c>=COLS||r<0||r>=ROWS) return;
+    const hit=towers.current.find(t=>t.c===c&&t.r===r);
+    if(hit){ setSelId(hit.id); setBuild(null); return; }
+    if(build){ if(isPath(c,r)){ return; }
+      const cost=TOWER[build].cost; if(gold.current<cost){ flashNoGold(); return; }
+      gold.current-=cost; const p=cellPx(c,r);
+      towers.current.push({ id:idc.current++, el:build, c, r, x:p.x, y:p.y, lvl:1, cd:0, ang:0, invested:cost });
+      syncUi();
+      return; }
+    setSelId(null);
+  }
+  const [noGold,setNoGold]=useState(false);
+  function flashNoGold(){ setNoGold(true); setTimeout(()=>setNoGold(false),450); }
+
+  function doUpgrade(){ const t=towers.current.find(x=>x.id===selId); if(!t||t.lvl>=MAX_LV)return;
+    const c=upgradeCost(t.el,t.lvl); if(gold.current<c){ flashNoGold(); return; }
+    gold.current-=c; t.lvl++; t.invested+=c; syncUi(); setTick(x=>x+1); }
+  function doSell(){ const i=towers.current.findIndex(x=>x.id===selId); if(i<0)return;
+    const t=towers.current[i]; gold.current+=Math.round(t.invested*0.6); towers.current.splice(i,1);
+    setSelId(null); syncUi(); }
+
+  function restart(){
+    enemies.current=[]; towers.current=[]; shots.current=[]; parts.current=[]; floats.current=[];
+    hp.current=20; gold.current=150; wave.current=0; phase.current="build"; queue.current=[]; qIdx.current=0;
+    shake.current={t:0,mag:0}; setResult(null); setSelId(null); setBuild(null); setPhaseS("build"); setAut(false); auto.current=false; syncUi();
+  }
+
+  const selTower = selId!=null ? towers.current.find(t=>t.id===selId) : null;
+  const nextEl = EKEYS[(wave.current)%9]; // 다음 웨이브 주 속성 예고
+
+  /* ===================== JSX ===================== */
+  return (
+    <div className="min-h-screen w-full text-slate-100 p-3 flex flex-col items-center"
+      style={{background:"radial-gradient(1200px 600px at 50% -10%, #1e1b4b55, transparent), #070b16"}}>
+      {/* 상단 HUD */}
+      <div className="glass rounded-2xl px-4 py-2.5 mb-3 flex items-center gap-4 shadow-xl" style={{width:SIZE}}>
+        <div className="font-black text-lg bg-gradient-to-r from-sky-300 to-violet-400 bg-clip-text text-transparent">🛡️ 9속성 타워 디펜스</div>
+        <div className="flex-1"></div>
+        <Hud icon="❤️" val={ui.hp} sub="/20" color="#ef4444"/>
+        <Hud icon="💰" val={ui.gold} color="#eab308" pulse={noGold}/>
+        <Hud icon="🌊" val={ui.wave} sub={phaseS==="wave"?" 진행중":""} color="#38bdf8"/>
+      </div>
+
+      {/* 보드 + 사이드 */}
+      <div className="flex gap-3 items-start" style={{maxWidth:SIZE+220}}>
+        <div className="relative">
+          <canvas ref={canvasRef} onClick={onClick} onMouseMove={onMove} onMouseLeave={onLeave}
+            className="shadow-2xl cursor-crosshair" style={{border:"1px solid rgba(255,255,255,.08)"}}/>
+          {/* 하단 컨트롤 바 */}
+          <div className="glass rounded-xl mt-3 px-3 py-2 flex items-center gap-2 flex-wrap">
+            <button onClick={startWave} disabled={phaseS!=="build"}
+              className="btng px-4 py-2 rounded-lg font-black text-slate-900 bg-gradient-to-r from-emerald-400 to-green-500 disabled:opacity-40 disabled:cursor-not-allowed shadow">
+              {phaseS==="wave" ? "⚔️ 전투 중..." : "▶ 웨이브 "+(wave.current+1)+" 시작"}
+            </button>
+            <button onClick={()=>{paused.current=!paused.current; setTick(x=>x+1);}}
+              className="btng px-3 py-2 rounded-lg font-bold glass">{paused.current?"▶ 재개":"⏸ 일시정지"}</button>
+            <button onClick={()=>setSpd(s=>s===1?2:1)}
+              className={"btng px-3 py-2 rounded-lg font-bold "+(spd===2?"bg-violet-500 text-white":"glass")}>x{spd}</button>
+            <button onClick={()=>setAut(a=>!a)}
+              className={"btng px-3 py-2 rounded-lg font-bold "+(aut?"bg-sky-500 text-white":"glass")}>🔁 자동</button>
+            <div className="flex-1"></div>
+            <div className="text-xs text-slate-400">다음 주속성 <span className="font-bold" style={{color:ELE[nextEl].color}}>{ELE[nextEl].emoji}{ELE[nextEl].name}</span></div>
+          </div>
+        </div>
+
+        {/* 우측: 건설 메뉴 / 타워 패널 */}
+        <div className="w-[200px] flex flex-col gap-2">
+          {selTower ? (
+            <TowerPanel t={selTower} gold={ui.gold} onUp={doUpgrade} onSell={doSell} onClose={()=>setSelId(null)}/>
+          ) : (
+            <div className="glass rounded-xl p-2.5 fadein">
+              <div className="text-xs font-bold text-slate-300 mb-2">🏗️ 타워 건설 {build && <span className="text-sky-300">· 클릭해 배치</span>}</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {EKEYS.map(el=>{
+                  const b=TOWER[el], can=ui.gold>=b.cost, on=build===el;
+                  return (
+                    <button key={el} onClick={()=>{ setBuild(on?null:el); setSelId(null); }}
+                      className={"btng rounded-lg p-1.5 flex flex-col items-center border transition "+(on?"ring-2":"")}
+                      style={{borderColor:ELE[el].color+"66", background:on?ELE[el].color+"33":"rgba(30,41,59,.5)", opacity:can?1:.45, boxShadow:on?"0 0 0 2px "+ELE[el].color:"none"}}>
+                      <div className="text-lg leading-none">{ELE[el].emoji}</div>
+                      <div className="text-[10px] font-bold" style={{color:ELE[el].color}}>{ELE[el].name}</div>
+                      <div className="text-[9px] text-amber-300">{b.cost}G</div>
+                    </button>
+                  );
+                })}
+              </div>
+              {build && (
+                <div className="mt-2 text-[10px] text-slate-300 border-t border-slate-700 pt-2">
+                  <div className="font-bold" style={{color:ELE[build].color}}>{TOWER[build].name} · {TOWER[build].role}</div>
+                  <div>⚔️ {TOWER[build].dmg} · 🎯 {TOWER[build].range} · ⚡ {TOWER[build].rate}/s{TOWER[build].splash>0?" · 💥광역":""}</div>
+                  <AdvHint el={build}/>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="glass rounded-xl p-2.5 text-[10px] text-slate-400 leading-relaxed">
+            <div className="font-bold text-slate-300 mb-1">📖 상성 가이드</div>
+            🔥→🌿⚙️ · 💧→🔥🪨 · 🌿→🪨💧 <span className="text-emerald-400">(1.5x)</span><br/>
+            ✨↔🌌 <span className="text-amber-300">(2.0x)</span> · 🏛️ 무상성·고火力<br/>
+            <span className="text-slate-500">약점을 노려 CRITICAL을 터뜨리세요!</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 게임 오버 */}
+      {result && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="glass rounded-2xl p-8 text-center pop max-w-sm" style={{borderColor:"#ef444488"}}>
+            <div className="text-6xl mb-2">💀</div>
+            <div className="text-2xl font-black text-red-400 mb-1">방어 실패!</div>
+            <div className="text-slate-300 mb-1">최종 도달 웨이브</div>
+            <div className="text-5xl font-black bg-gradient-to-r from-amber-300 to-red-400 bg-clip-text text-transparent mb-5">{result.wave}</div>
+            <button onClick={restart} className="btng w-full py-3 rounded-xl font-black text-slate-900 bg-gradient-to-r from-sky-400 to-violet-400 shadow-lg">🔄 다시 도전</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Hud({icon,val,sub,color,pulse}){
+  return <div className={"flex items-center gap-1.5 "+(pulse?"animate-ping":"")}>
+    <span className="text-lg">{icon}</span>
+    <span className="font-black text-lg tabular-nums" style={{color}}>{val}<span className="text-xs text-slate-400 font-normal">{sub}</span></span>
+  </div>;
+}
+function AdvHint({el}){
+  const m=ADV[el]; const ks=Object.keys(m);
+  if(el==="ancient") return <div className="text-bronze" style={{color:"#fcd34d"}}>무상성 · 압도적 기본 위력</div>;
+  if(!ks.length) return <div className="text-slate-500">특화 스탯형 (무상성)</div>;
+  return <div>{ks.map(k=><span key={k} style={{color:ELE[k]?ELE[k].color:"#fff"}}>{ELE[k].emoji}{m[k]}x </span>)}</div>;
+}
+function TowerPanel({t,gold,onUp,onSell,onClose}){
+  const s=towerStat(t.el,t.lvl); const c=ELE[t.el]; const up=upgradeCost(t.el,t.lvl); const maxed=t.lvl>=MAX_LV;
+  return (
+    <div className="glass rounded-xl p-3 fadein" style={{borderColor:c.color+"66"}}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2"><span className="text-2xl">{c.emoji}</span>
+          <div><div className="font-black" style={{color:c.color}}>{TOWER[t.el].name}</div>
+            <div className="text-[10px] text-slate-400">Lv.{t.lvl}{maxed?" (MAX)":""} · {TOWER[t.el].role}</div></div></div>
+        <button onClick={onClose} className="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+      </div>
+      <div className="grid grid-cols-3 gap-1 text-center text-[11px] mb-3">
+        <div className="rounded-lg bg-slate-800/60 py-1"><div className="text-slate-400">공격</div><div className="font-bold text-red-300">{Math.round(s.dmg)}</div></div>
+        <div className="rounded-lg bg-slate-800/60 py-1"><div className="text-slate-400">사거리</div><div className="font-bold text-sky-300">{s.range.toFixed(1)}</div></div>
+        <div className="rounded-lg bg-slate-800/60 py-1"><div className="text-slate-400">연사</div><div className="font-bold text-emerald-300">{s.rate.toFixed(1)}</div></div>
+      </div>
+      <button onClick={onUp} disabled={maxed||gold<up}
+        className="btng w-full py-2 rounded-lg font-bold text-slate-900 bg-gradient-to-r from-amber-300 to-yellow-400 disabled:opacity-40 mb-1.5">
+        {maxed ? "최대 레벨" : "⬆ 업그레이드 ("+up+"G)"}
+      </button>
+      <button onClick={onSell} className="btng w-full py-1.5 rounded-lg font-bold text-xs bg-slate-700 hover:bg-rose-600/70">💰 판매 (+{Math.round(t.invested*0.6)}G)</button>
+    </div>
+  );
+}
+
+/* 유틸: 라운드 사각형 */
+function roundRect(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+</script>
+</body>
+</html>'''
+
+
+def rpg_page():
+    st.title("🛡️ 9속성 타워 디펜스")
+    st.caption("9속성 상성으로 몰려오는 몬스터를 막아라! 타워를 세우고 업그레이드해 무한 웨이브에 도전 · 60FPS 캔버스 엔진")
+    components.html(TOWER_DEFENSE_HTML, height=780, scrolling=True)
 
 
 # ==========================================
@@ -2198,6 +2753,16 @@ DRAGON_GAME_HTML = r'''<!DOCTYPE html>
   /* 강력 진동 */
   .quake{animation:quake .5s;}
   @keyframes quake{0%,100%{transform:translate(0,0)}15%{transform:translate(-7px,3px) rotate(-1deg)}35%{transform:translate(6px,-4px) rotate(1deg)}55%{transform:translate(-5px,-3px)}75%{transform:translate(4px,3px) rotate(.5deg)}}
+  /* 데미지 숫자 부양 */
+  @keyframes fxDmg{0%{transform:translate(-50%,-50%) scale(.5);opacity:0}18%{transform:translate(-50%,-95%) scale(1.25);opacity:1}45%{transform:translate(-50%,-130%) scale(1)}100%{transform:translate(-50%,-210%) scale(.95);opacity:0}}
+  /* 전면 섬광(임팩트 프레임) */
+  @keyframes fxScreen{0%{opacity:0}25%{opacity:var(--fo,.55)}100%{opacity:0}}
+  /* 각성 오라 맥동 */
+  .awk-pulse{animation:awkPulse 1.8s ease-in-out infinite alternate;}
+  @keyframes awkPulse{from{filter:drop-shadow(0 0 3px rgba(251,191,36,.5))}to{filter:drop-shadow(0 0 12px rgba(251,191,36,.95))}}
+  /* SVG 드래곤 미세 부유 */
+  .drg-float{animation:drgFloat 2.6s ease-in-out infinite alternate;}
+  @keyframes drgFloat{from{transform:translateY(0)}to{transform:translateY(-3px)}}
   .glow{animation:glow 1.6s ease-in-out infinite alternate;}
   @keyframes glow{from{filter:drop-shadow(0 0 2px rgba(255,255,255,.2));}to{filter:drop-shadow(0 0 10px rgba(255,255,255,.55));}}
   .shake{animation:shake .4s;}
@@ -2239,7 +2804,6 @@ const GRADES = {
   legendary: { name:"전설", count:4, color:"#eab308", hp:390, atk:62 },
 };
 const gradeByCount = c => c>=4?"legendary":c===3?"epic":c===2?"rare":"common";
-const DRAGON_EMOJI = { common:"🦎", rare:"🐊", epic:"🐉", legendary:"🐲" };
 
 /* ============ 유틸 ============ */
 let _id = 1; const uid = () => _id++;
@@ -2284,42 +2848,100 @@ function ensureTrystero(cb){
   window.addEventListener("trystero-ready", handler);
 }
 
-/* ============ 종족(이름=속성) 시스템 ============
-   드래곤의 이름은 속성 조합으로 결정되며 절대 바뀌지 않는다.
-   같은 속성 조합 = 같은 이름 = 같은 종족. (도감의 기준) */
-const ELEM_LORE = {
-  fire:   { base:"이그니스",   syl:"이그" },
-  water:  { base:"아쿠아리스", syl:"아쿠" },
-  forest: { base:"베르단트",   syl:"베르" },
-  metal:  { base:"크롬하르트", syl:"크롬" },
-  wind:   { base:"제피로스",   syl:"제피" },
-  void:   { base:"녹티스",     syl:"녹티" },
-  holy:   { base:"세라피엘",   syl:"세라" },
-  ancient:{ base:"안티쿠스",   syl:"안티" },
-  earth:  { base:"테라곤",     syl:"테라" },
-};
-// 항상 고정된 표준 순서로 정렬 + 중복 제거 → 입력 순서와 무관하게 동일 결과
+/* ============ 종족(종=속성 고정) 시스템 ============
+   등급당 10종, 총 40종. 각 종은 속성이 영구 고정 — 같은 종이면 언제나 같은 속성.
+   드래곤은 종 id(sid)를 가지며, 이름·속성·외형이 모두 종에서 결정된다. */
 function canonElems(elements){ return ELEM_KEYS.filter(k=>elements.includes(k)); }
-function speciesKey(elements){ return canonElems(elements).join("+"); }
-function dragonNameFor(elements){
-  const ce = canonElems(elements);
-  if(ce.length<=1) return ce.length? ELEM_LORE[ce[0]].base : "알 수 없음";
-  return ce.map(k=>ELEM_LORE[k].syl).join("");
+const SPECIES = [
+  // ---- 일반 (속성 1) ----
+  { sid:"c01", name:"이그니스",     grade:"common", elems:["fire"] },
+  { sid:"c02", name:"엠버링",       grade:"common", elems:["fire"] },
+  { sid:"c03", name:"아쿠아리스",   grade:"common", elems:["water"] },
+  { sid:"c04", name:"베르단트",     grade:"common", elems:["forest"] },
+  { sid:"c05", name:"크롬하르트",   grade:"common", elems:["metal"] },
+  { sid:"c06", name:"제피로스",     grade:"common", elems:["wind"] },
+  { sid:"c07", name:"녹티스",       grade:"common", elems:["void"] },
+  { sid:"c08", name:"세라피엘",     grade:"common", elems:["holy"] },
+  { sid:"c09", name:"안티쿠스",     grade:"common", elems:["ancient"] },
+  { sid:"c10", name:"테라곤",       grade:"common", elems:["earth"] },
+  // ---- 희귀 (속성 2) ----
+  { sid:"r01", name:"스콜치윙",     grade:"rare", elems:["fire","wind"] },
+  { sid:"r02", name:"마그마룬",     grade:"rare", elems:["fire","earth"] },
+  { sid:"r03", name:"리버룬",       grade:"rare", elems:["water","forest"] },
+  { sid:"r04", name:"스톰서지",     grade:"rare", elems:["water","wind"] },
+  { sid:"r05", name:"루미나흐",     grade:"rare", elems:["water","holy"] },
+  { sid:"r06", name:"블룸세라",     grade:"rare", elems:["forest","holy"] },
+  { sid:"r07", name:"아이언스케일", grade:"rare", elems:["metal","earth"] },
+  { sid:"r08", name:"옵시디언팽",   grade:"rare", elems:["metal","void"] },
+  { sid:"r09", name:"섀도게일",     grade:"rare", elems:["wind","void"] },
+  { sid:"r10", name:"렐릭혼",       grade:"rare", elems:["ancient","earth"] },
+  // ---- 에픽 (속성 3) ----
+  { sid:"e01", name:"인페르노게일", grade:"epic", elems:["fire","wind","void"] },
+  { sid:"e02", name:"볼케인아머",   grade:"epic", elems:["fire","metal","earth"] },
+  { sid:"e03", name:"이클립스번",   grade:"epic", elems:["fire","void","holy"] },
+  { sid:"e04", name:"아쿠아블룸",   grade:"epic", elems:["water","forest","holy"] },
+  { sid:"e05", name:"어비스스톰",   grade:"epic", elems:["water","wind","void"] },
+  { sid:"e06", name:"테라블룸",     grade:"epic", elems:["water","forest","earth"] },
+  { sid:"e07", name:"실버리프",     grade:"epic", elems:["forest","metal","wind"] },
+  { sid:"e08", name:"스카이렐릭",   grade:"epic", elems:["wind","holy","ancient"] },
+  { sid:"e09", name:"가이아포지",   grade:"epic", elems:["metal","ancient","earth"] },
+  { sid:"e10", name:"룬셰이드",     grade:"epic", elems:["void","ancient","earth"] },
+  // ---- 전설 (속성 4) ----
+  { sid:"l01", name:"카오스레인",   grade:"legendary", elems:["fire","water","wind","void"] },
+  { sid:"l02", name:"솔라리스렉스", grade:"legendary", elems:["fire","holy","ancient","earth"] },
+  { sid:"l03", name:"에테르블룸",   grade:"legendary", elems:["water","forest","wind","holy"] },
+  { sid:"l04", name:"녹스가이아",   grade:"legendary", elems:["metal","void","ancient","earth"] },
+  { sid:"l05", name:"이그드라온",   grade:"legendary", elems:["fire","forest","ancient","earth"] },
+  { sid:"l06", name:"프리즘세일",   grade:"legendary", elems:["water","metal","wind","holy"] },
+  { sid:"l07", name:"아스트랄룬",   grade:"legendary", elems:["wind","void","holy","ancient"] },
+  { sid:"l08", name:"헬포지",       grade:"legendary", elems:["fire","water","metal","void"] },
+  { sid:"l09", name:"가이아셀레스트", grade:"legendary", elems:["forest","wind","holy","earth"] },
+  { sid:"l10", name:"오리진플레어", grade:"legendary", elems:["fire","void","holy","ancient"] },
+];
+const SPECIES_BY_ID = {}; SPECIES.forEach(s=>{ SPECIES_BY_ID[s.sid]=s; });
+const SPECIES_BY_GRADE = { common:[], rare:[], epic:[], legendary:[] };
+SPECIES.forEach(s=>SPECIES_BY_GRADE[s.grade].push(s));
+// 종 내 변형 인덱스(뿔·가시 모양 차이용)
+function speciesVariant(sid){ return parseInt(sid.slice(1),10)-1; }
+
+// 속성 집합 → 가장 잘 맞는 종 찾기 (같은 등급에서 겹치는 속성 최다 → 동률이면 랜덤)
+function resolveSpecies(elements, grade){
+  const el = canonElems(elements);
+  const pool = SPECIES_BY_GRADE[grade] || SPECIES_BY_GRADE.common;
+  const exact = pool.filter(s=> s.elems.length===el.length && s.elems.every(e=>el.includes(e)));
+  if(exact.length) return pick(exact);
+  let best=-1, cands=[];
+  pool.forEach(s=>{ const ov=s.elems.filter(e=>el.includes(e)).length;
+    if(ov>best){ best=ov; cands=[s]; } else if(ov===best) cands.push(s); });
+  return pick(cands);
 }
 
-function makeDragon(grade, elements, grown){
-  const g = GRADES[grade];
+function makeDragonFromSpecies(sp, grown){
+  const g = GRADES[sp.grade];
   const maxHp = g.hp + rand(-8,24);
-  const el = canonElems(elements);
-  return { id:uid(), name:dragonNameFor(el), grade, elements:el,
+  return { id:uid(), sid:sp.sid, name:sp.name, grade:sp.grade, elements:[...sp.elems],
            maxHp, hp:maxHp, atk:g.atk+rand(-3,6),
            growth: grown ? 100 : 0, fullness: grown ? 75 : 45 };
 }
+function makeDragon(grade, elements, grown){
+  return makeDragonFromSpecies(resolveSpecies(elements, grade), grown);
+}
 function randomDragon(grade, mult){
-  const cnt = GRADES[grade].count;
-  const d = makeDragon(grade, sample(ELEM_KEYS, cnt), true);
+  const d = makeDragonFromSpecies(pick(SPECIES_BY_GRADE[grade]), true);
   if(mult && mult!==1){ d.maxHp=Math.round(d.maxHp*mult); d.hp=d.maxHp; d.atk=Math.round(d.atk*mult); }
   return d;
+}
+// 구버전 저장 호환: sid 없는 드래곤/알에 종을 배정하고 이름을 종명으로 통일
+function migrateDragon(d){
+  if(d.sid && SPECIES_BY_ID[d.sid]) return d;
+  const sp = resolveSpecies(d.elements||[], d.grade||"common");
+  return {...d, sid:sp.sid, name:sp.name, elements:[...sp.elems]};
+}
+function migrateEgg(e){
+  if(e.sid && SPECIES_BY_ID[e.sid]) return e;
+  const grade = e.grade || "common";
+  const sp = resolveSpecies(e.elements||[], grade);
+  return {...e, sid:sp.sid, elements:[...sp.elems]};
 }
 function calcDamage(atkVal, atkElem, defElems){
   let mult = 1;
@@ -2705,13 +3327,163 @@ ELEM_KEYS.forEach(k=>{
   };
 });
 
-// 드래곤/속성에 따라 사용할 공격 모션 결정 (전설 등급은 선택한 속성별 궁극기)
+/* ===== 각성 전용 공격 모션 (전설 궁극기의 상위 티어) =====
+   각성한 전설만 사용. 궁극기와도 완전히 다른 시네마틱 연출 + 임팩트 프레임. */
+const AWK_NAMES = {
+  fire:"업화천붕", water:"만해붕류", forest:"수해만개", metal:"천겁단두대", wind:"천람폭풍옥",
+  void:"허무종언겁", holy:"천상개벽", ancient:"태고창세인", earth:"붕천멸지성",
+};
+const AWK_BUILDERS = {
+  fire(fx,ax,ay,tx,ty){ // 화룡 강림: 화염 용 궤적 + 경로 위 지옥불 융단 + 태양 플레어
+    converge(fx,ax,ay,"#f97316",12,0);
+    fxNode(fx,{left:ax,top:ay,dx:tx-ax,dy:ty-ay,mx:(tx-ax)/2,my:(ty-ay)/2-70,
+      style:{fontSize:"40px",filter:"drop-shadow(0 0 16px #ef4444) hue-rotate(-20deg) saturate(2)"},text:"🐲",
+      anim:"fxCurve .6s ease-in 200ms forwards",life:900});
+    for(let i=0;i<5;i++){ const f=(i+1)/6, px=ax+(tx-ax)*f, py=ay+(ty-ay)*f;
+      pillarUp(fx,px,py+26,14,86,"linear-gradient(#fff7ed,#fb923c,#7f1d1d)","#ef4444",320+i*90,540); }
+    after(820,()=>{ flashAt(fx,tx,ty,"#fb923c",150,0);
+      fxNode(fx,{left:tx,top:ty,style:ring(96,"#f97316",6),anim:"fxRipple .7s ease-out forwards",life:860});
+      fxNode(fx,{left:tx,top:ty,style:ring(60,"#fff7ed",4),anim:"fxRipple .6s ease-out 120ms forwards",life:920});
+      floatUp(fx,tx,ty,"#f97316",14,100,"🔥"); sparks(fx,tx,ty,"#ef4444",14,70,0,10); });
+  },
+  water(fx,ax,ay,tx,ty){ // 해룡 물결진: 사행 파도 행렬 + 소용돌이 + 삼중 물기둥
+    for(let i=0;i<5;i++){ const up=i%2?1:-1;
+      fxNode(fx,{left:ax,top:ay,dx:tx-ax,dy:ty-ay,mx:(tx-ax)/2,my:(ty-ay)/2+up*46,
+        style:circle(20-i*2,"#eff6ff","#2563eb"),anim:"fxCurve .55s ease-in "+(i*80)+"ms forwards",life:i*80+760}); }
+    after(620,()=>{
+      for(let i=0;i<3;i++) fxNode(fx,{left:tx,top:ty,style:ring(46+i*24,"#60a5fa",4),anim:"fxSpin .6s linear "+(i*100)+"ms forwards",life:i*100+760});
+      pillarUp(fx,tx,ty+24,30,120,"linear-gradient(#eff6ff,#60a5fa,#1e3a8a)","#3b82f6",80,620);
+      pillarUp(fx,tx-30,ty+24,18,84,"linear-gradient(#eff6ff,#3b82f6)","#2563eb",200,560);
+      pillarUp(fx,tx+30,ty+24,18,92,"linear-gradient(#eff6ff,#3b82f6)","#2563eb",300,560);
+      shockwave(fx,tx,ty,"#3b82f6",160);
+      for(let i=0;i<10;i++) fxNode(fx,{left:tx+(Math.random()-0.5)*90,top:ty-60,dx:(Math.random()-0.5)*24,dy:80,
+        style:circle(7,"#eff6ff","#3b82f6"),anim:"fxGravity .7s ease-in "+(300+i*40)+"ms forwards",life:300+i*40+860}); });
+  },
+  forest(fx,ax,ay,tx,ty){ // 세계수 만개: 거목 + 뿌리 가시 행렬 + 전장 꽃보라
+    fxNode(fx,{left:ax,top:ay,style:ring(50,"#22c55e",4),anim:"fxRune .5s ease-out forwards",life:640});
+    after(300,()=>{
+      pillarUp(fx,tx,ty+30,26,150,"linear-gradient(#bbf7d0,#16a34a,#052e16)","#22c55e",0,680);
+      fxNode(fx,{left:tx,top:ty-78,style:circle(64,"#86efac","#166534"),anim:"fxPop .5s ease-out 300ms forwards",life:1150});
+      for(let i=0;i<6;i++){ const x=tx-60+i*24;
+        fxNode(fx,{left:x,top:ty+26,origin:"bottom center",style:{width:"8px",height:(34+(i*29)%30)+"px",
+          background:"linear-gradient(#86efac,#14532d)",clipPath:"polygon(50% 0,100% 100%,0 100%)"},
+          anim:"fxVine .45s ease-out "+(150+i*70)+"ms forwards",life:150+i*70+620}); }
+      for(let i=0;i<12;i++) fxNode(fx,{left:tx+(Math.random()-0.5)*150,top:ty-110,dx:(Math.random()-0.5)*46,dy:130,
+        style:emojiStyle(12+Math.random()*7,"#4ade80"),text:"🌸",anim:"fxGravity 1.1s ease-in "+(350+i*70)+"ms forwards",life:350+i*70+1300});
+      impactBurst(fx,tx,ty,"#22c55e","#15803d",350); });
+  },
+  metal(fx,ax,ay,tx,ty){ // 천겁 단두대: 거대 참수도 낙하 + 칼날 궤도 수렴 + 십자 4연 절단
+    for(let i=0;i<10;i++){ const a=i*36*RAD, d=72;
+      fxNode(fx,{left:tx,top:ty,dx:Math.cos(a)*d,dy:Math.sin(a)*d,ang:a,
+        style:{width:"22px",height:"5px",background:"linear-gradient(90deg,#f8fafc,#94a3b8)",boxShadow:"0 0 8px #cbd5e1"},
+        anim:"fxSuck .5s ease-in "+(i*30)+"ms forwards",life:i*30+640}); }
+    after(460,()=>{ const sy=Math.max(10,ty-190);
+      fxNode(fx,{left:tx+6,top:sy,dx:0,dy:ty-sy,style:{width:"16px",height:"64px",
+        background:"linear-gradient(90deg,#f8fafc,#94a3b8,#475569)",clipPath:"polygon(0 0,100% 0,100% 78%,50% 100%,0 78%)",
+        boxShadow:"0 0 22px #e2e8f0"},anim:"fxProj .22s cubic-bezier(.6,0,1,1) forwards",life:340});
+      after(240,()=>{ flashAt(fx,tx,ty,"#e2e8f0",130,0);
+        for(let k=0;k<4;k++) fxNode(fx,{left:tx,top:ty,ang:(k*45)*RAD,style:{width:"140px",height:"6px",
+          background:"linear-gradient(90deg,transparent,#ffffff,transparent)",boxShadow:"0 0 16px #e2e8f0"},
+          anim:"fxSlash .3s ease-out "+(k*70)+"ms forwards",life:k*70+440});
+        sparks(fx,tx,ty,"#e2e8f0",16,74,120,8); debrisArc(fx,tx,ty,"#64748b",8,160); }); });
+  },
+  wind(fx,ax,ay,tx,ty){ // 폭풍옥: 전장 관통 바람줄기 + 쌍폭풍 기둥 + 진공구
+    const W=(fx.parentElement?fx.parentElement.clientWidth:700);
+    for(let i=0;i<5;i++){ const y=ty-46+i*23;
+      beamLine(fx,10,y,W-10,y,3,"linear-gradient(90deg,transparent,#e0f2fe,transparent)","#bae6fd",i*70,420); }
+    after(380,()=>{
+      for(let s=0;s<2;s++) for(let i=0;i<6;i++)
+        fxNode(fx,{left:tx+(s?34:-34),top:ty+22-i*24,style:ring(70-i*9,"#7dd3fc",4),
+          anim:"fxSpin .5s linear "+(s*80+i*55)+"ms forwards",life:s*80+i*55+680});
+      fxNode(fx,{left:tx,top:ty,style:ring(40,"#e0f2fe",6),anim:"fxImplode .5s ease-in 260ms forwards",life:860});
+      after(560,()=>{ flashAt(fx,tx,ty,"#7dd3fc",120,0); sparks(fx,tx,ty,"#38bdf8",14,80,0,9); floatUp(fx,tx,ty,"#bae6fd",10,80); }); });
+  },
+  void(fx,ax,ay,tx,ty){ // 종언겁: 세계 암전 + 공간 균열 + 특이점 붕괴 + 백색 신성
+    const W=(fx.parentElement?fx.parentElement.clientWidth:700), H=(fx.parentElement?fx.parentElement.clientHeight:500);
+    fxNode(fx,{left:W/2,top:H/2,style:{width:W+"px",height:H+"px",background:"#0b1020",borderRadius:"12px","--fo":".62"},
+      anim:"fxScreen 1.2s ease-out forwards",life:1300});
+    beamLine(fx,10,ty,W-10,ty,10,"linear-gradient(90deg,transparent,#a855f7,#ffffff,#a855f7,transparent)","#a855f7",180,520);
+    after(420,()=>{
+      for(let i=0;i<16;i++){ const a=i*22.5*RAD, d=96;
+        fxNode(fx,{left:tx,top:ty,dx:Math.cos(a)*d,dy:Math.sin(a)*d,style:circle(9,"#ddd6fe","#7c3aed"),
+          anim:"fxSuck .55s ease-in "+(i*18)+"ms forwards",life:i*18+700}); }
+      fxNode(fx,{left:tx,top:ty,style:circle(130,"#1e1b4b","#a855f7"),anim:"fxImplode .65s ease-in 150ms forwards",life:920});
+      after(640,()=>{ flashAt(fx,tx,ty,"#ffffff",170,0);
+        fxNode(fx,{left:tx,top:ty,style:ring(90,"#c4b5fd",4),anim:"fxRipple .6s ease-out forwards",life:760});
+        fxNode(fx,{left:tx,top:ty,style:ring(56,"#ffffff",3),anim:"fxRipple .55s ease-out 90ms forwards",life:800}); }); });
+  },
+  holy(fx,ax,ay,tx,ty){ // 천상개벽: 이중 대마법진 + 광주 5연 강림 + 깃털 폭풍
+    const sealY=Math.max(24,ty-190);
+    fxNode(fx,{left:tx,top:sealY,style:ring(110,"#facc15",5),anim:"fxRune .8s ease-out forwards",life:1000});
+    fxNode(fx,{left:tx,top:sealY,style:ring(74,"#fde047",4),anim:"fxRune .8s ease-out 120ms forwards",life:1100});
+    for(let i=0;i<5;i++){ const x=tx-56+i*28, h=ty-sealY+30, dl=260+i*110;
+      fxNode(fx,{left:x,top:sealY,style:{width:"18px",height:h+"px",background:"linear-gradient(#fef9c3,#facc15,rgba(250,204,21,0))",
+        boxShadow:"0 0 20px #fde047",borderRadius:"8px"},origin:"top center",anim:"fxPillar .4s ease-out "+dl+"ms forwards",life:dl+620});
+      after(dl+180,()=>flashAt(fx,x,ty,"#fde047",56,0)); }
+    after(860,()=>{ impactBurst(fx,tx,ty,"#facc15","#ffffff");
+      for(let i=0;i<10;i++) fxNode(fx,{left:tx+(Math.random()-0.5)*130,top:ty-100,dx:(Math.random()-0.5)*36,dy:120,
+        style:emojiStyle(13,"#fde047"),text:"✨",anim:"fxGravity 1.1s ease-in "+(i*80)+"ms forwards",life:i*80+1300}); });
+  },
+  ancient(fx,ax,ay,tx,ty){ // 창세인: 하늘에서 대오벨리스크 강하 + 룬 기둥 원진 + 연쇄 각인
+    const sy=Math.max(10,ty-230);
+    fxNode(fx,{left:tx,top:sy,dx:0,dy:ty-sy,style:{width:"22px",height:"66px",
+      background:"linear-gradient(#fde68a,#d97706,#78350f)",clipPath:"polygon(50% 0,100% 18%,100% 100%,0 100%,0 18%)",
+      boxShadow:"0 0 20px #d97706"},anim:"fxProj .3s cubic-bezier(.6,0,1,1) 150ms forwards",life:560});
+    after(440,()=>{
+      flashAt(fx,tx,ty,"#f59e0b",110,0);
+      const rs=["ᚠ","ᚱ","ᛟ","ᛝ","ᚹ","ᛉ"];
+      for(let i=0;i<6;i++){ const a=i*60*RAD, px=tx+Math.cos(a)*58, py=ty+Math.sin(a)*40;
+        pillarUp(fx,px,py+16,8,44,"linear-gradient(#fde68a,#92400e)","#d97706",i*80,520);
+        fxNode(fx,{left:px,top:py-34,style:{fontSize:"15px",color:"#fbbf24",textShadow:"0 0 10px #d97706",fontWeight:"900"},
+          text:rs[i],anim:"fxPop .4s ease-out "+(i*80+180)+"ms forwards",life:i*80+880}); }
+      for(let i=0;i<6;i++){ const a1=i*60*RAD, a2=((i+1)%6)*60*RAD;
+        beamLine(fx,tx+Math.cos(a1)*58,ty+Math.sin(a1)*40,tx+Math.cos(a2)*58,ty+Math.sin(a2)*40,3,
+          "linear-gradient(90deg,#f59e0b88,#fde68a)","#d97706",480+i*60,360); }
+      fxNode(fx,{left:tx,top:ty,style:ring(96,"#d97706",5),anim:"fxRune .8s ease-out 300ms forwards",life:1200});
+      impactBurst(fx,tx,ty,"#f59e0b","#b45309",320); });
+  },
+  earth(fx,ax,ay,tx,ty){ // 멸지성: 대지 균열 + 유성군 5연 + 암석 융기 성벽
+    for(let i=0;i<3;i++) fxNode(fx,{left:tx,top:ty+18,ang:(-20+i*20)*RAD,
+      style:{width:"150px",height:"6px",background:"linear-gradient(90deg,transparent,#78350f,#3f1f0a,transparent)",boxShadow:"0 0 8px #78350f"},
+      anim:"fxSlash .4s ease-out "+(i*90)+"ms forwards",life:i*90+560});
+    for(let i=0;i<5;i++){ const x=tx-64+i*32, dl=260+i*120, sy=Math.max(10,ty-240);
+      fxNode(fx,{left:x,top:ty+14,style:{width:"40px",height:"13px",borderRadius:"50%",
+        background:"radial-gradient(ellipse,rgba(0,0,0,.6),transparent)"},anim:"fxShadow .35s ease-out "+(dl-180)+"ms forwards",life:dl+300});
+      after(dl,()=>{ fxNode(fx,{left:x+56,top:sy,dx:-56,dy:ty-sy,style:{fontSize:"24px",filter:"drop-shadow(0 0 10px #f97316)"},
+          text:"☄️",anim:"fxProj .24s cubic-bezier(.6,0,1,1) forwards",life:340});
+        after(250,()=>{ flashAt(fx,x,ty,"#fdba74",58,0); debrisArc(fx,x,ty,"#78350f",4,0); }); }); }
+    after(900,()=>{ for(let i=0;i<4;i++) pillarUp(fx,tx-45+i*30,ty+26,16,52+((i*23)%26),
+        "linear-gradient(#d6d3d1,#78350f,#44403c)","#92400e",i*80,560);
+      shockwave(fx,tx,ty,"#b45309",120);
+      for(let i=0;i<5;i++) fxNode(fx,{left:tx+(i-2)*28,top:ty+6,style:{width:"40px",height:"40px",borderRadius:"50%",
+        background:"radial-gradient(circle,rgba(120,90,60,.5),transparent)"},anim:"fxFlash .9s ease-out "+(i*70)+"ms forwards",life:1100}); });
+  },
+};
+ELEM_KEYS.forEach(k=>{
+  ATTACK_FX[k+"_awk"] = { name:AWK_NAMES[k], element:k,
+    impact: 860, dur: 1600,
+    build(fx,ax,ay,tx,ty){
+      // 각성 발동 공통: 황금 이중 링 + 속성 수렴
+      fxNode(fx,{left:ax,top:ay,style:ring(42,"#fde047",5),anim:"fxPop .4s ease-out forwards",life:520});
+      fxNode(fx,{left:ax,top:ay,style:ring(70,ELEMENTS[k].color,3),anim:"fxFlash .55s ease-out forwards",life:640});
+      try{ AWK_BUILDERS[k](fx,ax,ay,tx,ty); }catch(e){}
+      // 대형 임팩트 스타버스트
+      after(880,()=>{ for(let i=0;i<16;i++){ const a=i*22.5*RAD, d=60+Math.random()*46;
+          fxNode(fx,{left:tx,top:ty,dx:Math.cos(a)*d,dy:Math.sin(a)*d,style:circle(12,"#fff",ELEMENTS[k].color),
+            anim:"fxBurst .65s ease-out forwards",life:820}); } });
+    }
+  };
+});
+
+// 드래곤/속성에 따라 사용할 공격 모션 결정: 각성 전설 > 전설 궁극기 > 기본
 function pickFxType(dragon, elem){
+  if(dragon && dragon.grade==="legendary" && dragon.awakened && ATTACK_FX[elem+"_awk"]) return elem+"_awk";
   if(dragon && dragon.grade==="legendary" && ATTACK_FX[elem+"_ult"]) return elem+"_ult";
   return elem;
 }
-// 도감/표시용: 특정 속성의 궁극기 이름
+// 도감/표시용 이름
 function ultNameFor(elem){ const t=ATTACK_FX[elem+"_ult"]; return t?t.name:""; }
+function awkNameFor(elem){ const t=ATTACK_FX[elem+"_awk"]; return t?t.name:""; }
 
 /* ============ 각성 시스템 ============
    500골드로 '각성의 비늘'을 사고, 10개를 모아 전설 등급을 각성시킨다.
@@ -2757,6 +3529,103 @@ function spawnSupport(fx, x, y, color, kind){
   }
 }
 
+/* ============ 드래곤 SVG 아트 ============
+   등급별 체형(새끼용→드레이크→성룡→고룡) + 종별 뿔/가시 변형 + 각성 형상(오라·후광·에너지 날개).
+   색은 종의 속성에서 파생: 주속성=몸통, 부속성=날개막/뿔 포인트. */
+function shade(hex, f){ // hex 밝기 조절 (f<0 어둡게, f>0 밝게)
+  const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  const t=f<0?0:255, p=Math.abs(f);
+  r=Math.round(r+(t-r)*p); g=Math.round(g+(t-g)*p); b=Math.round(b+(t-b)*p);
+  return "#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+function DragonArt({sid, awakened, size, dead}){
+  const sp = SPECIES_BY_ID[sid] || SPECIES[0];
+  const uidStr = React.useId().replace(/[^a-zA-Z0-9]/g,"");
+  const v = speciesVariant(sp.sid);
+  const g = sp.grade;
+  const c1 = ELEMENTS[sp.elems[0]].color;
+  const c2 = ELEMENTS[sp.elems[1]||sp.elems[0]].color;
+  const body = awakened ? shade(c1,0.18) : c1;
+  const bodyD = shade(c1,-0.45);
+  const belly = shade(c1,0.62);
+  const wingM = shade(c2, awakened?0.25:0);
+  const horn  = awakened ? "#fde047" : shade(c2,0.35);
+  const eyeC  = awakened ? "#fffbeb" : "#fef08a";
+  const S = size||44;
+  const gi = {common:0, rare:1, epic:2, legendary:3}[g];
+  // 등급별 형태 파라미터
+  const spikes = [0,3,5,7][gi];
+  const hornN  = [1,1,2,3][gi];
+  const wingScale = [0.45,0.8,1.05,1.2][gi];
+  const bodyRx = [24,22,21,21][gi], bodyRy=[15,13,12,12][gi];
+  const headR = [11,9.5,9,9][gi]; // 새끼용은 머리가 큼
+  const spikePts=[]; for(let i=0;i<spikes;i++){ const x=30+i*(30/Math.max(1,spikes-1));
+    spikePts.push(<path key={i} d={"M"+x+",46 l3,-"+(7+(i+v)%3*2)+" l3,"+(7+(i+v)%3*2)+" z"} fill={bodyD}/>); }
+  const horns=[]; for(let h=0;h<hornN;h++){ const hx=70-h*4, hy=30-h*1.5;
+    const bend = (v%3===0)? "c-3,-8 2,-13 7,-14 c-4,4 -3,8 -1,12" : (v%3===1)? "c-1,-9 6,-12 10,-11 c-5,2 -6,6 -6,10" : "c-5,-6 -2,-13 4,-15 c-2,5 -1,9 1,13";
+    horns.push(<path key={h} d={"M"+hx+","+hy+" "+bend+" z"} fill={horn} stroke={shade(c2,-0.2)} strokeWidth="0.4"/>); }
+  return (
+    <svg viewBox="0 0 100 100" width={S} height={S}
+      className={dead?"":(awakened?"awk-pulse":"drg-float")}
+      style={dead?{filter:"grayscale(1)",opacity:.45}:{}}>
+      <defs>
+        <linearGradient id={"b"+uidStr} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={body}/><stop offset="1" stopColor={bodyD}/>
+        </linearGradient>
+        <linearGradient id={"w"+uidStr} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor={wingM}/><stop offset="1" stopColor={shade(c2,-0.35)}/>
+        </linearGradient>
+        <radialGradient id={"a"+uidStr}>
+          <stop offset="0" stopColor={shade(c2,0.5)} stopOpacity="0.75"/>
+          <stop offset="0.6" stopColor={c2} stopOpacity="0.28"/>
+          <stop offset="1" stopColor={c2} stopOpacity="0"/>
+        </radialGradient>
+      </defs>
+      {awakened && <circle cx="50" cy="55" r="46" fill={"url(#a"+uidStr+")"}/>}
+      {awakened && <ellipse cx="50" cy="20" rx="17" ry="4.5" fill="none" stroke="#fde047" strokeWidth="2" opacity="0.9"/>}
+      {/* 에너지 날개(각성) — 본 날개 뒤 발광막 */}
+      {awakened && <path d={"M46,50 C28,10 6,16 12,34 C4,40 10,52 24,52 Z"} fill={shade(c2,0.4)} opacity="0.5"/>}
+      {/* 꼬리 */}
+      <path d={"M30,62 C12,66 6,76 10,84 C16,80 22,76 30,72 Z"} fill={"url(#b"+uidStr+")"}/>
+      {g!=="common" && <path d="M12,80 l-7,6 l9,-1 z" fill={horn}/>}
+      {/* 날개 */}
+      <g transform={"translate(46,50) scale("+wingScale+") translate(-46,-50)"}>
+        <path d="M46,50 C34,16 12,20 18,38 C10,42 16,54 28,52 C34,54 42,54 46,50 Z" fill={"url(#w"+uidStr+")"} stroke={shade(c2,-0.4)} strokeWidth="0.7"/>
+        <path d="M46,50 L20,37 M46,50 L27,45 M46,50 L33,51" stroke={shade(c2,-0.4)} strokeWidth="0.9" fill="none"/>
+      </g>
+      {/* 뒷다리/앞다리 */}
+      <path d="M38,68 q-3,9 2,12 l6,-1 q-2,-6 0,-11 z" fill={bodyD}/>
+      <path d="M56,70 q-1,8 3,10 l6,-1 q-2,-5 -1,-9 z" fill={bodyD}/>
+      {/* 몸통 */}
+      <ellipse cx="48" cy="60" rx={bodyRx} ry={bodyRy} fill={"url(#b"+uidStr+")"}/>
+      <ellipse cx="50" cy="66" rx={bodyRx*0.62} ry={bodyRy*0.55} fill={belly} opacity="0.9"/>
+      {/* 배 비늘 줄 */}
+      <path d={"M36,64 q14,8 26,1"} stroke={shade(c1,-0.25)} strokeWidth="0.8" fill="none" opacity="0.6"/>
+      {/* 등 가시 */}
+      {spikePts}
+      {/* 목+머리 */}
+      <path d="M60,52 C64,40 68,36 74,34 L82,40 C78,48 72,52 64,56 Z" fill={"url(#b"+uidStr+")"}/>
+      <circle cx="74" cy="38" r={headR} fill={"url(#b"+uidStr+")"}/>
+      {/* 주둥이/턱 */}
+      <path d={"M80,36 Q94,38 93,43 Q86,47 79,45 Z"} fill={body}/>
+      <path d={"M80,45 Q88,48 86,50 Q81,50 78,47 Z"} fill={bodyD}/>
+      {/* 콧구멍/이빨 */}
+      <circle cx="89" cy="41" r="0.9" fill={bodyD}/>
+      <path d="M84,45 l1.4,2.4 l1.4,-2.2 z" fill="#ffffff"/>
+      {/* 뿔 */}
+      {horns}
+      {/* 눈 */}
+      <ellipse cx="76" cy="37" rx="2.6" ry={g==="common"?3.2:2.4} fill={eyeC}/>
+      <ellipse cx="76.6" cy="37" rx="1" ry={g==="common"?2.2:1.6} fill="#1c1917"/>
+      {awakened && <ellipse cx="76" cy="37" rx="3.4" ry="3" fill="#fde047" opacity="0.35"/>}
+      {/* 전설: 가슴 보석 */}
+      {g==="legendary" && <circle cx="52" cy="60" r="3.4" fill={awakened?"#fde047":shade(c2,0.3)} stroke="#fff" strokeWidth="0.6" opacity="0.95"/>}
+      {/* 각성 반짝임 */}
+      {awakened && <g fill="#fde047"><circle cx="24" cy="30" r="1.3"/><circle cx="88" cy="24" r="1.1"/><circle cx="16" cy="58" r="1"/><circle cx="90" cy="60" r="1.2"/></g>}
+    </svg>
+  );
+}
+
 /* ============ 공용 UI ============ */
 function GradeBadge({grade}){
   const g = GRADES[grade];
@@ -2791,7 +3660,7 @@ function NurseryCard({d, onFeed, onClean, selectable, selected, onSelect, disabl
       className={"rounded-2xl p-3 border bg-slate-900/70 fade "+(selected?"ring-2":"")+(selectable&&!disabled?" cursor-pointer hover:bg-slate-800/70":"")+(disabled?" opacity-40":"")}
       style={{borderColor: d.awakened?"#fbbf24":g.color+"55", boxShadow: selected?"0 0 0 2px "+g.color : (d.awakened?"0 0 14px #fbbf2466":"none")}}>
       <div className="flex items-center gap-2 mb-2">
-        <div className="text-3xl glow">{d.awakened?"🌟":DRAGON_EMOJI[d.grade]}</div>
+        <div><DragonArt sid={d.sid} awakened={d.awakened} size={52}/></div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-100">{d.name}</span><GradeBadge grade={d.grade}/>
@@ -2834,7 +3703,7 @@ const BattleCard = React.forwardRef(({d, isEnemy, selected, targetable, onClick,
       className={"rounded-xl p-2 border bg-slate-900/80 transition "+(dead?"opacity-30 grayscale":"")+(targetable?" cursor-crosshair hover:ring-2 hover:ring-red-400":"")+(selected?" ring-2 ring-emerald-400":"")}
       style={{borderColor: d.awakened?"#fbbf24":g.color+"66", boxShadow: d.awakened&&!dead?"0 0 10px #fbbf2455":"none"}}>
       <div className="flex items-center gap-2">
-        <div className="text-2xl">{dead?"💀":(d.awakened?"🌟":DRAGON_EMOJI[d.grade])}</div>
+        <div><DragonArt sid={d.sid} awakened={d.awakened} size={40} dead={dead}/></div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
             <span className="font-bold text-xs text-slate-100 truncate">{d.name}</span><GradeBadge grade={d.grade}/>
@@ -2911,9 +3780,24 @@ function BattleArena({left, right, leftName, rightName, leftIsAI, rightIsAI, onE
     const toEl = cardRefs.current[(side==="left"?"R":"L")+ti];
     const setDef = side==="left"?setR:setL;
     const atkName = atkArr[di].name, defName = defArr[ti].name;
+    const tier = type.endsWith("_awk") ? 2 : type.endsWith("_ult") ? 1 : 0;
     const dur = playAttackFx(type, fromEl, toEl, ()=>{
       setDef(prev=>{ const n=prev.map(d=>({...d})); n[ti]=applyHit(n[ti], dmg); return n; });
-      if(toEl){ toEl.classList.add("shake"); setTimeout(()=>toEl && toEl.classList.remove("shake"),400); }
+      if(toEl){ toEl.classList.add(tier===2?"quake":"shake"); setTimeout(()=>toEl && toEl.classList.remove("shake","quake"),520); }
+      // 데미지 숫자 + 상위 티어 임팩트 프레임(전면 섬광·화면 진동)
+      const fx=fxRef.current, cont=containerRef.current;
+      if(fx && cont && toEl){
+        const c=cont.getBoundingClientRect(), b=toEl.getBoundingClientRect();
+        const px=b.left+b.width/2-c.left, py=b.top+b.height/2-c.top;
+        fxNode(fx,{left:px,top:py,style:{fontSize:(tier===2?30:tier===1?26:21)+"px",fontWeight:"900",
+          color:mult>1?"#fbbf24":"#f8fafc", textShadow:"0 0 8px "+(mult>1?"#f59e0b":"#0008")+", 0 2px 3px #000",
+          fontFamily:"monospace"}, text:String(dmg)+(mult>1?"!":""), anim:"fxDmg 1s ease-out forwards", life:1100});
+        if(tier>0){
+          fxNode(fx,{left:c.width/2,top:c.height/2,style:{width:c.width+"px",height:c.height+"px",
+            background:"#ffffff",borderRadius:"12px","--fo":tier===2?".5":".3"},anim:"fxScreen .3s ease-out forwards",life:420});
+        }
+        if(tier===2){ cont.classList.add("quake"); setTimeout(()=>cont.classList.remove("quake"),520); }
+      }
       addLog((side==="left"?"🟢 ":"🔴 ")+atkName+"의 «"+moveName+"» → "+defName+" ["+dmg+" 피해"+(mult>1?" · 효과적!":"")+"]");
       if(network && !remote) network.send({kind:"attack", side, di, elem, ti, dmg, mult});
     });
@@ -3097,7 +3981,7 @@ function BattleArena({left, right, leftName, rightName, leftIsAI, rightIsAI, onE
             {curDragon && (
               <div className="text-[11px] text-slate-400 mb-2">
                 🎬 공격 모션: <b className="text-slate-200">{(ATTACK_FX[pickFxType(curDragon, curElem)]||ATTACK_FX.fire).name}</b>
-                {curDragon.grade==="legendary" && <span className="text-amber-300"> (전설 궁극기!)</span>}
+                {curDragon.grade==="legendary" && <span className="text-amber-300">{curDragon.awakened?" (⚡각성 오의!)":" (전설 궁극기!)"}</span>}
                 {canAwakenNow && curElem && <span className="text-amber-200"> · 각성기: {AWAKEN_SKILLS[curElem].emoji} {AWAKEN_SKILLS[curElem].name}</span>}
               </div>
             )}
@@ -3136,13 +4020,13 @@ function Game(){
   const [tab, setTab] = useState("nursery");
   const [gold, setGold] = useState(()=> initSave ? initSave.gold : 600);
   const [day, setDay] = useState(()=> initSave ? initSave.day : 1);
-  const [dragons, setDragons] = useState(()=> initSave ? initSave.dragons : [
-    makeDragon("common", ["fire"], true),
-    makeDragon("common", ["water"], true),
-    makeDragon("rare", ["forest","wind"], true),
+  const [dragons, setDragons] = useState(()=> initSave ? initSave.dragons.map(migrateDragon) : [
+    makeDragonFromSpecies(SPECIES_BY_ID["c01"], true),
+    makeDragonFromSpecies(SPECIES_BY_ID["c03"], true),
+    makeDragonFromSpecies(SPECIES_BY_ID["r04"], true),
   ]);
-  const [eggs, setEggs] = useState(()=> initSave ? initSave.eggs : []);
-  const [dex, setDex] = useState(()=> initSave && initSave.dex ? initSave.dex : {}); // 발견한 종족 { speciesKey: true }
+  const [eggs, setEggs] = useState(()=> initSave ? initSave.eggs.map(migrateEgg) : []);
+  const [dex, setDex] = useState(()=> initSave && initSave.dex ? initSave.dex : {}); // 발견한 종 { sid: true }
   const [scales, setScales] = useState(()=> initSave && initSave.scales ? initSave.scales : 0); // 각성의 비늘
   const [toast, setToast] = useState(null);
   const [evt, setEvt] = useState(null);
@@ -3158,12 +4042,12 @@ function Game(){
     notify("💾 저장된 게임을 불러왔어요!");
   }, []);
 
-  // 보유/알 드래곤의 종족을 도감에 자동 등록
+  // 보유/알 드래곤의 종을 도감에 자동 등록 (sid 기준)
   useEffect(()=>{
     setDex(prev=>{
       const next={...prev}; let changed=false;
-      dragons.forEach(d=>{ const k=speciesKey(d.elements); if(!next[k]){ next[k]=true; changed=true; } });
-      eggs.forEach(e=>{ const k=speciesKey(e.elements); if(!next[k]){ next[k]=true; changed=true; } });
+      dragons.forEach(d=>{ if(d.sid && !next[d.sid]){ next[d.sid]=true; changed=true; } });
+      eggs.forEach(e=>{ if(e.sid && !next[e.sid]){ next[e.sid]=true; changed=true; } });
       return changed?next:prev;
     });
   }, [dragons, eggs]);
@@ -3225,8 +4109,8 @@ function Game(){
       ] },
     { id:8, title:"대풍년", emoji:"🌾", auto:()=>{ setDragons(ds=>ds.map(x=>({...x, fullness:100}))); return "대풍년! 모든 드래곤을 공짜로 배불리 먹였어요!"; } },
     { id:9, title:"보육원 시설 고장", emoji:"🔧", auto:()=>{ setGold(g=>Math.max(0,g-150)); return "시설이 고장나 수리비 150G를 지출했어요."; } },
-    { id:10, title:"길 잃은 아기 드래곤", emoji:"🐣", auto:()=>{ setDragons(ds=>[...ds, makeDragon("common", sample(ELEM_KEYS,1), true)]); return "길 잃은 아기 드래곤(일반)을 새 식구로 맞이했어요!"; } },
-    { id:11, title:"고대 유적의 공명", emoji:"🏛️", auto:()=>{ let n=0; setEggs(es=>{ n=es.length; setDragons(ds=>[...ds, ...es.map(e=>makeDragon(e.grade, e.elements, false))]); return []; }); return n>0?("고대의 힘으로 알 "+n+"개가 모두 부화했어요!"):"부화할 알이 없었어요."; } },
+    { id:10, title:"길 잃은 아기 드래곤", emoji:"🐣", auto:()=>{ setDragons(ds=>[...ds, makeDragonFromSpecies(pick(SPECIES_BY_GRADE.common), true)]); return "길 잃은 아기 드래곤(일반)을 새 식구로 맞이했어요!"; } },
+    { id:11, title:"고대 유적의 공명", emoji:"🏛️", auto:()=>{ let n=0; setEggs(es=>{ n=es.length; setDragons(ds=>[...ds, ...es.map(e=>makeDragonFromSpecies(SPECIES_BY_ID[e.sid]||resolveSpecies(e.elements,e.grade), false))]); return []; }); return n>0?("고대의 힘으로 알 "+n+"개가 모두 부화했어요!"):"부화할 알이 없었어요."; } },
     { id:12, title:"먹이 창고 오염", emoji:"🦠",
       desc:"먹이 창고가 오염됐어요. 정화하시겠어요?",
       choices:[
@@ -3249,7 +4133,7 @@ function Game(){
     // 알 부화 카운트다운
     setEggs(es=>{
       const remain=[]; const hatched=[];
-      es.forEach(e=>{ const dl=e.daysLeft-1; if(dl<=0) hatched.push(makeDragon(e.grade, e.elements, false)); else remain.push({...e, daysLeft:dl}); });
+      es.forEach(e=>{ const dl=e.daysLeft-1; if(dl<=0) hatched.push(makeDragonFromSpecies(SPECIES_BY_ID[e.sid]||resolveSpecies(e.elements,e.grade), false)); else remain.push({...e, daysLeft:dl}); });
       if(hatched.length){ setDragons(ds=>[...ds, ...hatched]); setTimeout(()=>notify("🐣 알 "+hatched.length+"개가 부화했어요!"),50); }
       return remain;
     });
@@ -3279,9 +4163,11 @@ function Game(){
     if(Math.random()<0.22){ const extra=ELEM_KEYS.filter(e=>!elems.includes(e)); if(extra.length){ elems.push(pick(extra)); mutated=true; } }
     if(elems.length>4) elems = sample(elems,4);
     const grade = gradeByCount(elems.length);
-    setEggs(es=>[...es, { id:uid(), grade, elements:elems, daysLeft:rand(2,3) }]);
+    // 부모 속성과 가장 잘 맞는 '종'이 태어난다 — 알의 속성·이름은 종에 고정
+    const sp = resolveSpecies(elems, grade);
+    setEggs(es=>[...es, { id:uid(), sid:sp.sid, grade:sp.grade, elements:[...sp.elems], daysLeft:rand(2,3) }]);
     setBreedSel([]);
-    setEvt({title:"교배 성공!", emoji:"🥚", result:(mutated?"✨ 돌연변이 발생! ":"")+"["+GRADES[grade].name+"] 등급 알이 태어났어요! 속성: "+elems.map(e=>ELEMENTS[e].emoji+ELEMENTS[e].name).join(", ")+" · "+rand(2,3)+"일 뒤 부화 예정."});
+    setEvt({title:"교배 성공!", emoji:"🥚", result:(mutated?"✨ 돌연변이 발생! ":"")+"["+GRADES[sp.grade].name+"] "+sp.name+"의 알이 태어났어요! 속성: "+sp.elems.map(e=>ELEMENTS[e].emoji+ELEMENTS[e].name).join(", ")+" · "+rand(2,3)+"일 뒤 부화 예정."});
   }
 
   /* ----- AI 투기장 ----- */
@@ -3457,7 +4343,7 @@ function Game(){
               {eggs.map(e=>(
                 <div key={e.id} className="rounded-xl bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm flex items-center gap-2">
                   <span className="text-2xl">🥚</span>
-                  <div><GradeBadge grade={e.grade}/><div className="text-[10px] text-slate-400 mt-0.5">부화까지 {e.daysLeft}일</div></div>
+                  <div><div className="flex items-center gap-1"><span className="text-xs font-bold text-slate-200">{(SPECIES_BY_ID[e.sid]||{}).name||"?"}</span><GradeBadge grade={e.grade}/></div><div className="text-[10px] text-slate-400 mt-0.5">부화까지 {e.daysLeft}일</div></div>
                 </div>
               ))}
             </div>
@@ -3648,75 +4534,59 @@ function Game(){
       )}
 
       {/* 도감 */}
-      {tab==="codex" && (()=>{
-        const discovered = Object.keys(dex).map(key=>{ const elements=key.split("+"); return {key, elements, grade:gradeByCount(elements.length), name:dragonNameFor(elements)}; });
-        const multi = discovered.filter(e=>e.elements.length>=2)
-          .sort((a,b)=> (({legendary:0,epic:1,rare:2,common:3})[a.grade]-({legendary:0,epic:1,rare:2,common:3})[b.grade]) || a.name.localeCompare(b.name));
-        return (
-          <div className="fade">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="font-bold text-slate-200">📖 드래곤 도감</h2>
-              <span className="text-sm font-bold text-amber-300">발견 {Object.keys(dex).length}종</span>
-            </div>
-            <p className="text-xs text-slate-400 mb-4">드래곤의 <b className="text-slate-200">이름은 속성 조합으로 고정</b>돼요. 같은 속성이면 언제나 같은 이름·같은 종족이에요. 새 조합을 교배로 발견해 도감을 채워보세요!</p>
-
-            <h3 className="font-bold text-slate-300 text-sm mb-2">🔰 기본 속성 종족 (일반)</h3>
-            <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-5">
-              {ELEM_KEYS.map(k=>{
-                const disc = !!dex[k];
-                return (
-                  <div key={k} className="rounded-xl p-3 border bg-slate-900/70" style={{borderColor:ELEMENTS[k].color+"55", opacity:disc?1:0.55}}>
-                    <div className="flex items-center gap-2">
-                      <div className="text-2xl">{disc?"🦎":"🔒"}</div>
-                      <div className="flex-1">
-                        <div className="font-bold text-slate-100">{disc?ELEM_LORE[k].base:"??? (미발견)"}</div>
-                        <ElemChips elements={[k]}/>
-                      </div>
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-2">🎬 {ATTACK_FX[k].name}</div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <h3 className="font-bold text-slate-300 text-sm mb-2">🧬 발견한 교배종 ({multi.length})</h3>
-            {multi.length===0 ? (
-              <div className="rounded-xl bg-slate-800/60 border border-slate-700 p-5 text-center text-sm text-slate-400">
-                아직 교배로 발견한 종족이 없어요. 🥚 교배소에서 서로 다른 속성의 드래곤을 교배해보세요!
-              </div>
-            ) : (
-              <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3">
-                {multi.map(e=>(
-                  <div key={e.key} className="rounded-xl p-3 border bg-slate-900/70" style={{borderColor:GRADES[e.grade].color+"66"}}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="text-2xl">{DRAGON_EMOJI[e.grade]}</div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2"><span className="font-bold text-slate-100">{e.name}</span><GradeBadge grade={e.grade}/></div>
-                        <ElemChips elements={e.elements}/>
-                      </div>
-                    </div>
-                    <div className="text-[11px] text-slate-400">❤️ 기본 HP ~{GRADES[e.grade].hp} · ⚔️ 기본 공격 ~{GRADES[e.grade].atk}</div>
-                    {e.grade==="legendary" && (
-                      <div className="mt-2 text-[11px] border-t border-slate-700 pt-2">
-                        <div className="text-amber-300 font-bold mb-1">🌟 속성별 전설 궁극기</div>
-                        {e.elements.map(el=>(
-                          <div key={el} className="flex items-center gap-1" style={{color:ELEMENTS[el].color}}>
-                            <span>{ELEMENTS[el].emoji}</span><span className="font-semibold">{ultNameFor(el)}</span>
-                          </div>
-                        ))}
-                        <div className="text-amber-200 font-bold mt-2 mb-1">✨ 각성기 (각성 시 사용 가능)</div>
-                        {e.elements.map(el=>(
-                          <div key={el} className="text-slate-300"><span style={{color:ELEMENTS[el].color}}>{AWAKEN_SKILLS[el].emoji} {AWAKEN_SKILLS[el].name}</span> — {AWAKEN_SKILLS[el].desc}</div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+      {tab==="codex" && (
+        <div className="fade">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-bold text-slate-200">📖 드래곤 도감</h2>
+            <span className="text-sm font-bold text-amber-300">발견 {Object.keys(dex).filter(k=>SPECIES_BY_ID[k]).length} / {SPECIES.length}종</span>
           </div>
-        );
-      })()}
+          <p className="text-xs text-slate-400 mb-4">등급마다 10종, 총 40종의 드래곤이 살고 있어요. <b className="text-slate-200">종의 속성은 영원히 고정</b> — 같은 종이면 언제나 같은 속성이에요. 교배로 새 종을 발견해 도감을 완성하세요!</p>
+          {["legendary","epic","rare","common"].map(gr=>(
+            <div key={gr} className="mb-5">
+              <h3 className="font-bold text-sm mb-2" style={{color:GRADES[gr].color}}>
+                {gr==="legendary"?"🐲":gr==="epic"?"🐉":gr==="rare"?"🐊":"🦎"} {GRADES[gr].name} 등급 ({SPECIES_BY_GRADE[gr].filter(s=>dex[s.sid]).length}/10)
+              </h3>
+              <div className="grid lg:grid-cols-3 md:grid-cols-2 grid-cols-1 gap-3">
+                {SPECIES_BY_GRADE[gr].map(s=>{
+                  const disc = !!dex[s.sid];
+                  return (
+                    <div key={s.sid} className="rounded-xl p-3 border bg-slate-900/70" style={{borderColor:GRADES[gr].color+(disc?"88":"33"), opacity:disc?1:0.5}}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <div>{disc ? <DragonArt sid={s.sid} size={48}/> : <div className="w-12 h-12 flex items-center justify-center text-2xl">🔒</div>}</div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2"><span className="font-bold text-slate-100">{disc?s.name:"???"}</span><GradeBadge grade={gr}/></div>
+                          <ElemChips elements={s.elems}/>
+                        </div>
+                        {disc && gr==="legendary" && (
+                          <div className="text-center">
+                            <DragonArt sid={s.sid} awakened size={44}/>
+                            <div className="text-[9px] text-amber-300 font-bold">각성 형상</div>
+                          </div>
+                        )}
+                      </div>
+                      {disc && <div className="text-[11px] text-slate-400">❤️ 기본 HP ~{GRADES[gr].hp} · ⚔️ 기본 공격 ~{GRADES[gr].atk} · 🎬 {ATTACK_FX[s.elems[0]].name}{s.elems.length>1?" 외 "+(s.elems.length-1)+"종":""}</div>}
+                      {disc && gr==="legendary" && (
+                        <div className="mt-2 text-[11px] border-t border-slate-700 pt-2">
+                          <div className="text-amber-300 font-bold mb-1">🌟 궁극기 / ⚡ 각성 공격</div>
+                          {s.elems.map(el=>(
+                            <div key={el} style={{color:ELEMENTS[el].color}}>
+                              {ELEMENTS[el].emoji} {ultNameFor(el)} <span className="text-amber-200">→ ⚡{awkNameFor(el)}</span>
+                            </div>
+                          ))}
+                          <div className="text-amber-200 font-bold mt-2 mb-1">✨ 각성기</div>
+                          {s.elems.map(el=>(
+                            <div key={el} className="text-slate-300"><span style={{color:ELEMENTS[el].color}}>{AWAKEN_SKILLS[el].emoji} {AWAKEN_SKILLS[el].name}</span> — {AWAKEN_SKILLS[el].desc}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 토스트 */}
       {toast && <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl bg-slate-100 text-slate-900 font-bold shadow-2xl fade">{toast}</div>}
@@ -3778,7 +4648,7 @@ function Game(){
                         const obj = decodeSave(saveModal.text);
                         const ids=[...obj.dragons.map(d=>d.id), ...obj.eggs.map(e=>e.id)];
                         if(ids.length) _id = Math.max(_id, Math.max(...ids)+1);
-                        setGold(obj.gold); setDay(obj.day); setDragons(obj.dragons); setEggs(obj.eggs);
+                        setGold(obj.gold); setDay(obj.day); setDragons(obj.dragons.map(migrateDragon)); setEggs(obj.eggs.map(migrateEgg));
                         if(obj.dex) setDex(obj.dex);
                         setScales(obj.scales||0);
                         setSaveModal(null); notify("✅ 불러오기 완료!");
@@ -3820,7 +4690,7 @@ home = st.Page(home_page, title="홈 화면", icon="🌟")
 game = st.Page(game_page, title="업다운 게임", icon="🎮")
 board = st.Page(board_page, title="뱀사다리 말판 게임", icon="🎲")
 quoridor = st.Page(quoridor_page, title="쿼리도 두뇌 게임", icon="🧱")
-rpg = st.Page(rpg_page, title="성장형 RPG 게임", icon="⚔️")
+rpg = st.Page(rpg_page, title="9속성 타워 디펜스", icon="🛡️")
 multiplayer_rpg = st.Page(multiplayer_rpg_page, title="1대1 멀티 RPG 배틀", icon="⚔️")
 dragon = st.Page(dragon_nursery_page, title="드래곤 보육원 & 배틀", icon="🐉")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
