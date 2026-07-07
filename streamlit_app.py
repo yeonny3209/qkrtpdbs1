@@ -4157,4 +4157,546 @@ function Game(){
     if(breedSel.length!==2){ notify("교배할 드래곤 2마리를 골라주세요."); return; }
     if(gold<100){ notify("교배 비용 100G가 부족해요."); return; }
     const p1 = dragons.find(d=>d.id===breedSel[0]), p2 = dragons.find(d=>d.id===breedSel[1]);
-    setGold(g=>g-100
+    setGold(g=>g-100);
+    let elems = uniq([...p1.elements, ...p2.elements]);
+    let mutated=false;
+    if(Math.random()<0.22){ const extra=ELEM_KEYS.filter(e=>!elems.includes(e)); if(extra.length){ elems.push(pick(extra)); mutated=true; } }
+    if(elems.length>4) elems = sample(elems,4);
+    const grade = gradeByCount(elems.length);
+    // 부모 속성과 가장 잘 맞는 '종'이 태어난다 — 알의 속성·이름은 종에 고정
+    const sp = resolveSpecies(elems, grade);
+    setEggs(es=>[...es, { id:uid(), sid:sp.sid, grade:sp.grade, elements:[...sp.elems], daysLeft:rand(2,3) }]);
+    setBreedSel([]);
+    setEvt({title:"교배 성공!", emoji:"🥚", result:(mutated?"✨ 돌연변이 발생! ":"")+"["+GRADES[sp.grade].name+"] "+sp.name+"의 알이 태어났어요! 속성: "+sp.elems.map(e=>ELEMENTS[e].emoji+ELEMENTS[e].name).join(", ")+" · "+rand(2,3)+"일 뒤 부화 예정."});
+  }
+
+  /* ----- AI 투기장 ----- */
+  const DIFFS = {
+    easy:   { name:"쉬움",   grades:["common","common","common"], mult:1,    reward:200, color:"#22c55e" },
+    normal: { name:"중급",   grades:["common","rare","common"],   mult:1,    reward:400, color:"#3b82f6" },
+    hard:   { name:"어려움", grades:["rare","rare","epic"],        mult:1.1,  reward:700, color:"#a855f7" },
+    legend: { name:"전설",   grades:["epic","epic","legendary"],   mult:1.25, reward:1200, color:"#eab308" },
+    myth:   { name:"신화",   grades:["legendary","legendary","legendary"], mult:1.5, reward:2500, color:"#ef4444" },
+  };
+  const [arenaDiff, setArenaDiff] = useState("easy");
+  const [arenaSel, setArenaSel] = useState([]);
+  const [battle, setBattle] = useState(null); // {left,right,leftName,rightName,leftIsAI,rightIsAI, ctx}
+
+  function toggleArena(d){
+    setArenaSel(s=> s.find(x=>x===d.id) ? s.filter(x=>x!==d.id) : (s.length<3 ? [...s, d.id] : s));
+  }
+  function startArena(){
+    if(arenaSel.length!==3){ notify("출전할 드래곤 3마리를 선택하세요."); return; }
+    const my = arenaSel.map(id=>dragons.find(d=>d.id===id));
+    const cfg = DIFFS[arenaDiff];
+    const enemies = cfg.grades.map(g=>randomDragon(g, cfg.mult));
+    setBattle({ left:my, right:enemies, leftName:"내 팀", rightName:"AI ("+cfg.name+")",
+      leftIsAI:false, rightIsAI:true, ctx:{type:"arena", diff:arenaDiff} });
+  }
+
+  /* ----- 친선전 (Pass & Play) ----- */
+  const [fStage, setFStage] = useState("lobby"); // lobby -> p1pick -> p2pick -> battle
+  const [roomCode, setRoomCode] = useState("");
+  const [p1Deck, setP1Deck] = useState([]);
+  const [p2Deck, setP2Deck] = useState([]);
+
+  function makeLocalRoom(){ setRoomCode(String(rand(1000,9999))); setFStage("p1pick"); setP1Deck([]); setP2Deck([]); }
+  function joinLocalRoom(){ setRoomCode("2481"); setFStage("p1pick"); setP1Deck([]); setP2Deck([]); }
+  function togglePick(deck,setDeck,d){ setDeck(s=> s.find(x=>x===d.id)?s.filter(x=>x!==d.id):(s.length<3?[...s,d.id]:s)); }
+
+  /* ----- 친선전 온라인 (다른 기기, Trystero P2P) ----- */
+  const [friendlyMode, setFriendlyMode] = useState("local"); // 'local' | 'online'
+  const [netStage, setNetStage] = useState("idle"); // idle -> pick -> waiting -> battle
+  const [netRoomCode, setNetRoomCode] = useState("");
+  const [netRoomInput, setNetRoomInput] = useState("");
+  const [netMySide, setNetMySide] = useState(null); // 'left' | 'right'
+  const [netPeerConnected, setNetPeerConnected] = useState(false);
+  const [netMyDeck, setNetMyDeck] = useState([]); // 내 dragons 중 선택한 id들
+  const [netMyDeckObjs, setNetMyDeckObjs] = useState(null); // 전송한 시점의 덱 객체 스냅샷
+  const [netPeerDeckObjs, setNetPeerDeckObjs] = useState(null); // 상대에게서 받은 덱 객체
+  const [incomingAttack, setIncomingAttack] = useState(null);
+  const netRef = useRef({});
+
+  function netSetupRoom(code, mySide){
+    setNetRoomCode(code); setNetMySide(mySide); setNetStage("pick");
+    setNetMyDeck([]); setNetMyDeckObjs(null); setNetPeerDeckObjs(null); setNetPeerConnected(false);
+    ensureTrystero(t=>{
+      const room = t.joinRoom({appId:"yunny-dragon-nursery-v1"}, "ynd-"+code);
+      // 이 버전의 trystero는 makeAction이 [send, onMessage] 튜플이 아니라
+      // {send, onMessage(getter/setter)} 객체 하나를 반환하고,
+      // onPeerJoin/onPeerLeave도 함수 호출이 아니라 프로퍼티 대입으로 등록한다.
+      const deckAction = room.makeAction("deck");
+      const atkAction = room.makeAction("atk");
+      netRef.current = {room, sendDeck: deckAction.send, sendAtk: atkAction.send};
+      room.onPeerJoin = ()=> setNetPeerConnected(true);
+      room.onPeerLeave = ()=> notify("상대방의 연결이 끊겼어요.");
+      deckAction.onMessage = deck=> setNetPeerDeckObjs(deck);
+      atkAction.onMessage = action=> setIncomingAttack({...action, counter: Date.now()+Math.random()});
+    });
+  }
+  function netHost(){ netSetupRoom(Math.random().toString(36).slice(2,8).toUpperCase(), "left"); }
+  function netJoin(){
+    const code = netRoomInput.trim().toUpperCase();
+    if(!code){ notify("방 코드를 입력하세요."); return; }
+    netSetupRoom(code, "right");
+  }
+  function netLeaveRoom(){
+    if(netRef.current.room) netRef.current.room.leave();
+    netRef.current = {};
+    setNetStage("idle"); setNetRoomCode(""); setNetRoomInput(""); setNetMySide(null);
+    setNetPeerConnected(false); setNetMyDeck([]); setNetMyDeckObjs(null); setNetPeerDeckObjs(null);
+  }
+  function sendMyDeck(){
+    if(netMyDeck.length!==3){ notify("드래곤 3마리를 선택하세요."); return; }
+    const deckObjs = netMyDeck.map(id=>dragons.find(d=>d.id===id));
+    setNetMyDeckObjs(deckObjs);
+    netRef.current.sendDeck && netRef.current.sendDeck(deckObjs);
+    setNetStage("waiting");
+  }
+  // 양쪽 덱이 모두 준비되면 자동으로 전투 시작
+  useEffect(()=>{
+    if(netStage==="waiting" && netPeerDeckObjs && netMyDeckObjs){
+      const left = netMySide==="left" ? netMyDeckObjs : netPeerDeckObjs;
+      const right = netMySide==="left" ? netPeerDeckObjs : netMyDeckObjs;
+      setBattle({ left, right, leftName: netMySide==="left"?"나":"상대", rightName: netMySide==="right"?"나":"상대",
+        leftIsAI:false, rightIsAI:false,
+        network:{ mySide: netMySide, send: action => netRef.current.sendAtk && netRef.current.sendAtk(action) },
+        ctx:{type:"online"} });
+      setNetStage("battle");
+    }
+  }, [netStage, netPeerDeckObjs, netMyDeckObjs]);
+
+  function endBattle(winner){
+    const ctx = battle.ctx;
+    if(ctx.type==="arena"){
+      if(winner==="left"){ const r=DIFFS[ctx.diff].reward; setGold(g=>g+r); setDragons(ds=>ds.map(x=> arenaSel.includes(x.id)?{...x, hp:x.maxHp}:x)); notify("🏆 승리! 보상 "+r+"G 획득!"); }
+      else notify("패배했어요... 다시 도전해봐요!");
+      setArenaSel([]);
+    } else if(ctx.type==="online"){
+      notify(winner===netMySide ? "🎉 승리!" : "💥 패배했어요...");
+      netLeaveRoom();
+    } else {
+      notify(winner==="left"?"🎉 1P 승리!":"🎉 2P 승리!");
+      setFStage("lobby"); setP1Deck([]); setP2Deck([]);
+    }
+    setBattle(null);
+  }
+
+  const grown = dragons.filter(d=>d.growth>=100);
+
+  /* ============ 렌더 ============ */
+  if(battle){
+    return (
+      <div className="max-w-4xl mx-auto p-3">
+        <BattleArena {...battle} onExit={endBattle} incomingAttack={incomingAttack}/>
+      </div>
+    );
+  }
+
+  const TABS = [
+    { k:"nursery",  label:"보육원",   emoji:"🏡" },
+    { k:"breeding", label:"교배소",   emoji:"🥚" },
+    { k:"arena",    label:"AI 투기장", emoji:"⚔️" },
+    { k:"friendly", label:"친선전",   emoji:"🤝" },
+    { k:"codex",    label:"도감",     emoji:"📖" },
+  ];
+
+  return (
+    <div className="max-w-5xl mx-auto p-3 text-slate-100">
+      {/* 상단바 */}
+      <div className="flex items-center justify-between rounded-2xl bg-slate-900/80 border border-slate-700 px-4 py-2 mb-3">
+        <div className="font-black text-lg bg-gradient-to-r from-amber-300 to-pink-400 bg-clip-text text-transparent">🐉 드래곤 보육원 & 배틀 RPG</div>
+        <div className="flex items-center gap-3 text-sm font-bold">
+          <span className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300">💰 {gold.toLocaleString()} G</span>
+          <span className="px-3 py-1 rounded-lg bg-sky-500/20 text-sky-300">📅 {day}일차</span>
+          <span className="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300">🐲 {dragons.length}마리</span>
+          <span className="px-3 py-1 rounded-lg bg-yellow-500/20 text-yellow-300">🌟 비늘 {scales}</span>
+          <button onClick={()=>setSaveModal({mode:"export", code: encodeSave({gold,day,dragons,eggs,dex,scales})})}
+            className="px-2 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs">💾 내보내기</button>
+          <button onClick={()=>setSaveModal({mode:"import", text:""})}
+            className="px-2 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs">📥 불러오기</button>
+        </div>
+      </div>
+
+      {/* 탭 */}
+      <div className="grid grid-cols-5 gap-2 mb-4">
+        {TABS.map(t=>(
+          <button key={t.k} onClick={()=>setTab(t.k)}
+            className={"py-2 rounded-xl font-bold text-sm transition "+(tab===t.k?"bg-indigo-500 text-white shadow-lg":"bg-slate-800 text-slate-300 hover:bg-slate-700")}>
+            {t.emoji} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 보육원 */}
+      {tab==="nursery" && (
+        <div className="fade">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-slate-200">🏡 보육원 · 드래곤 {dragons.length}마리 / 알 {eggs.length}개</h2>
+            <button onClick={nextDay}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 font-black text-white shadow-lg">
+              🌙 다음 날로 →
+            </button>
+          </div>
+          {eggs.length>0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {eggs.map(e=>(
+                <div key={e.id} className="rounded-xl bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm flex items-center gap-2">
+                  <span className="text-2xl">🥚</span>
+                  <div><div className="flex items-center gap-1"><span className="text-xs font-bold text-slate-200">{(SPECIES_BY_ID[e.sid]||{}).name||"?"}</span><GradeBadge grade={e.grade}/></div><div className="text-[10px] text-slate-400 mt-0.5">부화까지 {e.daysLeft}일</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* 각성소 */}
+          <div className="rounded-2xl bg-gradient-to-r from-amber-900/30 to-yellow-900/20 border border-amber-500/40 p-3 mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm">
+              <span className="font-bold text-amber-300">🌟 각성소</span>
+              <span className="text-slate-300"> · 각성의 비늘 <b className="text-yellow-300">{scales}개</b> 보유 · 전설 등급을 비늘 {AWAKEN_COST}개로 각성!</span>
+            </div>
+            <button onClick={buyScale} disabled={gold<SCALE_PRICE}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 font-black text-slate-900 disabled:opacity-40">
+              🌟 각성의 비늘 구매 ({SCALE_PRICE}G)
+            </button>
+          </div>
+          <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3">
+            {dragons.map(d=><NurseryCard key={d.id} d={d} onFeed={feed} onClean={clean} onAwaken={awaken} scales={scales}/>)}
+          </div>
+        </div>
+      )}
+
+      {/* 교배소 */}
+      {tab==="breeding" && (
+        <div className="fade">
+          <h2 className="font-bold text-slate-200 mb-1">🥚 교배소</h2>
+          <p className="text-xs text-slate-400 mb-3">다 자란(성장도 100) 드래곤 2마리를 선택해 교배하세요. 부모의 속성이 합쳐지고, 확률적으로 돌연변이가 일어나 더 높은 등급의 알이 태어나요! (비용 100G)</p>
+          <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
+            {dragons.map(d=>(
+              <NurseryCard key={d.id} d={d} selectable selected={breedSel.includes(d.id)} disabled={d.growth<100}
+                onSelect={()=>toggleBreed(d)}/>
+            ))}
+          </div>
+          <button onClick={breed} disabled={breedSel.length!==2}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-400 font-black text-white disabled:opacity-40">
+            💞 교배하기 ({breedSel.length}/2 선택됨)
+          </button>
+        </div>
+      )}
+
+      {/* AI 투기장 */}
+      {tab==="arena" && (
+        <div className="fade">
+          <h2 className="font-bold text-slate-200 mb-1">⚔️ AI 투기장 (3 vs 3)</h2>
+          <p className="text-xs text-slate-400 mb-3">난이도를 고르고 출전할 드래곤 3마리를 선택하세요. 어려울수록 AI가 강하지만 보상도 커요!</p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {Object.entries(DIFFS).map(([k,v])=>(
+              <button key={k} onClick={()=>setArenaDiff(k)}
+                className={"px-4 py-2 rounded-xl font-bold text-sm border-2 transition "+(arenaDiff===k?"text-white":"text-slate-300 border-transparent bg-slate-800")}
+                style={arenaDiff===k?{background:v.color+"33", borderColor:v.color, color:v.color}:{}}>
+                {v.name} <span className="text-[10px] opacity-80">· {v.reward}G</span>
+              </button>
+            ))}
+          </div>
+          <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
+            {dragons.map(d=>(
+              <NurseryCard key={d.id} d={d} selectable selected={arenaSel.includes(d.id)}
+                disabled={!arenaSel.includes(d.id)&&arenaSel.length>=3}
+                onSelect={()=>toggleArena(d)}/>
+            ))}
+          </div>
+          <button onClick={startArena} disabled={arenaSel.length!==3}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-400 font-black text-white disabled:opacity-40">
+            🔥 전투 시작! ({arenaSel.length}/3 출전)
+          </button>
+        </div>
+      )}
+
+      {/* 친선전 */}
+      {tab==="friendly" && (
+        <div className="fade">
+          <h2 className="font-bold text-slate-200 mb-1">🤝 친선전</h2>
+          <div className="flex gap-2 mb-4">
+            <button onClick={()=>setFriendlyMode("local")}
+              className={"flex-1 py-2 rounded-xl font-bold text-sm "+(friendlyMode==="local"?"bg-indigo-500 text-white":"bg-slate-800 text-slate-300 hover:bg-slate-700")}>
+              📱 로컬 2인 (한 기기)
+            </button>
+            <button onClick={()=>setFriendlyMode("online")}
+              className={"flex-1 py-2 rounded-xl font-bold text-sm "+(friendlyMode==="online"?"bg-indigo-500 text-white":"bg-slate-800 text-slate-300 hover:bg-slate-700")}>
+              🌐 온라인 대전 (다른 기기)
+            </button>
+          </div>
+
+          {friendlyMode==="local" && (
+            <div>
+              {fStage==="lobby" && (
+                <div className="mt-2 grid sm:grid-cols-2 gap-4">
+                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
+                    <div className="text-4xl mb-2">🏠</div><div className="font-bold mb-2">방 만들기</div>
+                    <p className="text-xs text-slate-400 mb-3">새 방을 만들고 친구에게 코드를 알려주세요.</p>
+                    <button onClick={makeLocalRoom} className="w-full py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold">방 만들기</button>
+                  </div>
+                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
+                    <div className="text-4xl mb-2">🔑</div><div className="font-bold mb-2">참여하기</div>
+                    <p className="text-xs text-slate-400 mb-3">한 기기에서 번갈아 조작하는 로컬 대전이에요.</p>
+                    <button onClick={joinLocalRoom} className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-900">참여하기</button>
+                  </div>
+                </div>
+              )}
+              {(fStage==="p1pick"||fStage==="p2pick") && (
+                <div className="mt-3">
+                  <div className="rounded-xl bg-slate-800/70 border border-slate-700 px-4 py-2 mb-3 text-sm flex items-center justify-between">
+                    <span>🔑 방 코드: <b className="text-amber-300">{roomCode}</b></span>
+                    <span className="font-bold text-emerald-300">{fStage==="p1pick"?"1P":"2P"} 덱 구성 중...</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-3">{fStage==="p1pick"?"1P":"2P"}가 사용할 드래곤 3마리를 선택하세요. (기기를 넘겨가며 진행)</p>
+                  <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
+                    {dragons.map(d=>{
+                      const deck = fStage==="p1pick"?p1Deck:p2Deck;
+                      return <NurseryCard key={d.id} d={d} selectable selected={deck.includes(d.id)}
+                        disabled={!deck.includes(d.id)&&deck.length>=3}
+                        onSelect={()=> fStage==="p1pick"? togglePick(p1Deck,setP1Deck,d) : togglePick(p2Deck,setP2Deck,d)}/>;
+                    })}
+                  </div>
+                  {fStage==="p1pick" ? (
+                    <button onClick={()=>setFStage("p2pick")} disabled={p1Deck.length!==3}
+                      className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 font-black text-slate-900 disabled:opacity-40">
+                      1P 완료 → 2P에게 넘기기 ({p1Deck.length}/3)
+                    </button>
+                  ) : (
+                    <button onClick={()=>{
+                        const l=p1Deck.map(id=>dragons.find(d=>d.id===id));
+                        const r=p2Deck.map(id=>dragons.find(d=>d.id===id));
+                        setBattle({ left:l, right:r, leftName:"1P", rightName:"2P", leftIsAI:false, rightIsAI:false, ctx:{type:"friendly"} });
+                        setFStage("battle");
+                      }} disabled={p2Deck.length!==3}
+                      className="w-full py-3 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 font-black text-white disabled:opacity-40">
+                      ⚔️ 대전 시작! ({p2Deck.length}/3)
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {friendlyMode==="online" && (
+            <div>
+              <p className="text-xs text-slate-400 mb-3">서버 없이 브라우저끼리 직접 연결돼요. 한쪽이 방을 만들고, 생성된 코드를 카톡 등으로 상대에게 알려주면 서로 다른 기기에서 실시간으로 싸울 수 있어요.</p>
+              {netStage==="idle" && (
+                <div className="mt-2 grid sm:grid-cols-2 gap-4">
+                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
+                    <div className="text-4xl mb-2">🌐</div><div className="font-bold mb-2">방 만들기</div>
+                    <p className="text-xs text-slate-400 mb-3">새 방을 만들고 생성된 코드를 상대에게 알려주세요.</p>
+                    <button onClick={netHost} className="w-full py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold">방 만들기</button>
+                  </div>
+                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
+                    <div className="text-4xl mb-2">🔑</div><div className="font-bold mb-2">참여하기</div>
+                    <input value={netRoomInput} onChange={e=>setNetRoomInput(e.target.value)} placeholder="방 코드 입력"
+                      className="w-full mb-2 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-center font-bold tracking-widest text-slate-100 uppercase"/>
+                    <button onClick={netJoin} className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-900">참여하기</button>
+                  </div>
+                </div>
+              )}
+              {netStage==="pick" && (
+                <div className="mt-3">
+                  <div className="rounded-xl bg-slate-800/70 border border-slate-700 px-4 py-2 mb-3 text-sm flex items-center justify-between">
+                    <span>🔑 방 코드: <b className="text-amber-300">{netRoomCode}</b></span>
+                    <span className={"font-bold "+(netPeerConnected?"text-emerald-300":"text-amber-300 animate-pulse")}>
+                      {netPeerConnected ? "✅ 상대 연결됨" : "⏳ 상대 연결 대기 중..."}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-3">사용할 드래곤 3마리를 선택하고 덱을 보내세요.</p>
+                  <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
+                    {dragons.map(d=>(
+                      <NurseryCard key={d.id} d={d} selectable selected={netMyDeck.includes(d.id)}
+                        disabled={!netMyDeck.includes(d.id)&&netMyDeck.length>=3}
+                        onSelect={()=> setNetMyDeck(s=> s.includes(d.id)? s.filter(x=>x!==d.id) : (s.length<3?[...s,d.id]:s))}/>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={netLeaveRoom} className="px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-sm">나가기</button>
+                    <button onClick={sendMyDeck} disabled={netMyDeck.length!==3}
+                      className="flex-1 py-3 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 font-black text-white disabled:opacity-40">
+                      📤 덱 보내기 ({netMyDeck.length}/3)
+                    </button>
+                  </div>
+                </div>
+              )}
+              {netStage==="waiting" && (
+                <div className="mt-6 text-center text-slate-300">
+                  <div className="text-4xl mb-3 animate-pulse">⏳</div>
+                  <p>상대방이 덱을 고르는 중이에요... 잠시만 기다려주세요.</p>
+                  <button onClick={netLeaveRoom} className="mt-4 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm">취소하고 나가기</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 도감 */}
+      {tab==="codex" && (
+        <div className="fade">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-bold text-slate-200">📖 드래곤 도감</h2>
+            <span className="text-sm font-bold text-amber-300">발견 {Object.keys(dex).filter(k=>SPECIES_BY_ID[k]).length} / {SPECIES.length}종</span>
+          </div>
+          <p className="text-xs text-slate-400 mb-4">등급마다 10종, 총 40종의 드래곤이 살고 있어요. <b className="text-slate-200">종의 속성은 영원히 고정</b> — 같은 종이면 언제나 같은 속성이에요. 교배로 새 종을 발견해 도감을 완성하세요!</p>
+          {["legendary","epic","rare","common"].map(gr=>(
+            <div key={gr} className="mb-5">
+              <h3 className="font-bold text-sm mb-2" style={{color:GRADES[gr].color}}>
+                {gr==="legendary"?"🐲":gr==="epic"?"🐉":gr==="rare"?"🐊":"🦎"} {GRADES[gr].name} 등급 ({SPECIES_BY_GRADE[gr].filter(s=>dex[s.sid]).length}/10)
+              </h3>
+              <div className="grid lg:grid-cols-3 md:grid-cols-2 grid-cols-1 gap-3">
+                {SPECIES_BY_GRADE[gr].map(s=>{
+                  const disc = !!dex[s.sid];
+                  return (
+                    <div key={s.sid} className="rounded-xl p-3 border bg-slate-900/70" style={{borderColor:GRADES[gr].color+(disc?"88":"33"), opacity:disc?1:0.5}}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <div>{disc ? <DragonArt sid={s.sid} size={48}/> : <div className="w-12 h-12 flex items-center justify-center text-2xl">🔒</div>}</div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2"><span className="font-bold text-slate-100">{disc?s.name:"???"}</span><GradeBadge grade={gr}/></div>
+                          <ElemChips elements={s.elems}/>
+                        </div>
+                        {disc && gr==="legendary" && (
+                          <div className="text-center">
+                            <DragonArt sid={s.sid} awakened size={44}/>
+                            <div className="text-[9px] text-amber-300 font-bold">각성 형상</div>
+                          </div>
+                        )}
+                      </div>
+                      {disc && <div className="text-[11px] text-slate-400">❤️ 기본 HP ~{GRADES[gr].hp} · ⚔️ 기본 공격 ~{GRADES[gr].atk} · 🎬 {ATTACK_FX[s.elems[0]].name}{s.elems.length>1?" 외 "+(s.elems.length-1)+"종":""}</div>}
+                      {disc && gr==="legendary" && (
+                        <div className="mt-2 text-[11px] border-t border-slate-700 pt-2">
+                          <div className="text-amber-300 font-bold mb-1">🌟 궁극기 / ⚡ 각성 공격</div>
+                          {s.elems.map(el=>(
+                            <div key={el} style={{color:ELEMENTS[el].color}}>
+                              {ELEMENTS[el].emoji} {ultNameFor(el)} <span className="text-amber-200">→ ⚡{awkNameFor(el)}</span>
+                            </div>
+                          ))}
+                          <div className="text-amber-200 font-bold mt-2 mb-1">✨ 각성기</div>
+                          {s.elems.map(el=>(
+                            <div key={el} className="text-slate-300"><span style={{color:ELEMENTS[el].color}}>{AWAKEN_SKILLS[el].emoji} {AWAKEN_SKILLS[el].name}</span> — {AWAKEN_SKILLS[el].desc}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 토스트 */}
+      {toast && <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl bg-slate-100 text-slate-900 font-bold shadow-2xl fade">{toast}</div>}
+
+      {/* 이벤트 모달 */}
+      {evt && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="rounded-2xl bg-slate-900 border-2 border-indigo-500/60 max-w-md w-full p-6 fade shadow-2xl">
+            <div className="text-center text-5xl mb-2">{evt.emoji}</div>
+            <div className="text-center text-xl font-black mb-3 text-indigo-300">{evt.title}</div>
+            {evt.desc && <p className="text-center text-sm text-slate-300 mb-4">{evt.desc}</p>}
+            {evt.result && <p className="text-center text-sm text-emerald-300 mb-4 font-semibold">{evt.result}</p>}
+            {evt.choices ? (
+              <div className="flex flex-col gap-2">
+                {evt.choices.map((c,i)=>(
+                  <button key={i} onClick={()=>{ const msg=c.run(); setEvt({title:evt.title, emoji:evt.emoji, result:msg}); }}
+                    className="w-full py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">{c.label}</button>
+                ))}
+              </div>
+            ) : (
+              <button onClick={()=>setEvt(null)} className="w-full py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">확인</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 저장 내보내기 / 불러오기 모달 */}
+      {saveModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="rounded-2xl bg-slate-900 border-2 border-indigo-500/60 max-w-lg w-full p-6 fade shadow-2xl">
+            {saveModal.mode==="export" ? (
+              <div>
+                <div className="text-center text-3xl mb-2">💾</div>
+                <div className="text-center text-lg font-black mb-3 text-indigo-300">저장 코드 내보내기</div>
+                <p className="text-xs text-slate-400 mb-2">이 코드를 복사해서 다른 기기의 "📥 불러오기"에 붙여넣으면 진행 상황이 그대로 옮겨져요. (이 기기에는 이미 자동 저장되어 있어요)</p>
+                <textarea readOnly value={saveModal.code} onFocus={e=>e.target.select()}
+                  className="w-full h-32 p-2 rounded-lg bg-slate-950 border border-slate-700 text-[11px] text-slate-300 font-mono mb-3"/>
+                <div className="flex gap-2">
+                  <button onClick={()=>{
+                      const ta=document.createElement("textarea"); ta.value=saveModal.code;
+                      document.body.appendChild(ta); ta.select();
+                      try{ document.execCommand("copy"); notify("📋 복사했어요!"); }catch(e){ notify("복사에 실패했어요. 직접 선택해서 복사해주세요."); }
+                      document.body.removeChild(ta);
+                    }} className="flex-1 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">📋 복사하기</button>
+                  <button onClick={()=>setSaveModal(null)} className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-white">닫기</button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-center text-3xl mb-2">📥</div>
+                <div className="text-center text-lg font-black mb-3 text-indigo-300">저장 코드 불러오기</div>
+                <p className="text-xs text-slate-400 mb-2">다른 기기에서 "💾 내보내기"로 받은 코드를 붙여넣으세요. 현재 진행 상황을 덮어써요.</p>
+                <textarea value={saveModal.text} onChange={e=>setSaveModal(m=>({...m, text:e.target.value}))}
+                  placeholder="여기에 저장 코드를 붙여넣으세요"
+                  className="w-full h-32 p-2 rounded-lg bg-slate-950 border border-slate-700 text-[11px] text-slate-300 font-mono mb-3"/>
+                <div className="flex gap-2">
+                  <button onClick={()=>{
+                      try{
+                        const obj = decodeSave(saveModal.text);
+                        const ids=[...obj.dragons.map(d=>d.id), ...obj.eggs.map(e=>e.id)];
+                        if(ids.length) _id = Math.max(_id, Math.max(...ids)+1);
+                        setGold(obj.gold); setDay(obj.day); setDragons(obj.dragons.map(migrateDragon)); setEggs(obj.eggs.map(migrateEgg));
+                        if(obj.dex) setDex(obj.dex);
+                        setScales(obj.scales||0);
+                        setSaveModal(null); notify("✅ 불러오기 완료!");
+                      }catch(e){ notify("코드가 올바르지 않아요. 다시 확인해주세요."); }
+                    }} className="flex-1 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">불러오기</button>
+                  <button onClick={()=>setSaveModal(null)} className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-white">닫기</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+</script>
+</body>
+</html>'''
+
+
+def dragon_nursery_page():
+    st.title("🐉 드래곤 보육원 & 배틀 RPG")
+    st.caption("React + Tailwind로 만든 게임 · 먹이 주고 → 교배하고 → 3v3로 싸워보자! (보육원/교배소/AI 투기장/친선전)")
+    components.html(DRAGON_GAME_HTML, height=940, scrolling=True)
+
+
+# ==========================================
+# 8. 메인 네비게이션 진입 게이트웨이
+# ==========================================
+st.set_page_config(
+    page_title="종합 게임 허브 스트림릿",
+    page_icon="🌟",
+    layout="wide"
+)
+
+home = st.Page(home_page, title="홈 화면", icon="🌟")
+game = st.Page(game_page, title="업다운 게임", icon="🎮")
+board = st.Page(board_page, title="뱀사다리 말판 게임", icon="🎲")
+quoridor = st.Page(quoridor_page, title="쿼리도 두뇌 게임", icon="🧱")
+rpg = st.Page(rpg_page, title="9속성 타워 디펜스", icon="🛡️")
+multiplayer_rpg = st.Page(multiplayer_rpg_page, title="1대1 멀티 RPG 배틀", icon="⚔️")
+dragon = st.Page(dragon_nursery_page, title="드래곤 보육원 & 배틀", icon="🐉")
+wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
+adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
+typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
+
+pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, wordle, adventure, typing_game])
+pg.run()
+
