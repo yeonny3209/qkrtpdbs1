@@ -453,7 +453,7 @@ def enemy_turn_process(m, total_def):
 # ==========================================
 # 6. 메인 RPG 게임 화면 페이지
 # ==========================================
-def rpg_page():
+def _legacy_rpg_page():  # (구) 성장형 RPG — 9속성 타워 디펜스로 대체됨. 미사용.
     st.title("⚔️ 전설의 용사 키우기 (Ver 3.0 Custom)")
     st.write("자신만의 스킬셋을 세팅하고 장비를 한계까지 강화하여 10대 군주 보스들을 처단하세요!")
 
@@ -807,6 +807,561 @@ def rpg_page():
     st.write("### 📜 전투 상황실 하이라이트 배틀로그")
     for log in st.session_state.r_log[:5]:
         st.write(log)
+
+
+# ==========================================
+# 6.4. 9속성 타워 디펜스 (React 임베드) — (구)RPG 페이지 대체
+# ==========================================
+TOWER_DEFENSE_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
+</script>
+<style>
+  html,body{margin:0;padding:0;background:#070b16;overflow-x:hidden;font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif;}
+  #root{min-height:100vh;}
+  .glass{background:rgba(17,24,39,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.09);}
+  .fadein{animation:fadein .35s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .pop{animation:pop .3s cubic-bezier(.2,1.4,.4,1);}
+  @keyframes pop{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+  canvas{display:block;border-radius:14px;touch-action:none;}
+  .btng{transition:transform .12s, box-shadow .12s, filter .12s;}
+  .btng:hover{transform:translateY(-2px);filter:brightness(1.12);}
+  .btng:active{transform:translateY(0);}
+  ::-webkit-scrollbar{height:8px;width:8px}::-webkit-scrollbar-thumb{background:#334155;border-radius:8px}
+  .sheen{background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.16) 50%,transparent 70%);background-size:200% 100%;animation:sheen 2.6s linear infinite;}
+  @keyframes sheen{from{background-position:200% 0}to{background-position:-200% 0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="classic-react">
+const { useState, useRef, useEffect, useCallback } = React;
+
+/* ===================== 코어 상수 ===================== */
+const COLS=12, ROWS=12, CELL=48, SIZE=COLS*CELL;
+const ELE = {
+  fire:   { name:"불",   emoji:"🔥", color:"#ef4444", glow:"#fca5a5" },
+  water:  { name:"물",   emoji:"💧", color:"#3b82f6", glow:"#93c5fd" },
+  forest: { name:"숲",   emoji:"🌿", color:"#22c55e", glow:"#86efac" },
+  metal:  { name:"금속", emoji:"⚙️", color:"#9ca3af", glow:"#e5e7eb" },
+  wind:   { name:"바람", emoji:"🌪️", color:"#38bdf8", glow:"#bae6fd" },
+  void:   { name:"공허", emoji:"🌌", color:"#a855f7", glow:"#d8b4fe" },
+  holy:   { name:"신성", emoji:"✨", color:"#eab308", glow:"#fde68a" },
+  ancient:{ name:"고대", emoji:"🏛️", color:"#b45309", glow:"#fcd34d" },
+  earth:  { name:"대지", emoji:"🪨", color:"#92400e", glow:"#d6a878" },
+};
+const EKEYS = Object.keys(ELE);
+// 상성 배율표 (타워속성 → 적속성)
+const ADV = {
+  fire:{forest:1.5,metal:1.5,water:0.5},
+  water:{fire:1.5,earth:1.5,forest:0.5},
+  forest:{earth:1.5,water:1.5,fire:0.5},
+  metal:{}, wind:{}, earth:{},
+  void:{holy:2.0}, holy:{void:2.0}, ancient:{},
+};
+function advMul(tEl,eEl){ const m=ADV[tEl]; return (m && m[eEl])!=null ? m[eEl] : 1; }
+// 타워 정의 (레벨1 기준). 역할 차별화: 금속=저격, 바람=연사, 대지=광역, 고대=최강
+const TOWER = {
+  fire:   { cost:50,  dmg:11, range:2.3, rate:1.3, splash:0,   role:"밸런스", name:"화염탑" },
+  water:  { cost:50,  dmg:12, range:2.3, rate:1.2, splash:0,   role:"밸런스", name:"해류탑" },
+  forest: { cost:50,  dmg:11, range:2.4, rate:1.25,splash:0,   role:"밸런스", name:"숲결탑" },
+  wind:   { cost:60,  dmg:6,  range:2.2, rate:3.1, splash:0,   role:"연사",   name:"질풍탑" },
+  earth:  { cost:70,  dmg:14, range:2.1, rate:0.9, splash:1.15,role:"광역",   name:"대지탑" },
+  metal:  { cost:70,  dmg:30, range:3.3, rate:0.6, splash:0,   role:"저격",   name:"강철포" },
+  void:   { cost:80,  dmg:16, range:2.6, rate:1.1, splash:0,   role:"극상성", name:"공허탑" },
+  holy:   { cost:80,  dmg:15, range:3.0, rate:1.1, splash:0,   role:"극상성", name:"성광탑" },
+  ancient:{ cost:150, dmg:34, range:3.4, rate:1.05,splash:0,   role:"초월",   name:"고대탑" },
+};
+const MAX_LV=6;
+function towerStat(el, lvl){
+  const b=TOWER[el];
+  return {
+    dmg: b.dmg*Math.pow(1.55,lvl-1),
+    range: (b.range + (lvl-1)*0.22),
+    rate: b.rate*Math.pow(1.09,lvl-1),
+    splash: b.splash,
+  };
+}
+function upgradeCost(el, lvl){ return Math.round(TOWER[el].cost * (0.85+lvl*0.55)); }
+
+/* ===== 경로 설계 (굴곡진 스네이크) ===== */
+const WP = [[-1,1],[10,1],[10,3],[1,3],[1,5],[10,5],[10,7],[1,7],[1,9],[12,9]];
+const clampC=v=>Math.max(0,Math.min(COLS-1,v));
+const PATH=new Set();
+(()=>{ for(let i=0;i<WP.length-1;i++){
+  let c1=clampC(WP[i][0]), r1=clampC(WP[i][1]), c2=clampC(WP[i+1][0]), r2=clampC(WP[i+1][1]);
+  const dc=Math.sign(c2-c1), dr=Math.sign(r2-r1); let c=c1,r=r1; PATH.add(c+","+r);
+  while(c!==c2||r!==r2){ if(c!==c2)c+=dc; else if(r!==r2)r+=dr; PATH.add(c+","+r); }
+} })();
+function isPath(c,r){ return PATH.has(c+","+r); }
+// 픽셀 세그먼트
+const cellPx = (c,r)=>({x:c*CELL+CELL/2, y:r*CELL+CELL/2});
+const SEG=[]; let TOTAL=0;
+(()=>{ for(let i=0;i<WP.length-1;i++){
+  const a=cellPx(WP[i][0],WP[i][1]), b=cellPx(WP[i+1][0],WP[i+1][1]);
+  const len=Math.hypot(b.x-a.x,b.y-a.y);
+  SEG.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y,len,cum:TOTAL}); TOTAL+=len;
+} })();
+function posAt(dist){
+  if(dist<=0) return {x:SEG[0].x1,y:SEG[0].y1,ang:0};
+  for(const s of SEG){ if(dist<=s.cum+s.len){ const t=(dist-s.cum)/s.len;
+    return {x:s.x1+(s.x2-s.x1)*t, y:s.y1+(s.y2-s.y1)*t, ang:Math.atan2(s.y2-s.y1,s.x2-s.x1)}; } }
+  const l=SEG[SEG.length-1]; return {x:l.x2,y:l.y2,ang:0};
+}
+const pick = a=>a[Math.floor(Math.random()*a.length)];
+const rand=(a,b)=>a+Math.random()*(b-a);
+
+/* ===================== 게임 컴포넌트 ===================== */
+function Game(){
+  const canvasRef = useRef(null);
+  // --- 시뮬레이션 상태(Ref, 매 프레임 갱신, 리렌더 없음) ---
+  const enemies=useRef([]), towers=useRef([]), shots=useRef([]), parts=useRef([]), floats=useRef([]);
+  const hp=useRef(20), gold=useRef(150), wave=useRef(0);
+  const phase=useRef("build"); // build | wave | over
+  const paused=useRef(false), speed=useRef(1), auto=useRef(false);
+  const queue=useRef([]), qIdx=useRef(0), waveClock=useRef(0);
+  const shake=useRef({t:0,mag:0});
+  const idc=useRef(1);
+  const uiRef=useRef({ build:null, sel:null, hover:null });
+  const bgRef=useRef(null);
+  const acc=useRef(0);
+
+  // --- HUD/UI 상태(React, 저빈도) ---
+  const [ui,setUi]=useState({hp:20,gold:150,wave:0});
+  const [phaseS,setPhaseS]=useState("build");
+  const [build,setBuild]=useState(null);
+  const [selId,setSelId]=useState(null);
+  const [tick,setTick]=useState(0);       // 패널 수치 갱신용
+  const [spd,setSpd]=useState(1);
+  const [aut,setAut]=useState(false);
+  const [result,setResult]=useState(null); // 게임오버 데이터
+
+  const syncUi=useCallback(()=>{ setUi({hp:hp.current,gold:gold.current,wave:wave.current}); },[]);
+
+  /* ---------- 배경(정적) 오프스크린 캐시 ---------- */
+  const buildBg=useCallback(()=>{
+    const bg=document.createElement("canvas"); bg.width=SIZE; bg.height=SIZE;
+    const g=bg.getContext("2d");
+    const grad=g.createLinearGradient(0,0,SIZE,SIZE);
+    grad.addColorStop(0,"#0b1226"); grad.addColorStop(.5,"#0a1020"); grad.addColorStop(1,"#0d0a1c");
+    g.fillStyle=grad; g.fillRect(0,0,SIZE,SIZE);
+    // 건설 가능 타일
+    for(let c=0;c<COLS;c++)for(let r=0;r<ROWS;r++){
+      if(isPath(c,r))continue; const x=c*CELL,y=r*CELL;
+      g.fillStyle="rgba(56,80,140,.10)"; roundRect(g,x+3,y+3,CELL-6,CELL-6,7); g.fill();
+      g.strokeStyle="rgba(120,150,220,.10)"; g.lineWidth=1; g.stroke();
+    }
+    // 길: 발광 밴드 + 점선 중심
+    g.lineCap="round"; g.lineJoin="round";
+    g.strokeStyle="rgba(80,60,140,.30)"; g.lineWidth=CELL-6; drawPath(g);
+    g.strokeStyle="#241a3a"; g.lineWidth=CELL-14; drawPath(g);
+    g.strokeStyle="rgba(168,130,255,.55)"; g.lineWidth=3; g.setLineDash([9,11]); drawPath(g); g.setLineDash([]);
+    // 시작/도착 마커
+    const st=posAt(0), en=posAt(TOTAL);
+    marker(g,st.x,st.y,"#22c55e","IN"); marker(g,en.x,en.y,"#ef4444","OUT");
+    bgRef.current=bg;
+  },[]);
+  function drawPath(g){ g.beginPath(); const p0=cellPx(clampC(WP[0][0]),clampC(WP[0][1])); g.moveTo(p0.x,p0.y);
+    for(let i=1;i<WP.length;i++){ const p=cellPx(clampC(WP[i][0]),clampC(WP[i][1])); g.lineTo(p.x,p.y);} g.stroke(); }
+  function marker(g,x,y,col,txt){ g.save(); g.shadowColor=col; g.shadowBlur=18; g.fillStyle=col;
+    g.beginPath(); g.arc(x,y,13,0,7); g.fill(); g.shadowBlur=0; g.fillStyle="#0b1020";
+    g.font="bold 9px sans-serif"; g.textAlign="center"; g.textBaseline="middle"; g.fillText(txt,x,y); g.restore(); }
+
+  /* ---------- 웨이브 생성 ---------- */
+  function startWave(){
+    if(phase.current==="wave"||phase.current==="over") return;
+    wave.current++; const w=wave.current;
+    const q=[]; const count=6+Math.floor(w*2.2);
+    const primary=EKEYS[(w-1)%9];
+    const gap=Math.max(230, 600-w*17);
+    for(let i=0;i<count;i++){
+      let kind="normal"; const rr=Math.random();
+      if(w>=3 && rr<0.16) kind="fast"; else if(w>=4 && rr<0.30) kind="tank";
+      const el = Math.random()<0.62 ? primary : pick(EKEYS);
+      q.push({el,kind,at:i*gap});
+    }
+    if(w%5===0) q.push({el:primary,kind:"boss",at:count*gap+700});
+    queue.current=q; qIdx.current=0; waveClock.current=0;
+    phase.current="wave"; setPhaseS("wave"); syncUi();
+  }
+  function makeEnemy(spec){
+    const w=wave.current; const base=16*Math.pow(1.33,w-1);
+    let ehp=base, sp=50*(1+w*0.014), size=13;
+    if(spec.kind==="fast"){ ehp*=0.55; sp*=1.7; size=11; }
+    if(spec.kind==="tank"){ ehp*=3.3; sp*=0.7; size=18; }
+    if(spec.kind==="boss"){ ehp*=17;  sp*=0.52; size=27; }
+    ehp=Math.round(ehp);
+    const reward = spec.kind==="boss" ? Math.round(ehp*0.018)+90 : Math.max(3, Math.round(ehp*0.055)+2);
+    return { id:idc.current++, el:spec.el, kind:spec.kind, dist:-rand(0,10), hp:ehp, maxHp:ehp, sp, size, flash:0, reward, dead:false };
+  }
+
+  /* ---------- 파티클/데미지 헬퍼 ---------- */
+  function burst(x,y,color,n,pow){ for(let i=0;i<n;i++){ const a=Math.random()*7, s=rand(.4,1)*(pow||70);
+    parts.current.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0,max:rand(.28,.55),size:rand(2,4.5),color}); } }
+  function floatDmg(x,y,val,crit,color){ floats.current.push({x:x+rand(-6,6),y,vy:-46,life:0,max:crit?1.0:.75,
+    val:Math.round(val),crit,color}); }
+
+  /* ---------- 발사 ---------- */
+  function fire(t){
+    const st=towerStat(t.el,t.lvl);
+    const rangePx=st.range*CELL;
+    let best=null,bestD=-1;
+    for(const e of enemies.current){ if(e.dead)continue; const p=posAt(e.dist);
+      const d=Math.hypot(p.x-t.x,p.y-t.y); if(d<=rangePx && e.dist>bestD){ bestD=e.dist; best=e; best._p=p; } }
+    if(!best) return;
+    t.ang=Math.atan2(best._p.y-t.y, best._p.x-t.x);
+    burst(t.x+Math.cos(t.ang)*16, t.y+Math.sin(t.ang)*16, ELE[t.el].glow, 5, 40);
+    shots.current.push({ id:idc.current++, el:t.el, x:t.x, y:t.y, tid:best.id, dmg:st.dmg, splash:st.splash,
+      sp: t.el==="wind"?560:t.el==="metal"?720:440, trail:[] });
+    t.cd = 1000/st.rate;
+  }
+  function dealHit(shot, e, px, py){
+    const mul=advMul(shot.el, e.el); const dmg=shot.dmg*mul;
+    e.hp-=dmg; e.flash=1; e.dist=Math.max(0,e.dist-3);
+    const crit=mul>=1.5;
+    floatDmg(px, py-e.size-6, dmg, crit, mul<1?"#94a3b8":crit?"#fde047":"#f1f5f9");
+    burst(px,py, ELE[shot.el].glow, crit?14:8, crit?120:80);
+    if(crit){ shake.current={t:170,mag:mul>=2?7:5}; }
+    if(shot.splash>0){ const rad=shot.splash*CELL; for(const o of enemies.current){ if(o.dead||o===e)continue;
+      const op=posAt(o.dist); if(Math.hypot(op.x-px,op.y-py)<=rad){ const m2=advMul(shot.el,o.el);
+        o.hp-=shot.dmg*0.5*m2; o.flash=1; floatDmg(op.x,op.y-o.size-4, shot.dmg*0.5*m2, false, "#fbbf24"); } } }
+    if(e.hp<=0 && !e.dead){ e.dead=true; gold.current+=e.reward; burst(px,py,ELE[e.el].color,e.kind==="boss"?40:16,e.kind==="boss"?200:120);
+      if(e.kind==="boss") shake.current={t:320,mag:9}; }
+  }
+
+  /* ---------- 시뮬레이션 스텝 ---------- */
+  function step(dtMs){
+    if(phase.current==="over") return;
+    const dt=dtMs/1000;
+    // 스폰
+    if(phase.current==="wave"){ waveClock.current+=dtMs;
+      while(qIdx.current<queue.current.length && queue.current[qIdx.current].at<=waveClock.current){
+        enemies.current.push(makeEnemy(queue.current[qIdx.current])); qIdx.current++; } }
+    // 적 이동
+    let reached=0;
+    for(const e of enemies.current){ if(e.dead)continue; e.dist+=e.sp*dt; if(e.flash>0)e.flash=Math.max(0,e.flash-dt*4);
+      if(e.dist>=TOTAL){ e.dead=true; reached++; } }
+    if(reached>0){ hp.current=Math.max(0,hp.current-reached); shake.current={t:200,mag:6};
+      if(hp.current<=0){ phase.current="over"; setPhaseS("over"); setResult({wave:wave.current}); } }
+    // 타워 발사
+    for(const t of towers.current){ t.cd-=dtMs; if(t.cd<=0) fire(t); }
+    // 투사체
+    for(const s of shots.current){ if(s.done)continue;
+      const e=enemies.current.find(x=>x.id===s.tid && !x.dead); let tx,ty;
+      if(e){ const p=posAt(e.dist); tx=p.x; ty=p.y; s.lx=tx; s.ly=ty; } else { tx=s.lx; ty=s.ly; if(tx==null){ s.done=true; continue; } }
+      const dx=tx-s.x, dy=ty-s.y, d=Math.hypot(dx,dy); const move=s.sp*dt;
+      s.trail.push({x:s.x,y:s.y}); if(s.trail.length>6)s.trail.shift();
+      if(d<=move+ (e?e.size:6)){ if(e) dealHit(s,e,tx,ty); else burst(tx,ty,ELE[s.el].glow,6,70); s.done=true; }
+      else { s.x+=dx/d*move; s.y+=dy/d*move; }
+    }
+    // 정리
+    enemies.current=enemies.current.filter(e=>!e.dead);
+    shots.current=shots.current.filter(s=>!s.done);
+    // 파티클/플로터
+    for(const p of parts.current){ p.life+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=180*dt; p.vx*=0.94; }
+    parts.current=parts.current.filter(p=>p.life<p.max);
+    for(const f of floats.current){ f.life+=dt; f.y+=f.vy*dt; f.vy+=52*dt; }
+    floats.current=floats.current.filter(f=>f.life<f.max);
+    if(shake.current.t>0) shake.current.t-=dtMs;
+    // 웨이브 종료 판정
+    if(phase.current==="wave" && qIdx.current>=queue.current.length && enemies.current.length===0){
+      gold.current+=18+wave.current*6; phase.current="build"; setPhaseS("build"); syncUi();
+      if(auto.current) setTimeout(()=>{ if(phase.current==="build") startWave(); }, 700);
+    }
+    // UI 동기화(저빈도)
+    acc.current+=dtMs; if(acc.current>=110){ acc.current=0; syncUi(); }
+  }
+
+  /* ---------- 렌더 ---------- */
+  function draw(){
+    const cv=canvasRef.current; if(!cv) return; const ctx=cv.getContext("2d");
+    const DPR=cv._dpr||1;
+    ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,SIZE,SIZE);
+    let sx=0,sy=0; if(shake.current.t>0){ const m=shake.current.mag*(shake.current.t/200); sx=rand(-m,m); sy=rand(-m,m); }
+    ctx.save(); ctx.translate(sx,sy);
+    if(bgRef.current) ctx.drawImage(bgRef.current,0,0);
+    // 사거리 미리보기
+    const u=uiRef.current;
+    if(u.sel!=null){ const t=towers.current.find(x=>x.id===u.sel); if(t){ rangeCircle(ctx,t.x,t.y,towerStat(t.el,t.lvl).range*CELL,ELE[t.el].glow); } }
+    else if(u.build && u.hover){ const [c,r]=u.hover; if(!isPath(c,r)){ const x=c*CELL+CELL/2,y=r*CELL+CELL/2;
+      const ok=!towers.current.some(t=>t.c===c&&t.r===r) && gold.current>=TOWER[u.build].cost;
+      rangeCircle(ctx,x,y,TOWER[u.build].range*CELL,ok?ELE[u.build].glow:"#ef4444");
+      drawTowerShape(ctx,x,y,u.build,1,0,.5); } }
+    // 타워
+    for(const t of towers.current) drawTowerShape(ctx,t.x,t.y,t.el,t.lvl,t.ang,1);
+    // 적
+    for(const e of enemies.current){ const p=posAt(e.dist); drawEnemy(ctx,p.x,p.y,e); }
+    // 투사체
+    for(const s of shots.current) drawShot(ctx,s);
+    // 파티클
+    for(const p of parts.current){ const a=1-p.life/p.max; ctx.globalAlpha=a; ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,7); ctx.fill(); } ctx.globalAlpha=1;
+    // 데미지 텍스트
+    for(const f of floats.current){ const a=1-f.life/f.max; ctx.globalAlpha=Math.max(0,a);
+      ctx.font=(f.crit?"bold 20px":"bold 13px")+" ui-monospace,monospace"; ctx.textAlign="center";
+      ctx.lineWidth=3; ctx.strokeStyle="rgba(0,0,0,.6)"; ctx.fillStyle=f.color;
+      ctx.strokeText(f.val,f.x,f.y); ctx.fillText(f.val,f.x,f.y);
+      if(f.crit){ ctx.font="bold 10px sans-serif"; ctx.fillStyle="#fde047"; ctx.fillText("CRITICAL!",f.x,f.y-18); } }
+    ctx.globalAlpha=1;
+    ctx.restore();
+  }
+  function rangeCircle(ctx,x,y,rad,col){ ctx.save(); ctx.fillStyle=col+"22"; ctx.strokeStyle=col+"aa"; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(x,y,rad,0,7); ctx.fill(); ctx.stroke(); ctx.restore(); }
+  function drawTowerShape(ctx,x,y,el,lvl,ang,alpha){
+    const c=ELE[el]; ctx.save(); ctx.globalAlpha=alpha; ctx.translate(x,y);
+    // 대좌
+    ctx.fillStyle="#1e293b"; ctx.strokeStyle=c.color; ctx.lineWidth=2;
+    hexPath(ctx,0,0,18); ctx.fill(); ctx.stroke();
+    ctx.shadowColor=c.color; ctx.shadowBlur=12;
+    hexPath(ctx,0,0,13); ctx.fillStyle=c.color+"cc"; ctx.fill(); ctx.shadowBlur=0;
+    // 포신
+    ctx.rotate(ang||0); ctx.fillStyle="#0f172a"; roundRect(ctx,-3,-4,22,8,3); ctx.fill();
+    ctx.fillStyle=c.glow; roundRect(ctx,12,-3,7,6,2); ctx.fill();
+    ctx.rotate(-(ang||0));
+    // 코어 이모지
+    ctx.font="12px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(c.emoji,0,0);
+    // 레벨 핍
+    for(let i=0;i<lvl-1;i++){ ctx.fillStyle="#fde047"; ctx.beginPath(); ctx.arc(-10+i*5,15,1.7,0,7); ctx.fill(); }
+    ctx.restore();
+  }
+  function drawEnemy(ctx,x,y,e){
+    const c=ELE[e.el]; ctx.save(); ctx.translate(x,y);
+    // 그림자
+    ctx.fillStyle="rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(0,e.size*0.7,e.size*0.8,e.size*0.32,0,0,7); ctx.fill();
+    // 몸체
+    const grd=ctx.createRadialGradient(-e.size*.3,-e.size*.3,1,0,0,e.size);
+    grd.addColorStop(0,c.glow); grd.addColorStop(1,c.color);
+    ctx.shadowColor=c.color; ctx.shadowBlur=e.kind==="boss"?20:8;
+    ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(0,0,e.size,0,7); ctx.fill(); ctx.shadowBlur=0;
+    ctx.lineWidth=2; ctx.strokeStyle="rgba(0,0,0,.4)"; ctx.stroke();
+    // 종류 표식
+    if(e.kind==="tank"){ ctx.strokeStyle="#e2e8f0"; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,e.size+3,0,7); ctx.stroke(); }
+    if(e.kind==="fast"){ ctx.fillStyle="#fff"; ctx.font="bold 10px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText("»",0,0); }
+    if(e.kind==="boss"){ ctx.fillStyle="#fde047"; ctx.font="12px sans-serif"; ctx.textAlign="center"; ctx.fillText("👑",0,-e.size-6); }
+    // 눈
+    ctx.fillStyle="#0b1020"; ctx.beginPath(); ctx.arc(-e.size*.32,-e.size*.15,e.size*.16,0,7); ctx.arc(e.size*.32,-e.size*.15,e.size*.16,0,7); ctx.fill();
+    // 피격 플래시
+    if(e.flash>0){ ctx.globalAlpha=e.flash*0.8; ctx.fillStyle="#fff"; ctx.beginPath(); ctx.arc(0,0,e.size,0,7); ctx.fill(); ctx.globalAlpha=1; }
+    // HP 바
+    const w=e.size*2.1, hpr=Math.max(0,e.hp/e.maxHp);
+    ctx.fillStyle="rgba(0,0,0,.55)"; roundRect(ctx,-w/2,-e.size-9,w,4,2); ctx.fill();
+    ctx.fillStyle=hpr>.5?"#22c55e":hpr>.25?"#eab308":"#ef4444"; roundRect(ctx,-w/2,-e.size-9,w*hpr,4,2); ctx.fill();
+    ctx.restore();
+  }
+  function drawShot(ctx,s){ const c=ELE[s.el];
+    for(let i=0;i<s.trail.length;i++){ const tp=s.trail[i]; const a=(i+1)/s.trail.length*0.5;
+      ctx.globalAlpha=a; ctx.fillStyle=c.glow; ctx.beginPath(); ctx.arc(tp.x,tp.y,2.5*a+1,0,7); ctx.fill(); }
+    ctx.globalAlpha=1; ctx.shadowColor=c.color; ctx.shadowBlur=12; ctx.fillStyle=c.glow;
+    ctx.beginPath(); ctx.arc(s.x,s.y,4.5,0,7); ctx.fill();
+    ctx.fillStyle="#fff"; ctx.beginPath(); ctx.arc(s.x,s.y,1.8,0,7); ctx.fill(); ctx.shadowBlur=0;
+  }
+  function hexPath(ctx,x,y,r){ ctx.beginPath(); for(let i=0;i<6;i++){ const a=i*Math.PI/3-Math.PI/2;
+    const px=x+Math.cos(a)*r, py=y+Math.sin(a)*r; i?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.closePath(); }
+
+  /* ---------- 게임 루프(rAF) ---------- */
+  useEffect(()=>{
+    const cv=canvasRef.current; const DPR=Math.min(2, window.devicePixelRatio||1);
+    cv.width=SIZE*DPR; cv.height=SIZE*DPR; cv.style.width=SIZE+"px"; cv.style.height=SIZE+"px"; cv._dpr=DPR;
+    buildBg();
+    let raf, last=performance.now();
+    const loop=(now)=>{ let dt=now-last; last=now; if(dt>50)dt=50;
+      if(!paused.current) step(dt*speed.current); draw(); raf=requestAnimationFrame(loop); };
+    raf=requestAnimationFrame(loop);
+    return ()=>cancelAnimationFrame(raf);
+  },[]);
+
+  // React → Ref 동기화
+  useEffect(()=>{ uiRef.current.build=build; },[build]);
+  useEffect(()=>{ uiRef.current.sel=selId; },[selId]);
+  useEffect(()=>{ speed.current=spd; },[spd]);
+  useEffect(()=>{ auto.current=aut; },[aut]);
+
+  /* ---------- 입력 ---------- */
+  function cellFromEvent(ev){ const rc=canvasRef.current.getBoundingClientRect();
+    const x=(ev.clientX-rc.left), y=(ev.clientY-rc.top);
+    return [Math.floor(x/CELL), Math.floor(y/CELL)]; }
+  function onMove(ev){ uiRef.current.hover=cellFromEvent(ev); }
+  function onLeave(){ uiRef.current.hover=null; }
+  function onClick(ev){
+    const [c,r]=cellFromEvent(ev); if(c<0||c>=COLS||r<0||r>=ROWS) return;
+    const hit=towers.current.find(t=>t.c===c&&t.r===r);
+    if(hit){ setSelId(hit.id); setBuild(null); return; }
+    if(build){ if(isPath(c,r)){ return; }
+      const cost=TOWER[build].cost; if(gold.current<cost){ flashNoGold(); return; }
+      gold.current-=cost; const p=cellPx(c,r);
+      towers.current.push({ id:idc.current++, el:build, c, r, x:p.x, y:p.y, lvl:1, cd:0, ang:0, invested:cost });
+      syncUi();
+      return; }
+    setSelId(null);
+  }
+  const [noGold,setNoGold]=useState(false);
+  function flashNoGold(){ setNoGold(true); setTimeout(()=>setNoGold(false),450); }
+
+  function doUpgrade(){ const t=towers.current.find(x=>x.id===selId); if(!t||t.lvl>=MAX_LV)return;
+    const c=upgradeCost(t.el,t.lvl); if(gold.current<c){ flashNoGold(); return; }
+    gold.current-=c; t.lvl++; t.invested+=c; syncUi(); setTick(x=>x+1); }
+  function doSell(){ const i=towers.current.findIndex(x=>x.id===selId); if(i<0)return;
+    const t=towers.current[i]; gold.current+=Math.round(t.invested*0.6); towers.current.splice(i,1);
+    setSelId(null); syncUi(); }
+
+  function restart(){
+    enemies.current=[]; towers.current=[]; shots.current=[]; parts.current=[]; floats.current=[];
+    hp.current=20; gold.current=150; wave.current=0; phase.current="build"; queue.current=[]; qIdx.current=0;
+    shake.current={t:0,mag:0}; setResult(null); setSelId(null); setBuild(null); setPhaseS("build"); setAut(false); auto.current=false; syncUi();
+  }
+
+  const selTower = selId!=null ? towers.current.find(t=>t.id===selId) : null;
+  const nextEl = EKEYS[(wave.current)%9]; // 다음 웨이브 주 속성 예고
+
+  /* ===================== JSX ===================== */
+  return (
+    <div className="min-h-screen w-full text-slate-100 p-3 flex flex-col items-center"
+      style={{background:"radial-gradient(1200px 600px at 50% -10%, #1e1b4b55, transparent), #070b16"}}>
+      {/* 상단 HUD */}
+      <div className="glass rounded-2xl px-4 py-2.5 mb-3 flex items-center gap-4 shadow-xl" style={{width:SIZE}}>
+        <div className="font-black text-lg bg-gradient-to-r from-sky-300 to-violet-400 bg-clip-text text-transparent">🛡️ 9속성 타워 디펜스</div>
+        <div className="flex-1"></div>
+        <Hud icon="❤️" val={ui.hp} sub="/20" color="#ef4444"/>
+        <Hud icon="💰" val={ui.gold} color="#eab308" pulse={noGold}/>
+        <Hud icon="🌊" val={ui.wave} sub={phaseS==="wave"?" 진행중":""} color="#38bdf8"/>
+      </div>
+
+      {/* 보드 + 사이드 */}
+      <div className="flex gap-3 items-start" style={{maxWidth:SIZE+220}}>
+        <div className="relative">
+          <canvas ref={canvasRef} onClick={onClick} onMouseMove={onMove} onMouseLeave={onLeave}
+            className="shadow-2xl cursor-crosshair" style={{border:"1px solid rgba(255,255,255,.08)"}}/>
+          {/* 하단 컨트롤 바 */}
+          <div className="glass rounded-xl mt-3 px-3 py-2 flex items-center gap-2 flex-wrap">
+            <button onClick={startWave} disabled={phaseS!=="build"}
+              className="btng px-4 py-2 rounded-lg font-black text-slate-900 bg-gradient-to-r from-emerald-400 to-green-500 disabled:opacity-40 disabled:cursor-not-allowed shadow">
+              {phaseS==="wave" ? "⚔️ 전투 중..." : "▶ 웨이브 "+(wave.current+1)+" 시작"}
+            </button>
+            <button onClick={()=>{paused.current=!paused.current; setTick(x=>x+1);}}
+              className="btng px-3 py-2 rounded-lg font-bold glass">{paused.current?"▶ 재개":"⏸ 일시정지"}</button>
+            <button onClick={()=>setSpd(s=>s===1?2:1)}
+              className={"btng px-3 py-2 rounded-lg font-bold "+(spd===2?"bg-violet-500 text-white":"glass")}>x{spd}</button>
+            <button onClick={()=>setAut(a=>!a)}
+              className={"btng px-3 py-2 rounded-lg font-bold "+(aut?"bg-sky-500 text-white":"glass")}>🔁 자동</button>
+            <div className="flex-1"></div>
+            <div className="text-xs text-slate-400">다음 주속성 <span className="font-bold" style={{color:ELE[nextEl].color}}>{ELE[nextEl].emoji}{ELE[nextEl].name}</span></div>
+          </div>
+        </div>
+
+        {/* 우측: 건설 메뉴 / 타워 패널 */}
+        <div className="w-[200px] flex flex-col gap-2">
+          {selTower ? (
+            <TowerPanel t={selTower} gold={ui.gold} onUp={doUpgrade} onSell={doSell} onClose={()=>setSelId(null)}/>
+          ) : (
+            <div className="glass rounded-xl p-2.5 fadein">
+              <div className="text-xs font-bold text-slate-300 mb-2">🏗️ 타워 건설 {build && <span className="text-sky-300">· 클릭해 배치</span>}</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {EKEYS.map(el=>{
+                  const b=TOWER[el], can=ui.gold>=b.cost, on=build===el;
+                  return (
+                    <button key={el} onClick={()=>{ setBuild(on?null:el); setSelId(null); }}
+                      className={"btng rounded-lg p-1.5 flex flex-col items-center border transition "+(on?"ring-2":"")}
+                      style={{borderColor:ELE[el].color+"66", background:on?ELE[el].color+"33":"rgba(30,41,59,.5)", opacity:can?1:.45, boxShadow:on?"0 0 0 2px "+ELE[el].color:"none"}}>
+                      <div className="text-lg leading-none">{ELE[el].emoji}</div>
+                      <div className="text-[10px] font-bold" style={{color:ELE[el].color}}>{ELE[el].name}</div>
+                      <div className="text-[9px] text-amber-300">{b.cost}G</div>
+                    </button>
+                  );
+                })}
+              </div>
+              {build && (
+                <div className="mt-2 text-[10px] text-slate-300 border-t border-slate-700 pt-2">
+                  <div className="font-bold" style={{color:ELE[build].color}}>{TOWER[build].name} · {TOWER[build].role}</div>
+                  <div>⚔️ {TOWER[build].dmg} · 🎯 {TOWER[build].range} · ⚡ {TOWER[build].rate}/s{TOWER[build].splash>0?" · 💥광역":""}</div>
+                  <AdvHint el={build}/>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="glass rounded-xl p-2.5 text-[10px] text-slate-400 leading-relaxed">
+            <div className="font-bold text-slate-300 mb-1">📖 상성 가이드</div>
+            🔥→🌿⚙️ · 💧→🔥🪨 · 🌿→🪨💧 <span className="text-emerald-400">(1.5x)</span><br/>
+            ✨↔🌌 <span className="text-amber-300">(2.0x)</span> · 🏛️ 무상성·고火力<br/>
+            <span className="text-slate-500">약점을 노려 CRITICAL을 터뜨리세요!</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 게임 오버 */}
+      {result && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="glass rounded-2xl p-8 text-center pop max-w-sm" style={{borderColor:"#ef444488"}}>
+            <div className="text-6xl mb-2">💀</div>
+            <div className="text-2xl font-black text-red-400 mb-1">방어 실패!</div>
+            <div className="text-slate-300 mb-1">최종 도달 웨이브</div>
+            <div className="text-5xl font-black bg-gradient-to-r from-amber-300 to-red-400 bg-clip-text text-transparent mb-5">{result.wave}</div>
+            <button onClick={restart} className="btng w-full py-3 rounded-xl font-black text-slate-900 bg-gradient-to-r from-sky-400 to-violet-400 shadow-lg">🔄 다시 도전</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Hud({icon,val,sub,color,pulse}){
+  return <div className={"flex items-center gap-1.5 "+(pulse?"animate-ping":"")}>
+    <span className="text-lg">{icon}</span>
+    <span className="font-black text-lg tabular-nums" style={{color}}>{val}<span className="text-xs text-slate-400 font-normal">{sub}</span></span>
+  </div>;
+}
+function AdvHint({el}){
+  const m=ADV[el]; const ks=Object.keys(m);
+  if(el==="ancient") return <div className="text-bronze" style={{color:"#fcd34d"}}>무상성 · 압도적 기본 위력</div>;
+  if(!ks.length) return <div className="text-slate-500">특화 스탯형 (무상성)</div>;
+  return <div>{ks.map(k=><span key={k} style={{color:ELE[k]?ELE[k].color:"#fff"}}>{ELE[k].emoji}{m[k]}x </span>)}</div>;
+}
+function TowerPanel({t,gold,onUp,onSell,onClose}){
+  const s=towerStat(t.el,t.lvl); const c=ELE[t.el]; const up=upgradeCost(t.el,t.lvl); const maxed=t.lvl>=MAX_LV;
+  return (
+    <div className="glass rounded-xl p-3 fadein" style={{borderColor:c.color+"66"}}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2"><span className="text-2xl">{c.emoji}</span>
+          <div><div className="font-black" style={{color:c.color}}>{TOWER[t.el].name}</div>
+            <div className="text-[10px] text-slate-400">Lv.{t.lvl}{maxed?" (MAX)":""} · {TOWER[t.el].role}</div></div></div>
+        <button onClick={onClose} className="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+      </div>
+      <div className="grid grid-cols-3 gap-1 text-center text-[11px] mb-3">
+        <div className="rounded-lg bg-slate-800/60 py-1"><div className="text-slate-400">공격</div><div className="font-bold text-red-300">{Math.round(s.dmg)}</div></div>
+        <div className="rounded-lg bg-slate-800/60 py-1"><div className="text-slate-400">사거리</div><div className="font-bold text-sky-300">{s.range.toFixed(1)}</div></div>
+        <div className="rounded-lg bg-slate-800/60 py-1"><div className="text-slate-400">연사</div><div className="font-bold text-emerald-300">{s.rate.toFixed(1)}</div></div>
+      </div>
+      <button onClick={onUp} disabled={maxed||gold<up}
+        className="btng w-full py-2 rounded-lg font-bold text-slate-900 bg-gradient-to-r from-amber-300 to-yellow-400 disabled:opacity-40 mb-1.5">
+        {maxed ? "최대 레벨" : "⬆ 업그레이드 ("+up+"G)"}
+      </button>
+      <button onClick={onSell} className="btng w-full py-1.5 rounded-lg font-bold text-xs bg-slate-700 hover:bg-rose-600/70">💰 판매 (+{Math.round(t.invested*0.6)}G)</button>
+    </div>
+  );
+}
+
+/* 유틸: 라운드 사각형 */
+function roundRect(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+</script>
+</body>
+</html>'''
+
+
+def rpg_page():
+    st.title("🛡️ 9속성 타워 디펜스")
+    st.caption("9속성 상성으로 몰려오는 몬스터를 막아라! 타워를 세우고 업그레이드해 무한 웨이브에 도전 · 60FPS 캔버스 엔진")
+    components.html(TOWER_DEFENSE_HTML, height=780, scrolling=True)
 
 
 # ==========================================
@@ -3602,546 +4157,4 @@ function Game(){
     if(breedSel.length!==2){ notify("교배할 드래곤 2마리를 골라주세요."); return; }
     if(gold<100){ notify("교배 비용 100G가 부족해요."); return; }
     const p1 = dragons.find(d=>d.id===breedSel[0]), p2 = dragons.find(d=>d.id===breedSel[1]);
-    setGold(g=>g-100);
-    let elems = uniq([...p1.elements, ...p2.elements]);
-    let mutated=false;
-    if(Math.random()<0.22){ const extra=ELEM_KEYS.filter(e=>!elems.includes(e)); if(extra.length){ elems.push(pick(extra)); mutated=true; } }
-    if(elems.length>4) elems = sample(elems,4);
-    const grade = gradeByCount(elems.length);
-    // 부모 속성과 가장 잘 맞는 '종'이 태어난다 — 알의 속성·이름은 종에 고정
-    const sp = resolveSpecies(elems, grade);
-    setEggs(es=>[...es, { id:uid(), sid:sp.sid, grade:sp.grade, elements:[...sp.elems], daysLeft:rand(2,3) }]);
-    setBreedSel([]);
-    setEvt({title:"교배 성공!", emoji:"🥚", result:(mutated?"✨ 돌연변이 발생! ":"")+"["+GRADES[sp.grade].name+"] "+sp.name+"의 알이 태어났어요! 속성: "+sp.elems.map(e=>ELEMENTS[e].emoji+ELEMENTS[e].name).join(", ")+" · "+rand(2,3)+"일 뒤 부화 예정."});
-  }
-
-  /* ----- AI 투기장 ----- */
-  const DIFFS = {
-    easy:   { name:"쉬움",   grades:["common","common","common"], mult:1,    reward:200, color:"#22c55e" },
-    normal: { name:"중급",   grades:["common","rare","common"],   mult:1,    reward:400, color:"#3b82f6" },
-    hard:   { name:"어려움", grades:["rare","rare","epic"],        mult:1.1,  reward:700, color:"#a855f7" },
-    legend: { name:"전설",   grades:["epic","epic","legendary"],   mult:1.25, reward:1200, color:"#eab308" },
-    myth:   { name:"신화",   grades:["legendary","legendary","legendary"], mult:1.5, reward:2500, color:"#ef4444" },
-  };
-  const [arenaDiff, setArenaDiff] = useState("easy");
-  const [arenaSel, setArenaSel] = useState([]);
-  const [battle, setBattle] = useState(null); // {left,right,leftName,rightName,leftIsAI,rightIsAI, ctx}
-
-  function toggleArena(d){
-    setArenaSel(s=> s.find(x=>x===d.id) ? s.filter(x=>x!==d.id) : (s.length<3 ? [...s, d.id] : s));
-  }
-  function startArena(){
-    if(arenaSel.length!==3){ notify("출전할 드래곤 3마리를 선택하세요."); return; }
-    const my = arenaSel.map(id=>dragons.find(d=>d.id===id));
-    const cfg = DIFFS[arenaDiff];
-    const enemies = cfg.grades.map(g=>randomDragon(g, cfg.mult));
-    setBattle({ left:my, right:enemies, leftName:"내 팀", rightName:"AI ("+cfg.name+")",
-      leftIsAI:false, rightIsAI:true, ctx:{type:"arena", diff:arenaDiff} });
-  }
-
-  /* ----- 친선전 (Pass & Play) ----- */
-  const [fStage, setFStage] = useState("lobby"); // lobby -> p1pick -> p2pick -> battle
-  const [roomCode, setRoomCode] = useState("");
-  const [p1Deck, setP1Deck] = useState([]);
-  const [p2Deck, setP2Deck] = useState([]);
-
-  function makeLocalRoom(){ setRoomCode(String(rand(1000,9999))); setFStage("p1pick"); setP1Deck([]); setP2Deck([]); }
-  function joinLocalRoom(){ setRoomCode("2481"); setFStage("p1pick"); setP1Deck([]); setP2Deck([]); }
-  function togglePick(deck,setDeck,d){ setDeck(s=> s.find(x=>x===d.id)?s.filter(x=>x!==d.id):(s.length<3?[...s,d.id]:s)); }
-
-  /* ----- 친선전 온라인 (다른 기기, Trystero P2P) ----- */
-  const [friendlyMode, setFriendlyMode] = useState("local"); // 'local' | 'online'
-  const [netStage, setNetStage] = useState("idle"); // idle -> pick -> waiting -> battle
-  const [netRoomCode, setNetRoomCode] = useState("");
-  const [netRoomInput, setNetRoomInput] = useState("");
-  const [netMySide, setNetMySide] = useState(null); // 'left' | 'right'
-  const [netPeerConnected, setNetPeerConnected] = useState(false);
-  const [netMyDeck, setNetMyDeck] = useState([]); // 내 dragons 중 선택한 id들
-  const [netMyDeckObjs, setNetMyDeckObjs] = useState(null); // 전송한 시점의 덱 객체 스냅샷
-  const [netPeerDeckObjs, setNetPeerDeckObjs] = useState(null); // 상대에게서 받은 덱 객체
-  const [incomingAttack, setIncomingAttack] = useState(null);
-  const netRef = useRef({});
-
-  function netSetupRoom(code, mySide){
-    setNetRoomCode(code); setNetMySide(mySide); setNetStage("pick");
-    setNetMyDeck([]); setNetMyDeckObjs(null); setNetPeerDeckObjs(null); setNetPeerConnected(false);
-    ensureTrystero(t=>{
-      const room = t.joinRoom({appId:"yunny-dragon-nursery-v1"}, "ynd-"+code);
-      // 이 버전의 trystero는 makeAction이 [send, onMessage] 튜플이 아니라
-      // {send, onMessage(getter/setter)} 객체 하나를 반환하고,
-      // onPeerJoin/onPeerLeave도 함수 호출이 아니라 프로퍼티 대입으로 등록한다.
-      const deckAction = room.makeAction("deck");
-      const atkAction = room.makeAction("atk");
-      netRef.current = {room, sendDeck: deckAction.send, sendAtk: atkAction.send};
-      room.onPeerJoin = ()=> setNetPeerConnected(true);
-      room.onPeerLeave = ()=> notify("상대방의 연결이 끊겼어요.");
-      deckAction.onMessage = deck=> setNetPeerDeckObjs(deck);
-      atkAction.onMessage = action=> setIncomingAttack({...action, counter: Date.now()+Math.random()});
-    });
-  }
-  function netHost(){ netSetupRoom(Math.random().toString(36).slice(2,8).toUpperCase(), "left"); }
-  function netJoin(){
-    const code = netRoomInput.trim().toUpperCase();
-    if(!code){ notify("방 코드를 입력하세요."); return; }
-    netSetupRoom(code, "right");
-  }
-  function netLeaveRoom(){
-    if(netRef.current.room) netRef.current.room.leave();
-    netRef.current = {};
-    setNetStage("idle"); setNetRoomCode(""); setNetRoomInput(""); setNetMySide(null);
-    setNetPeerConnected(false); setNetMyDeck([]); setNetMyDeckObjs(null); setNetPeerDeckObjs(null);
-  }
-  function sendMyDeck(){
-    if(netMyDeck.length!==3){ notify("드래곤 3마리를 선택하세요."); return; }
-    const deckObjs = netMyDeck.map(id=>dragons.find(d=>d.id===id));
-    setNetMyDeckObjs(deckObjs);
-    netRef.current.sendDeck && netRef.current.sendDeck(deckObjs);
-    setNetStage("waiting");
-  }
-  // 양쪽 덱이 모두 준비되면 자동으로 전투 시작
-  useEffect(()=>{
-    if(netStage==="waiting" && netPeerDeckObjs && netMyDeckObjs){
-      const left = netMySide==="left" ? netMyDeckObjs : netPeerDeckObjs;
-      const right = netMySide==="left" ? netPeerDeckObjs : netMyDeckObjs;
-      setBattle({ left, right, leftName: netMySide==="left"?"나":"상대", rightName: netMySide==="right"?"나":"상대",
-        leftIsAI:false, rightIsAI:false,
-        network:{ mySide: netMySide, send: action => netRef.current.sendAtk && netRef.current.sendAtk(action) },
-        ctx:{type:"online"} });
-      setNetStage("battle");
-    }
-  }, [netStage, netPeerDeckObjs, netMyDeckObjs]);
-
-  function endBattle(winner){
-    const ctx = battle.ctx;
-    if(ctx.type==="arena"){
-      if(winner==="left"){ const r=DIFFS[ctx.diff].reward; setGold(g=>g+r); setDragons(ds=>ds.map(x=> arenaSel.includes(x.id)?{...x, hp:x.maxHp}:x)); notify("🏆 승리! 보상 "+r+"G 획득!"); }
-      else notify("패배했어요... 다시 도전해봐요!");
-      setArenaSel([]);
-    } else if(ctx.type==="online"){
-      notify(winner===netMySide ? "🎉 승리!" : "💥 패배했어요...");
-      netLeaveRoom();
-    } else {
-      notify(winner==="left"?"🎉 1P 승리!":"🎉 2P 승리!");
-      setFStage("lobby"); setP1Deck([]); setP2Deck([]);
-    }
-    setBattle(null);
-  }
-
-  const grown = dragons.filter(d=>d.growth>=100);
-
-  /* ============ 렌더 ============ */
-  if(battle){
-    return (
-      <div className="max-w-4xl mx-auto p-3">
-        <BattleArena {...battle} onExit={endBattle} incomingAttack={incomingAttack}/>
-      </div>
-    );
-  }
-
-  const TABS = [
-    { k:"nursery",  label:"보육원",   emoji:"🏡" },
-    { k:"breeding", label:"교배소",   emoji:"🥚" },
-    { k:"arena",    label:"AI 투기장", emoji:"⚔️" },
-    { k:"friendly", label:"친선전",   emoji:"🤝" },
-    { k:"codex",    label:"도감",     emoji:"📖" },
-  ];
-
-  return (
-    <div className="max-w-5xl mx-auto p-3 text-slate-100">
-      {/* 상단바 */}
-      <div className="flex items-center justify-between rounded-2xl bg-slate-900/80 border border-slate-700 px-4 py-2 mb-3">
-        <div className="font-black text-lg bg-gradient-to-r from-amber-300 to-pink-400 bg-clip-text text-transparent">🐉 드래곤 보육원 & 배틀 RPG</div>
-        <div className="flex items-center gap-3 text-sm font-bold">
-          <span className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300">💰 {gold.toLocaleString()} G</span>
-          <span className="px-3 py-1 rounded-lg bg-sky-500/20 text-sky-300">📅 {day}일차</span>
-          <span className="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300">🐲 {dragons.length}마리</span>
-          <span className="px-3 py-1 rounded-lg bg-yellow-500/20 text-yellow-300">🌟 비늘 {scales}</span>
-          <button onClick={()=>setSaveModal({mode:"export", code: encodeSave({gold,day,dragons,eggs,dex,scales})})}
-            className="px-2 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs">💾 내보내기</button>
-          <button onClick={()=>setSaveModal({mode:"import", text:""})}
-            className="px-2 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs">📥 불러오기</button>
-        </div>
-      </div>
-
-      {/* 탭 */}
-      <div className="grid grid-cols-5 gap-2 mb-4">
-        {TABS.map(t=>(
-          <button key={t.k} onClick={()=>setTab(t.k)}
-            className={"py-2 rounded-xl font-bold text-sm transition "+(tab===t.k?"bg-indigo-500 text-white shadow-lg":"bg-slate-800 text-slate-300 hover:bg-slate-700")}>
-            {t.emoji} {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* 보육원 */}
-      {tab==="nursery" && (
-        <div className="fade">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-slate-200">🏡 보육원 · 드래곤 {dragons.length}마리 / 알 {eggs.length}개</h2>
-            <button onClick={nextDay}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400 font-black text-white shadow-lg">
-              🌙 다음 날로 →
-            </button>
-          </div>
-          {eggs.length>0 && (
-            <div className="flex flex-wrap gap-2 mb-3">
-              {eggs.map(e=>(
-                <div key={e.id} className="rounded-xl bg-slate-800/70 border border-slate-700 px-3 py-2 text-sm flex items-center gap-2">
-                  <span className="text-2xl">🥚</span>
-                  <div><div className="flex items-center gap-1"><span className="text-xs font-bold text-slate-200">{(SPECIES_BY_ID[e.sid]||{}).name||"?"}</span><GradeBadge grade={e.grade}/></div><div className="text-[10px] text-slate-400 mt-0.5">부화까지 {e.daysLeft}일</div></div>
-                </div>
-              ))}
-            </div>
-          )}
-          {/* 각성소 */}
-          <div className="rounded-2xl bg-gradient-to-r from-amber-900/30 to-yellow-900/20 border border-amber-500/40 p-3 mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm">
-              <span className="font-bold text-amber-300">🌟 각성소</span>
-              <span className="text-slate-300"> · 각성의 비늘 <b className="text-yellow-300">{scales}개</b> 보유 · 전설 등급을 비늘 {AWAKEN_COST}개로 각성!</span>
-            </div>
-            <button onClick={buyScale} disabled={gold<SCALE_PRICE}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 font-black text-slate-900 disabled:opacity-40">
-              🌟 각성의 비늘 구매 ({SCALE_PRICE}G)
-            </button>
-          </div>
-          <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3">
-            {dragons.map(d=><NurseryCard key={d.id} d={d} onFeed={feed} onClean={clean} onAwaken={awaken} scales={scales}/>)}
-          </div>
-        </div>
-      )}
-
-      {/* 교배소 */}
-      {tab==="breeding" && (
-        <div className="fade">
-          <h2 className="font-bold text-slate-200 mb-1">🥚 교배소</h2>
-          <p className="text-xs text-slate-400 mb-3">다 자란(성장도 100) 드래곤 2마리를 선택해 교배하세요. 부모의 속성이 합쳐지고, 확률적으로 돌연변이가 일어나 더 높은 등급의 알이 태어나요! (비용 100G)</p>
-          <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
-            {dragons.map(d=>(
-              <NurseryCard key={d.id} d={d} selectable selected={breedSel.includes(d.id)} disabled={d.growth<100}
-                onSelect={()=>toggleBreed(d)}/>
-            ))}
-          </div>
-          <button onClick={breed} disabled={breedSel.length!==2}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-400 font-black text-white disabled:opacity-40">
-            💞 교배하기 ({breedSel.length}/2 선택됨)
-          </button>
-        </div>
-      )}
-
-      {/* AI 투기장 */}
-      {tab==="arena" && (
-        <div className="fade">
-          <h2 className="font-bold text-slate-200 mb-1">⚔️ AI 투기장 (3 vs 3)</h2>
-          <p className="text-xs text-slate-400 mb-3">난이도를 고르고 출전할 드래곤 3마리를 선택하세요. 어려울수록 AI가 강하지만 보상도 커요!</p>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {Object.entries(DIFFS).map(([k,v])=>(
-              <button key={k} onClick={()=>setArenaDiff(k)}
-                className={"px-4 py-2 rounded-xl font-bold text-sm border-2 transition "+(arenaDiff===k?"text-white":"text-slate-300 border-transparent bg-slate-800")}
-                style={arenaDiff===k?{background:v.color+"33", borderColor:v.color, color:v.color}:{}}>
-                {v.name} <span className="text-[10px] opacity-80">· {v.reward}G</span>
-              </button>
-            ))}
-          </div>
-          <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
-            {dragons.map(d=>(
-              <NurseryCard key={d.id} d={d} selectable selected={arenaSel.includes(d.id)}
-                disabled={!arenaSel.includes(d.id)&&arenaSel.length>=3}
-                onSelect={()=>toggleArena(d)}/>
-            ))}
-          </div>
-          <button onClick={startArena} disabled={arenaSel.length!==3}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-400 font-black text-white disabled:opacity-40">
-            🔥 전투 시작! ({arenaSel.length}/3 출전)
-          </button>
-        </div>
-      )}
-
-      {/* 친선전 */}
-      {tab==="friendly" && (
-        <div className="fade">
-          <h2 className="font-bold text-slate-200 mb-1">🤝 친선전</h2>
-          <div className="flex gap-2 mb-4">
-            <button onClick={()=>setFriendlyMode("local")}
-              className={"flex-1 py-2 rounded-xl font-bold text-sm "+(friendlyMode==="local"?"bg-indigo-500 text-white":"bg-slate-800 text-slate-300 hover:bg-slate-700")}>
-              📱 로컬 2인 (한 기기)
-            </button>
-            <button onClick={()=>setFriendlyMode("online")}
-              className={"flex-1 py-2 rounded-xl font-bold text-sm "+(friendlyMode==="online"?"bg-indigo-500 text-white":"bg-slate-800 text-slate-300 hover:bg-slate-700")}>
-              🌐 온라인 대전 (다른 기기)
-            </button>
-          </div>
-
-          {friendlyMode==="local" && (
-            <div>
-              {fStage==="lobby" && (
-                <div className="mt-2 grid sm:grid-cols-2 gap-4">
-                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
-                    <div className="text-4xl mb-2">🏠</div><div className="font-bold mb-2">방 만들기</div>
-                    <p className="text-xs text-slate-400 mb-3">새 방을 만들고 친구에게 코드를 알려주세요.</p>
-                    <button onClick={makeLocalRoom} className="w-full py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold">방 만들기</button>
-                  </div>
-                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
-                    <div className="text-4xl mb-2">🔑</div><div className="font-bold mb-2">참여하기</div>
-                    <p className="text-xs text-slate-400 mb-3">한 기기에서 번갈아 조작하는 로컬 대전이에요.</p>
-                    <button onClick={joinLocalRoom} className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-900">참여하기</button>
-                  </div>
-                </div>
-              )}
-              {(fStage==="p1pick"||fStage==="p2pick") && (
-                <div className="mt-3">
-                  <div className="rounded-xl bg-slate-800/70 border border-slate-700 px-4 py-2 mb-3 text-sm flex items-center justify-between">
-                    <span>🔑 방 코드: <b className="text-amber-300">{roomCode}</b></span>
-                    <span className="font-bold text-emerald-300">{fStage==="p1pick"?"1P":"2P"} 덱 구성 중...</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-3">{fStage==="p1pick"?"1P":"2P"}가 사용할 드래곤 3마리를 선택하세요. (기기를 넘겨가며 진행)</p>
-                  <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
-                    {dragons.map(d=>{
-                      const deck = fStage==="p1pick"?p1Deck:p2Deck;
-                      return <NurseryCard key={d.id} d={d} selectable selected={deck.includes(d.id)}
-                        disabled={!deck.includes(d.id)&&deck.length>=3}
-                        onSelect={()=> fStage==="p1pick"? togglePick(p1Deck,setP1Deck,d) : togglePick(p2Deck,setP2Deck,d)}/>;
-                    })}
-                  </div>
-                  {fStage==="p1pick" ? (
-                    <button onClick={()=>setFStage("p2pick")} disabled={p1Deck.length!==3}
-                      className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 font-black text-slate-900 disabled:opacity-40">
-                      1P 완료 → 2P에게 넘기기 ({p1Deck.length}/3)
-                    </button>
-                  ) : (
-                    <button onClick={()=>{
-                        const l=p1Deck.map(id=>dragons.find(d=>d.id===id));
-                        const r=p2Deck.map(id=>dragons.find(d=>d.id===id));
-                        setBattle({ left:l, right:r, leftName:"1P", rightName:"2P", leftIsAI:false, rightIsAI:false, ctx:{type:"friendly"} });
-                        setFStage("battle");
-                      }} disabled={p2Deck.length!==3}
-                      className="w-full py-3 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 font-black text-white disabled:opacity-40">
-                      ⚔️ 대전 시작! ({p2Deck.length}/3)
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {friendlyMode==="online" && (
-            <div>
-              <p className="text-xs text-slate-400 mb-3">서버 없이 브라우저끼리 직접 연결돼요. 한쪽이 방을 만들고, 생성된 코드를 카톡 등으로 상대에게 알려주면 서로 다른 기기에서 실시간으로 싸울 수 있어요.</p>
-              {netStage==="idle" && (
-                <div className="mt-2 grid sm:grid-cols-2 gap-4">
-                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
-                    <div className="text-4xl mb-2">🌐</div><div className="font-bold mb-2">방 만들기</div>
-                    <p className="text-xs text-slate-400 mb-3">새 방을 만들고 생성된 코드를 상대에게 알려주세요.</p>
-                    <button onClick={netHost} className="w-full py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold">방 만들기</button>
-                  </div>
-                  <div className="rounded-2xl bg-slate-800/70 border border-slate-700 p-5 text-center">
-                    <div className="text-4xl mb-2">🔑</div><div className="font-bold mb-2">참여하기</div>
-                    <input value={netRoomInput} onChange={e=>setNetRoomInput(e.target.value)} placeholder="방 코드 입력"
-                      className="w-full mb-2 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-center font-bold tracking-widest text-slate-100 uppercase"/>
-                    <button onClick={netJoin} className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-900">참여하기</button>
-                  </div>
-                </div>
-              )}
-              {netStage==="pick" && (
-                <div className="mt-3">
-                  <div className="rounded-xl bg-slate-800/70 border border-slate-700 px-4 py-2 mb-3 text-sm flex items-center justify-between">
-                    <span>🔑 방 코드: <b className="text-amber-300">{netRoomCode}</b></span>
-                    <span className={"font-bold "+(netPeerConnected?"text-emerald-300":"text-amber-300 animate-pulse")}>
-                      {netPeerConnected ? "✅ 상대 연결됨" : "⏳ 상대 연결 대기 중..."}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-3">사용할 드래곤 3마리를 선택하고 덱을 보내세요.</p>
-                  <div className="grid md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-3 mb-4">
-                    {dragons.map(d=>(
-                      <NurseryCard key={d.id} d={d} selectable selected={netMyDeck.includes(d.id)}
-                        disabled={!netMyDeck.includes(d.id)&&netMyDeck.length>=3}
-                        onSelect={()=> setNetMyDeck(s=> s.includes(d.id)? s.filter(x=>x!==d.id) : (s.length<3?[...s,d.id]:s))}/>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={netLeaveRoom} className="px-4 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-sm">나가기</button>
-                    <button onClick={sendMyDeck} disabled={netMyDeck.length!==3}
-                      className="flex-1 py-3 rounded-xl bg-gradient-to-r from-red-500 to-orange-500 font-black text-white disabled:opacity-40">
-                      📤 덱 보내기 ({netMyDeck.length}/3)
-                    </button>
-                  </div>
-                </div>
-              )}
-              {netStage==="waiting" && (
-                <div className="mt-6 text-center text-slate-300">
-                  <div className="text-4xl mb-3 animate-pulse">⏳</div>
-                  <p>상대방이 덱을 고르는 중이에요... 잠시만 기다려주세요.</p>
-                  <button onClick={netLeaveRoom} className="mt-4 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm">취소하고 나가기</button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 도감 */}
-      {tab==="codex" && (
-        <div className="fade">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="font-bold text-slate-200">📖 드래곤 도감</h2>
-            <span className="text-sm font-bold text-amber-300">발견 {Object.keys(dex).filter(k=>SPECIES_BY_ID[k]).length} / {SPECIES.length}종</span>
-          </div>
-          <p className="text-xs text-slate-400 mb-4">등급마다 10종, 총 40종의 드래곤이 살고 있어요. <b className="text-slate-200">종의 속성은 영원히 고정</b> — 같은 종이면 언제나 같은 속성이에요. 교배로 새 종을 발견해 도감을 완성하세요!</p>
-          {["legendary","epic","rare","common"].map(gr=>(
-            <div key={gr} className="mb-5">
-              <h3 className="font-bold text-sm mb-2" style={{color:GRADES[gr].color}}>
-                {gr==="legendary"?"🐲":gr==="epic"?"🐉":gr==="rare"?"🐊":"🦎"} {GRADES[gr].name} 등급 ({SPECIES_BY_GRADE[gr].filter(s=>dex[s.sid]).length}/10)
-              </h3>
-              <div className="grid lg:grid-cols-3 md:grid-cols-2 grid-cols-1 gap-3">
-                {SPECIES_BY_GRADE[gr].map(s=>{
-                  const disc = !!dex[s.sid];
-                  return (
-                    <div key={s.sid} className="rounded-xl p-3 border bg-slate-900/70" style={{borderColor:GRADES[gr].color+(disc?"88":"33"), opacity:disc?1:0.5}}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <div>{disc ? <DragonArt sid={s.sid} size={48}/> : <div className="w-12 h-12 flex items-center justify-center text-2xl">🔒</div>}</div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2"><span className="font-bold text-slate-100">{disc?s.name:"???"}</span><GradeBadge grade={gr}/></div>
-                          <ElemChips elements={s.elems}/>
-                        </div>
-                        {disc && gr==="legendary" && (
-                          <div className="text-center">
-                            <DragonArt sid={s.sid} awakened size={44}/>
-                            <div className="text-[9px] text-amber-300 font-bold">각성 형상</div>
-                          </div>
-                        )}
-                      </div>
-                      {disc && <div className="text-[11px] text-slate-400">❤️ 기본 HP ~{GRADES[gr].hp} · ⚔️ 기본 공격 ~{GRADES[gr].atk} · 🎬 {ATTACK_FX[s.elems[0]].name}{s.elems.length>1?" 외 "+(s.elems.length-1)+"종":""}</div>}
-                      {disc && gr==="legendary" && (
-                        <div className="mt-2 text-[11px] border-t border-slate-700 pt-2">
-                          <div className="text-amber-300 font-bold mb-1">🌟 궁극기 / ⚡ 각성 공격</div>
-                          {s.elems.map(el=>(
-                            <div key={el} style={{color:ELEMENTS[el].color}}>
-                              {ELEMENTS[el].emoji} {ultNameFor(el)} <span className="text-amber-200">→ ⚡{awkNameFor(el)}</span>
-                            </div>
-                          ))}
-                          <div className="text-amber-200 font-bold mt-2 mb-1">✨ 각성기</div>
-                          {s.elems.map(el=>(
-                            <div key={el} className="text-slate-300"><span style={{color:ELEMENTS[el].color}}>{AWAKEN_SKILLS[el].emoji} {AWAKEN_SKILLS[el].name}</span> — {AWAKEN_SKILLS[el].desc}</div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 토스트 */}
-      {toast && <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl bg-slate-100 text-slate-900 font-bold shadow-2xl fade">{toast}</div>}
-
-      {/* 이벤트 모달 */}
-      {evt && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="rounded-2xl bg-slate-900 border-2 border-indigo-500/60 max-w-md w-full p-6 fade shadow-2xl">
-            <div className="text-center text-5xl mb-2">{evt.emoji}</div>
-            <div className="text-center text-xl font-black mb-3 text-indigo-300">{evt.title}</div>
-            {evt.desc && <p className="text-center text-sm text-slate-300 mb-4">{evt.desc}</p>}
-            {evt.result && <p className="text-center text-sm text-emerald-300 mb-4 font-semibold">{evt.result}</p>}
-            {evt.choices ? (
-              <div className="flex flex-col gap-2">
-                {evt.choices.map((c,i)=>(
-                  <button key={i} onClick={()=>{ const msg=c.run(); setEvt({title:evt.title, emoji:evt.emoji, result:msg}); }}
-                    className="w-full py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">{c.label}</button>
-                ))}
-              </div>
-            ) : (
-              <button onClick={()=>setEvt(null)} className="w-full py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">확인</button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 저장 내보내기 / 불러오기 모달 */}
-      {saveModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="rounded-2xl bg-slate-900 border-2 border-indigo-500/60 max-w-lg w-full p-6 fade shadow-2xl">
-            {saveModal.mode==="export" ? (
-              <div>
-                <div className="text-center text-3xl mb-2">💾</div>
-                <div className="text-center text-lg font-black mb-3 text-indigo-300">저장 코드 내보내기</div>
-                <p className="text-xs text-slate-400 mb-2">이 코드를 복사해서 다른 기기의 "📥 불러오기"에 붙여넣으면 진행 상황이 그대로 옮겨져요. (이 기기에는 이미 자동 저장되어 있어요)</p>
-                <textarea readOnly value={saveModal.code} onFocus={e=>e.target.select()}
-                  className="w-full h-32 p-2 rounded-lg bg-slate-950 border border-slate-700 text-[11px] text-slate-300 font-mono mb-3"/>
-                <div className="flex gap-2">
-                  <button onClick={()=>{
-                      const ta=document.createElement("textarea"); ta.value=saveModal.code;
-                      document.body.appendChild(ta); ta.select();
-                      try{ document.execCommand("copy"); notify("📋 복사했어요!"); }catch(e){ notify("복사에 실패했어요. 직접 선택해서 복사해주세요."); }
-                      document.body.removeChild(ta);
-                    }} className="flex-1 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">📋 복사하기</button>
-                  <button onClick={()=>setSaveModal(null)} className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-white">닫기</button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div className="text-center text-3xl mb-2">📥</div>
-                <div className="text-center text-lg font-black mb-3 text-indigo-300">저장 코드 불러오기</div>
-                <p className="text-xs text-slate-400 mb-2">다른 기기에서 "💾 내보내기"로 받은 코드를 붙여넣으세요. 현재 진행 상황을 덮어써요.</p>
-                <textarea value={saveModal.text} onChange={e=>setSaveModal(m=>({...m, text:e.target.value}))}
-                  placeholder="여기에 저장 코드를 붙여넣으세요"
-                  className="w-full h-32 p-2 rounded-lg bg-slate-950 border border-slate-700 text-[11px] text-slate-300 font-mono mb-3"/>
-                <div className="flex gap-2">
-                  <button onClick={()=>{
-                      try{
-                        const obj = decodeSave(saveModal.text);
-                        const ids=[...obj.dragons.map(d=>d.id), ...obj.eggs.map(e=>e.id)];
-                        if(ids.length) _id = Math.max(_id, Math.max(...ids)+1);
-                        setGold(obj.gold); setDay(obj.day); setDragons(obj.dragons.map(migrateDragon)); setEggs(obj.eggs.map(migrateEgg));
-                        if(obj.dex) setDex(obj.dex);
-                        setScales(obj.scales||0);
-                        setSaveModal(null); notify("✅ 불러오기 완료!");
-                      }catch(e){ notify("코드가 올바르지 않아요. 다시 확인해주세요."); }
-                    }} className="flex-1 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 font-bold text-white">불러오기</button>
-                  <button onClick={()=>setSaveModal(null)} className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-white">닫기</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
-</script>
-</body>
-</html>'''
-
-
-def dragon_nursery_page():
-    st.title("🐉 드래곤 보육원 & 배틀 RPG")
-    st.caption("React + Tailwind로 만든 게임 · 먹이 주고 → 교배하고 → 3v3로 싸워보자! (보육원/교배소/AI 투기장/친선전)")
-    components.html(DRAGON_GAME_HTML, height=940, scrolling=True)
-
-
-# ==========================================
-# 8. 메인 네비게이션 진입 게이트웨이
-# ==========================================
-st.set_page_config(
-    page_title="종합 게임 허브 스트림릿",
-    page_icon="🌟",
-    layout="wide"
-)
-
-home = st.Page(home_page, title="홈 화면", icon="🌟")
-game = st.Page(game_page, title="업다운 게임", icon="🎮")
-board = st.Page(board_page, title="뱀사다리 말판 게임", icon="🎲")
-quoridor = st.Page(quoridor_page, title="쿼리도 두뇌 게임", icon="🧱")
-rpg = st.Page(rpg_page, title="성장형 RPG 게임", icon="⚔️")
-multiplayer_rpg = st.Page(multiplayer_rpg_page, title="1대1 멀티 RPG 배틀", icon="⚔️")
-dragon = st.Page(dragon_nursery_page, title="드래곤 보육원 & 배틀", icon="🐉")
-wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
-adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
-typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
-
-pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, wordle, adventure, typing_game])
-pg.run()
-
+    setGold(g=>g-100
