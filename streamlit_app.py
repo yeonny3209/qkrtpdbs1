@@ -5797,6 +5797,493 @@ def dragon_rider_page():
 
 
 # ==========================================
+# 7-4. 다마고치: 몽글이 키우기 (React 임베드)
+# ==========================================
+MONGGLE_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
+</script>
+<style>
+  html,body{margin:0;padding:0;background:#fdf2f8;overflow-x:hidden;font-family:'Segoe UI',ui-rounded,system-ui,sans-serif;}
+  #root{min-height:100vh;}
+  .soft{box-shadow:0 10px 40px rgba(190,150,200,.28), inset 0 1px 0 rgba(255,255,255,.6);}
+  .btnpop{transition:transform .12s, box-shadow .12s, filter .12s;}
+  .btnpop:hover{transform:translateY(-3px);filter:brightness(1.04);}
+  .btnpop:active{transform:translateY(1px) scale(.97);}
+  .float{position:absolute;pointer-events:none;font-size:26px;animation:floatUp 1.3s ease-out forwards;z-index:30;}
+  @keyframes floatUp{0%{opacity:0;transform:translateY(0) scale(.6)}20%{opacity:1;transform:translateY(-14px) scale(1.1)}100%{opacity:0;transform:translateY(-72px) scale(1)}}
+  .idle{animation:idle 3.2s ease-in-out infinite;}
+  @keyframes idle{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(-6px) scale(1.02,.98)}}
+  .bounce{animation:bounce .5s cubic-bezier(.3,1.5,.5,1) infinite;}
+  @keyframes bounce{0%,100%{transform:translateY(0) scale(1,1)}30%{transform:translateY(-30px) scale(.92,1.1)}60%{transform:translateY(0) scale(1.12,.88)}}
+  .munch{animation:munch .4s ease-in-out;}
+  @keyframes munch{0%,100%{transform:scale(1,1)}50%{transform:scale(1.12,.9)}}
+  .sleepbob{animation:sleepbob 3.4s ease-in-out infinite;}
+  @keyframes sleepbob{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(3px) scale(1.02,.97)}}
+  .shiver{animation:shiver .18s linear infinite;}
+  @keyframes shiver{0%{transform:translate(0,0)}25%{transform:translate(-2px,1px)}50%{transform:translate(2px,-1px)}75%{transform:translate(-1px,-1px)}100%{transform:translate(1px,1px)}}
+  .eggwob{animation:eggwob 2.2s ease-in-out infinite;}
+  @keyframes eggwob{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+  .zzz{position:absolute;animation:zzzFloat 2.4s ease-out infinite;font-weight:800;}
+  @keyframes zzzFloat{0%{opacity:0;transform:translate(0,0) scale(.6)}30%{opacity:.9}100%{opacity:0;transform:translate(24px,-46px) scale(1.2)}}
+  .pop{animation:pop .4s cubic-bezier(.2,1.5,.4,1);}
+  @keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+  .sparkle{position:absolute;animation:spark 1.6s ease-in-out infinite;}
+  @keyframes spark{0%,100%{opacity:.2;transform:scale(.7)}50%{opacity:1;transform:scale(1.1)}}
+  .gaugefill{transition:width .5s cubic-bezier(.4,0,.2,1);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="classic-react">
+const { useState, useRef, useEffect, useCallback } = React;
+
+/* ===== 커스텀 훅: 안전한 인터벌 (게이지 폭주 방지) ===== */
+function useInterval(cb, delay){
+  const saved=useRef(cb);
+  useEffect(()=>{ saved.current=cb; },[cb]);
+  useEffect(()=>{ if(delay==null)return;
+    const id=setInterval(()=>saved.current(),delay);
+    return ()=>clearInterval(id); },[delay]);
+}
+
+const HOUR_MS=3000;         // 현실 3초 = 게임 1시간
+const BABY_AT=6;            // 6시간에 부화(알→아기)
+const ADULT_AT=30;         // 30시간에 어른
+
+const clamp=v=>Math.max(0,Math.min(100,v));
+
+/* 성장/성격별 몽글이 팔레트 */
+function palette(stage, personality){
+  if(stage==="baby") return {body:"#ffd1e8", bodyD:"#ff9ecb", belly:"#fff2f8", cheek:"#ff8fbf", accent:"#ff7fb6"};
+  if(personality==="lively") return {body:"#ffe08a", bodyD:"#f7b733", belly:"#fff8e0", cheek:"#f97316", accent:"#fb923c"};
+  if(personality==="calm")   return {body:"#c9ecff", bodyD:"#8fd0f5", belly:"#f0faff", cheek:"#7fb4e8", accent:"#a5b4fc"};
+  if(personality==="grumpy") return {body:"#c8b8e6", bodyD:"#9d84c9", belly:"#efe9fb", cheek:"#8b6fb8", accent:"#7c5bb0"};
+  return {body:"#ffd1e8", bodyD:"#ff9ecb", belly:"#fff2f8", cheek:"#ff8fbf", accent:"#ff7fb6"};
+}
+/* 표정 상태 결정 */
+function expr(mood, sick, sleeping){
+  if(sleeping) return "sleep";
+  if(sick) return "sick";
+  if(mood<25) return "sad";
+  if(mood>=75) return "happy";
+  return "ok";
+}
+
+/* ===== 귀여운 몽글이 SVG 캐릭터 ===== */
+function MonggleChar({stage, mood, sick, sleeping, personality, size}){
+  const S=size||150;
+  const pal=palette(stage,personality);
+  const e=expr(mood,sick,sleeping);
+  const uid=React.useId().replace(/[^a-z0-9]/gi,"");
+
+  /* ---- 알 ---- */
+  if(stage==="egg"){
+    return (
+      <svg viewBox="0 0 150 150" width={S} height={S}>
+        <defs>
+          <radialGradient id={"eg"+uid} cx="40%" cy="34%" r="72%">
+            <stop offset="0" stopColor="#fffdf7"/><stop offset="1" stopColor="#ffe9c7"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="75" cy="128" rx="34" ry="7" fill="rgba(180,140,170,.25)"/>
+        <path d="M75 20 C104 20 118 62 118 88 C118 116 100 134 75 134 C50 134 32 116 32 88 C32 62 46 20 75 20 Z"
+          fill={"url(#eg"+uid+")"} stroke="#f4d29a" strokeWidth="2"/>
+        {/* 파스텔 점무늬 */}
+        <circle cx="60" cy="70" r="7" fill="#ffd1e8"/>
+        <circle cx="92" cy="86" r="9" fill="#c9ecff"/>
+        <circle cx="70" cy="104" r="6" fill="#d9f7d0"/>
+        <circle cx="95" cy="58" r="5" fill="#fff0b0"/>
+        {/* 반짝이 하이라이트 */}
+        <ellipse cx="58" cy="46" rx="9" ry="13" fill="#ffffff" opacity=".55" transform="rotate(-20 58 46)"/>
+        <text x="103" y="40" fontSize="14">✨</text>
+      </svg>
+    );
+  }
+
+  const R=stage==="baby"?32:40;          // 몸통 크기
+  const cy=stage==="baby"?72:66;
+  /* 눈/입 좌표 */
+  const eyeY=cy-6, eyeDx=stage==="baby"?12:15, eyeR=stage==="baby"?7:8.5;
+
+  function Eyes(){
+    if(e==="sleep"){ // 감은 행복한 눈 ⌒⌒
+      return (<g stroke="#5b3b52" strokeWidth="3" strokeLinecap="round" fill="none">
+        <path d={"M"+(75-eyeDx-6)+" "+eyeY+" q6 6 12 0"}/>
+        <path d={"M"+(75+eyeDx-6)+" "+eyeY+" q6 6 12 0"}/></g>);
+    }
+    if(e==="sick"){ // >< 아픈 눈
+      return (<g stroke="#5b3b52" strokeWidth="3" strokeLinecap="round" fill="none">
+        <path d={"M"+(75-eyeDx-5)+" "+(eyeY-4)+" l6 4 l-6 4"}/>
+        <path d={"M"+(75+eyeDx+5)+" "+(eyeY-4)+" l-6 4 l6 4"}/></g>);
+    }
+    // 눈알 + 하이라이트
+    const closed = e==="sad";
+    return (<g>
+      {[75-eyeDx,75+eyeDx].map((ex,i)=>(
+        <g key={i}>
+          <ellipse cx={ex} cy={eyeY} rx={eyeR} ry={closed?eyeR*0.78:eyeR*1.12} fill="#4a2f45"/>
+          <circle cx={ex-eyeR*0.34} cy={eyeY-eyeR*0.5} r={eyeR*0.42} fill="#fff"/>
+          <circle cx={ex+eyeR*0.3} cy={eyeY+eyeR*0.4} r={eyeR*0.18} fill="#fff" opacity=".8"/>
+        </g>))}
+      {/* 성격: 삐뚤이 눈썹 */}
+      {personality==="grumpy" && e!=="sad" && (
+        <g stroke="#5b3b52" strokeWidth="3" strokeLinecap="round">
+          <path d={"M"+(75-eyeDx-8)+" "+(eyeY-eyeR-5)+" l14 5"}/>
+          <path d={"M"+(75+eyeDx+8)+" "+(eyeY-eyeR-5)+" l-14 5"}/></g>)}
+      {/* 슬픔: 눈물 */}
+      {e==="sad" && <ellipse cx={75+eyeDx+eyeR} cy={eyeY+eyeR+2} rx="2.6" ry="4" fill="#8fd0f5"/>}
+    </g>);
+  }
+  function Mouth(){
+    const my=cy+9;
+    if(e==="sleep") return <ellipse cx="75" cy={my} rx="4" ry="3" fill="#c76b91"/>;
+    if(e==="sad") return <path d={"M69 "+(my+3)+" q6 -6 12 0"} stroke="#c76b91" strokeWidth="2.6" fill="none" strokeLinecap="round"/>;
+    if(e==="sick") return <path d={"M68 "+my+" q3.5 4 7 0 q3.5 -4 7 0"} stroke="#c76b91" strokeWidth="2.4" fill="none" strokeLinecap="round"/>;
+    if(e==="grumpy"||personality==="grumpy") return <path d={"M69 "+(my+2)+" q6 -3 12 0"} stroke="#c76b91" strokeWidth="2.6" fill="none" strokeLinecap="round"/>;
+    if(e==="happy") return <path d={"M67 "+my+" q8 10 16 0 Z"} fill="#c76b91"/>; // 방긋
+    return <path d={"M70 "+my+" q5 6 10 0"} stroke="#c76b91" strokeWidth="2.6" fill="none" strokeLinecap="round"/>;
+  }
+
+  return (
+    <svg viewBox="0 0 150 150" width={S} height={S}>
+      <defs>
+        <radialGradient id={"bg"+uid} cx="38%" cy="32%" r="75%">
+          <stop offset="0" stopColor="#ffffff" stopOpacity=".55"/>
+          <stop offset="18%" stopColor={pal.body}/>
+          <stop offset="100%" stopColor={pal.bodyD}/>
+        </radialGradient>
+      </defs>
+      {/* 그림자 */}
+      <ellipse cx="75" cy={cy+R+8} rx={R*0.85} ry="7" fill="rgba(180,140,170,.25)"/>
+      {/* 성격별 머리 장식 (몸 뒤) */}
+      {personality==="lively" && (
+        <g fill={pal.bodyD} stroke={pal.accent} strokeWidth="2">
+          <path d={"M"+(75-16)+" "+(cy-R+6)+" l-6 -22 l16 12 Z"}/>
+          <path d={"M"+(75+16)+" "+(cy-R+6)+" l6 -22 l-16 12 Z"}/></g>)}
+      {personality==="grumpy" && (
+        <g fill={pal.bodyD}>
+          <path d={"M"+(75-14)+" "+(cy-R+8)+" l-4 -16 l12 10 Z"}/>
+          <path d={"M75 "+(cy-R+2)+" l0 -18 l9 14 Z"}/>
+          <path d={"M"+(75+14)+" "+(cy-R+8)+" l4 -16 l-12 10 Z"}/></g>)}
+      {/* 발 */}
+      <ellipse cx={75-R*0.45} cy={cy+R+2} rx="9" ry="6" fill={pal.bodyD}/>
+      <ellipse cx={75+R*0.45} cy={cy+R+2} rx="9" ry="6" fill={pal.bodyD}/>
+      {/* 팔 */}
+      <ellipse cx={75-R-2} cy={cy+6} rx="8" ry="11" fill={pal.body} stroke={pal.bodyD} strokeWidth="1.5"/>
+      <ellipse cx={75+R+2} cy={cy+6} rx="8" ry="11" fill={pal.body} stroke={pal.bodyD} strokeWidth="1.5"/>
+      {/* 몸통 (말랑 블롭) */}
+      <path d={"M75 "+(cy-R)+
+        " C"+(75+R*1.15)+" "+(cy-R)+" "+(75+R*1.1)+" "+(cy+R)+" 75 "+(cy+R)+
+        " C"+(75-R*1.1)+" "+(cy+R)+" "+(75-R*1.15)+" "+(cy-R)+" 75 "+(cy-R)+" Z"}
+        fill={"url(#bg"+uid+")"} stroke={pal.bodyD} strokeWidth="2"/>
+      {/* 배 */}
+      <ellipse cx="75" cy={cy+R*0.42} rx={R*0.55} ry={R*0.42} fill={pal.belly} opacity=".75"/>
+      {/* 아기 새싹 / 차분이 꽃 */}
+      {stage==="baby" && (
+        <g><path d="M75 34 q-2 -12 6 -16 q-3 8 0 14" fill="#7ed957" stroke="#5cb54a" strokeWidth="1.2"/>
+           <circle cx="75" cy="33" r="3.5" fill="#5cb54a"/></g>)}
+      {personality==="calm" && (
+        <g transform="translate(52,30)">
+          {[0,1,2,3,4].map(i=><ellipse key={i} cx="0" cy="-6" rx="4" ry="6" fill="#fbcfe8"
+            transform={"rotate("+(i*72)+" 0 0)"}/>)}
+          <circle cx="0" cy="0" r="3.5" fill="#fde047"/></g>)}
+      {/* 볼터치 */}
+      <ellipse cx={75-eyeDx-6} cy={eyeY+9} rx="6.5" ry="4.5" fill={pal.cheek} opacity=".55"/>
+      <ellipse cx={75+eyeDx+6} cy={eyeY+9} rx="6.5" ry="4.5" fill={pal.cheek} opacity=".55"/>
+      <Eyes/>
+      <Mouth/>
+      {/* 활발이 별 볼 / 반짝 */}
+      {personality==="lively" && e!=="sick" && e!=="sleep" &&
+        <text x={75+eyeDx+2} y={eyeY-eyeR-4} fontSize="11">⭐</text>}
+    </svg>
+  );
+}
+
+function Game(){
+  /* --- 게이지/상태 --- */
+  const [hunger,setHunger]=useState(80);
+  const [mood,setMood]=useState(80);
+  const [energy,setEnergy]=useState(80);
+  const [ageH,setAgeH]=useState(0);          // 나이(시간)
+  const [stage,setStage]=useState("egg");    // egg|baby|adult
+  const [sick,setSick]=useState(false);
+  const [sleeping,setSleeping]=useState(false);
+  const [personality,setPersonality]=useState(null); // lively|calm|grumpy
+  const [act,setAct]=useState("idle");       // idle|munch|play|sleep
+  const [floaters,setFloaters]=useState([]);
+  const [evolveFx,setEvolveFx]=useState(false);
+  const [toast,setToast]=useState("알을 소중히 품어주세요...");
+  const [tab,setTab]=useState(null);         // 진화 안내 모달
+
+  /* --- 케어 통계(성격 분기용) --- */
+  const care=useRef({play:0, feed:0, sleep:0, neglect:0});
+  const wasSad=useRef(false);
+  const actTimer=useRef(null);
+  const fid=useRef(1);
+
+  const say=useCallback((m)=>{ setToast(m); },[]);
+  function floatEmoji(emoji){
+    const id=fid.current++; const left=30+Math.random()*40;
+    setFloaters(f=>[...f,{id,emoji,left}]);
+    setTimeout(()=>setFloaters(f=>f.filter(x=>x.id!==id)),1300);
+  }
+  function pulseAct(a,ms){ setAct(a); clearTimeout(actTimer.current);
+    actTimer.current=setTimeout(()=>setAct("idle"),ms||500); }
+
+  /* ===== 핵심 루프: 1시간마다 ===== */
+  useInterval(()=>{
+    // 알 단계: 게이지 감소 없이 부화 카운트만
+    setAgeH(a=>a+1);
+    if(sleeping){
+      // 자는 중엔 피로만 빠르게 회복, 배고픔만 소폭 감소
+      setEnergy(e=>clamp(e+18));
+      setHunger(h=>clamp(h-2));
+      return;
+    }
+    if(stage==="egg") return;
+    setHunger(h=>clamp(h-6));
+    setMood(m=>clamp(m-5));
+    setEnergy(e=>clamp(e-4));
+  }, HOUR_MS);
+
+  /* 부화/진화 처리 */
+  useEffect(()=>{
+    if(stage==="egg" && ageH>=BABY_AT){
+      setStage("baby"); triggerEvolve(); say("몽글이가 태어났어요! 🐣");
+    } else if(stage==="baby" && ageH>=ADULT_AT){
+      const c=care.current;
+      let p="calm";
+      if(c.neglect>=3) p="grumpy";
+      else if(c.play>=4 && c.play>c.feed+c.sleep) p="lively";
+      else p="calm";
+      setPersonality(p);
+      setStage("adult"); triggerEvolve();
+      say(p==="lively"?"활발한 몽글이로 자랐어요! 🐲":p==="grumpy"?"삐뚤어진 몽글이가 됐어요... 😼":"차분한 몽글이로 자랐어요! 🦄");
+    }
+  },[ageH,stage,say]);
+
+  function triggerEvolve(){ setEvolveFx(true); setTimeout(()=>setEvolveFx(false),1200);
+    for(let i=0;i<6;i++)setTimeout(()=>floatEmoji("✨"),i*90); }
+
+  /* 삐짐/아픔 패널티 */
+  useEffect(()=>{
+    if(stage==="egg")return;
+    const sad=(hunger<=20||mood<=20);
+    if(sad && !wasSad.current){ wasSad.current=true; }
+    if(!sad) wasSad.current=false;
+    if((hunger<=0||mood<=0) && !sick){
+      setSick(true); care.current.neglect++; say("몽글이가 아파요... 치료해주세요! 🤒");
+    }
+  },[hunger,mood,stage,sick,say]);
+
+  const isSad=(hunger<=20||mood<=20)&&!sick&&stage!=="egg"&&!sleeping;
+
+  /* ===== 액션 ===== */
+  function feed(){
+    if(sick||sleeping||stage==="egg")return;
+    care.current.feed++;
+    setHunger(h=>clamp(h+26)); setEnergy(e=>clamp(e-2));
+    pulseAct("munch",450); floatEmoji("🍰"); say("냠냠! 맛있어요 😋");
+  }
+  function play(){
+    if(sick||sleeping||stage==="egg")return;
+    if(energy<12){ say("너무 피곤해서 못 놀아요... 💤"); floatEmoji("💦"); return; }
+    care.current.play++;
+    setMood(m=>clamp(m+24)); setEnergy(e=>clamp(e-14));
+    pulseAct("play",1400); floatEmoji("❤️"); say("신난다! 꺄르륵 🎵");
+  }
+  function sleepToggle(){
+    if(sick||stage==="egg")return;
+    if(!sleeping){ setSleeping(true); care.current.sleep++; setAct("sleep"); say("쉿... 몽글이가 자고 있어요 😴"); }
+    else { setSleeping(false); setAct("idle"); say("잘 잤어요! 개운해요 ☀️"); }
+  }
+  function heal(){
+    if(!sick)return;
+    setSick(false); setHunger(h=>clamp(Math.max(h,45))); setMood(m=>clamp(Math.max(m,45)));
+    floatEmoji("💊"); floatEmoji("💗"); say("다 나았어요! 고마워요 💗");
+  }
+
+  function reset(){
+    setHunger(80);setMood(80);setEnergy(80);setAgeH(0);setStage("egg");
+    setSick(false);setSleeping(false);setPersonality(null);setAct("idle");
+    care.current={play:0,feed:0,sleep:0,neglect:0}; wasSad.current=false;
+    say("새로운 알을 품어요... 🥚");
+  }
+
+  const disabled = sick || sleeping || stage==="egg";
+  const dayNum=Math.floor(ageH/24)+1;
+  const animClass = stage==="egg"?"eggwob"
+    : sick?"shiver"
+    : sleeping?"sleepbob"
+    : act==="play"?"bounce"
+    : act==="munch"?"munch"
+    : "idle";
+
+  const stageLabel = stage==="egg"?"알":stage==="baby"?"아기":
+    (personality==="lively"?"활발한 어른":personality==="grumpy"?"삐뚤어진 어른":"차분한 어른");
+
+  /* 배경: 자는 중엔 어둡게 */
+  const bgOuter = sleeping
+    ? "linear-gradient(160deg,#1e1b4b,#312e5f)"
+    : "linear-gradient(160deg,#fef9c3,#fde4f0 55%,#dbeafe)";
+  const bgInner = sleeping
+    ? "linear-gradient(180deg,#2a2650,#3b3570)"
+    : "linear-gradient(180deg,#fffdf5,#fdf2f8)";
+
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center p-4"
+      style={{background:bgOuter, transition:"background .8s ease"}}>
+      {/* 세로형 모바일 컨테이너 */}
+      <div className="soft rounded-[38px] w-[380px] max-w-full p-5 pt-4 relative overflow-hidden"
+        style={{background:bgInner, transition:"background .8s ease", border:"1px solid rgba(255,255,255,.6)"}}>
+
+        {/* 헤더 */}
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className={"font-black text-lg "+(sleeping?"text-indigo-100":"text-pink-500")}>🌸 몽글이</div>
+            <div className={"text-[11px] font-bold "+(sleeping?"text-indigo-300":"text-pink-300")}>
+              {dayNum}일차 · {stageLabel}</div>
+          </div>
+          <button onClick={reset}
+            className={"btnpop text-[11px] font-bold px-3 py-1.5 rounded-full "+(sleeping?"bg-white/10 text-indigo-100":"bg-pink-100 text-pink-500")}>
+            🔄 새 알
+          </button>
+        </div>
+
+        {/* 게이지 */}
+        <div className="space-y-1.5 mb-2">
+          <Gauge label="배고픔" icon="🍚" val={hunger} from="#fbbf24" to="#f59e0b" dark={sleeping}/>
+          <Gauge label="기분"   icon="😊" val={mood}   from="#f472b6" to="#ec4899" dark={sleeping}/>
+          <Gauge label="피로도" icon="⚡" val={energy} from="#38bdf8" to="#0ea5e9" dark={sleeping}/>
+        </div>
+
+        {/* 무대 */}
+        <div className="relative rounded-[28px] my-3 h-[230px] flex items-center justify-center overflow-hidden"
+          style={{background: sleeping
+            ? "radial-gradient(circle at 50% 40%, #3f3a78, #241f4d)"
+            : "radial-gradient(circle at 50% 35%, #fffef7, #fce7f3)",
+            transition:"background .8s ease"}}>
+          {/* 배경 장식 */}
+          {!sleeping && <>
+            <div className="sparkle" style={{top:"18%",left:"16%",fontSize:"14px"}}>✨</div>
+            <div className="sparkle" style={{top:"26%",right:"18%",fontSize:"18px",animationDelay:".6s"}}>⭐</div>
+            <div className="sparkle" style={{bottom:"18%",left:"22%",fontSize:"12px",animationDelay:"1s"}}>✨</div>
+            <div className="absolute bottom-3 text-3xl opacity-70">🌿🌸🌿</div>
+          </>}
+          {sleeping && <>
+            <div className="sparkle" style={{top:"16%",left:"20%",fontSize:"14px",color:"#c7d2fe"}}>⭐</div>
+            <div className="sparkle" style={{top:"22%",right:"22%",fontSize:"12px",animationDelay:".8s",color:"#c7d2fe"}}>✨</div>
+            <div className="absolute top-4 right-8 text-3xl">🌙</div>
+          </>}
+
+          {/* 몽글이 */}
+          <div className="relative z-10 flex items-center justify-center" style={{width:"140px",height:"140px"}}>
+            <div className={evolveFx?"pop":""}>
+              <div className={animClass} style={{filter:"drop-shadow(0 8px 10px rgba(180,120,160,.35))"}}>
+                <MonggleChar stage={stage} mood={mood} sick={sick} sleeping={sleeping} personality={personality} size={140}/>
+              </div>
+            </div>
+            {/* 삐짐 표시 */}
+            {isSad && <div className="absolute -top-1 -right-2 text-2xl pop">💢</div>}
+            {/* 자는 중 Zzz */}
+            {sleeping && <>
+              <div className="zzz text-indigo-200" style={{top:"6px",right:"22px",fontSize:"18px"}}>z</div>
+              <div className="zzz text-indigo-200" style={{top:"0px",right:"8px",fontSize:"24px",animationDelay:".8s"}}>Z</div>
+            </>}
+            {/* 진화 후광 */}
+            {evolveFx && <div className="absolute inset-0 rounded-full" style={{boxShadow:"0 0 50px 18px rgba(253,224,71,.6)"}}></div>}
+            {/* 플로팅 이모지 */}
+            {floaters.map(f=>(
+              <span key={f.id} className="float" style={{left:f.left+"%",bottom:"40%"}}>{f.emoji}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* 말풍선 */}
+        <div className={"rounded-2xl px-4 py-2 text-center text-sm font-bold mb-3 "+(sleeping?"bg-white/10 text-indigo-100":"bg-white text-pink-500 soft")}
+          style={{minHeight:"38px"}}>
+          {sick ? "🤒 몽글이가 아파요..." : toast}
+        </div>
+
+        {/* 버튼 4개 */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <ActBtn onClick={feed} disabled={disabled} color="#fdba74" bg="#fff7ed" icon="🍰" label="먹이 주기"/>
+          <ActBtn onClick={play} disabled={disabled} color="#f9a8d4" bg="#fdf2f8" icon="🎾" label="놀아 주기"/>
+          <ActBtn onClick={sleepToggle} disabled={sick||stage==="egg"} color="#a5b4fc" bg="#eef2ff"
+            icon={sleeping?"☀️":"🌙"} label={sleeping?"깨우기":"재우기"} active={sleeping}/>
+          <ActBtn onClick={heal} disabled={!sick} color="#86efac" bg="#f0fdf4" icon="💊" label="치료하기" urgent={sick}/>
+        </div>
+
+        {/* 진화 안내 */}
+        <button onClick={()=>setTab(t=>t?null:"info")}
+          className={"btnpop mt-3 w-full text-[11px] font-bold py-2 rounded-xl "+(sleeping?"bg-white/10 text-indigo-200":"bg-purple-50 text-purple-400")}>
+          📖 성격 진화 가이드 {tab?"▲":"▼"}
+        </button>
+        {tab==="info" && (
+          <div className="mt-2 rounded-xl bg-white/80 p-3 text-[11px] text-slate-600 leading-relaxed pop soft">
+            <div className="font-bold text-purple-500 mb-1">🥚 알 → 🐣 아기(6시간) → 어른(30시간)</div>
+            <div>🐲 <b className="text-orange-400">활발한</b>: '놀아주기'를 가장 많이 해준 경우</div>
+            <div>🦄 <b className="text-sky-400">차분한</b>: '먹이'와 '재우기'를 규칙적으로</div>
+            <div>😼 <b className="text-rose-400">삐뚤어진</b>: 아픔/방치를 3번 이상 겪은 경우</div>
+            <div className="mt-1 text-slate-400">현재 케어 — 🎾{care.current.play} 🍰{care.current.feed} 🌙{care.current.sleep} 💢{care.current.neglect}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Gauge({label,icon,val,from,to,dark}){
+  const low=val<=20;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm w-5 text-center">{icon}</span>
+      <span className={"text-[10px] font-bold w-9 "+(dark?"text-indigo-200":"text-slate-400")}>{label}</span>
+      <div className={"flex-1 h-3.5 rounded-full overflow-hidden "+(dark?"bg-white/15":"bg-slate-100")}>
+        <div className="gaugefill h-full rounded-full"
+          style={{width:val+"%",background:low?"linear-gradient(90deg,#f87171,#ef4444)":"linear-gradient(90deg,"+from+","+to+")"}}></div>
+      </div>
+      <span className={"text-[10px] font-black w-7 text-right "+(low?"text-red-400":dark?"text-indigo-100":"text-slate-500")}>{Math.round(val)}</span>
+    </div>
+  );
+}
+
+function ActBtn({onClick,disabled,color,bg,icon,label,active,urgent}){
+  return (
+    <button onClick={onClick} disabled={disabled}
+      className={"btnpop rounded-2xl py-3 flex flex-col items-center gap-0.5 font-bold text-sm border-2 "+(urgent?"animate-pulse":"")}
+      style={{background:disabled?"#f1f5f9":bg, borderColor:disabled?"#e2e8f0":color,
+        color:disabled?"#cbd5e1":"#64748b", opacity:disabled?0.55:1,
+        boxShadow:active?("0 0 0 3px "+color):(disabled?"none":"0 4px 0 "+color+"55"),
+        cursor:disabled?"not-allowed":"pointer"}}>
+      <span className="text-2xl">{icon}</span>
+      <span style={{color:disabled?"#cbd5e1":color}}>{label}</span>
+    </button>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+</script>
+</body>
+</html>'''
+
+
+def monggle_page():
+    st.title("🌸 다마고치: 몽글이 키우기")
+    st.caption("파스텔 힐링 육성! 먹이·놀이·잠으로 몽글이를 돌보며 알→아기→어른으로. 케어 방식에 따라 활발/차분/삐뚤어진 성격으로 진화해요")
+    components.html(MONGGLE_HTML, height=760, scrolling=True)
+
+
+# ==========================================
 # 8. 메인 네비게이션 진입 게이트웨이
 # ==========================================
 st.set_page_config(
@@ -5813,10 +6300,11 @@ rpg = st.Page(rpg_page, title="9속성 타워 디펜스", icon="🛡️")
 multiplayer_rpg = st.Page(multiplayer_rpg_page, title="1대1 멀티 RPG 배틀", icon="⚔️")
 dragon = st.Page(dragon_nursery_page, title="드래곤 보육원 & 배틀", icon="🐉")
 rider = st.Page(dragon_rider_page, title="드래곤 서바이버", icon="🐲")
+monggle = st.Page(monggle_page, title="몽글이 키우기", icon="🌸")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
 adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
 typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
 
-pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, wordle, adventure, typing_game])
+pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, wordle, adventure, typing_game])
 pg.run()
 
