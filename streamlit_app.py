@@ -7430,6 +7430,592 @@ def ant_war_page():
 
 
 # ==========================================
+# 7-7. ⚔️ 검투사 아레나 (React 임베드)
+# ==========================================
+GLADIATOR_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
+</script>
+<style>
+  html,body{margin:0;padding:0;background:#0a0a0f;overflow-x:hidden;font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif;}
+  #root{min-height:100vh;}
+  .glass{background:rgba(22,18,28,.66);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.09);}
+  canvas{display:block;border-radius:12px;image-rendering:auto;}
+  .btng{transition:transform .1s, filter .1s;}
+  .btng:hover{transform:translateY(-2px);filter:brightness(1.12);}
+  .btng:active{transform:translateY(1px);}
+  .pop{animation:pop .3s cubic-bezier(.2,1.5,.4,1);}
+  @keyframes pop{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+  .fadein{animation:fadein .35s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  kbd{background:#2a2338;border:1px solid #4b4066;border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:12px;font-weight:700;color:#e9d8ff;}
+  ::-webkit-scrollbar{height:7px;width:7px}::-webkit-scrollbar-thumb{background:#4b3a63;border-radius:8px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="classic-react">
+const { useState, useRef, useEffect } = React;
+
+/* ===================== 상수 ===================== */
+const W=820, H=460, FLOOR=372;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const rand=(a,b)=>a+Math.random()*(b-a);
+const BEST_KEY="ynd_glad_best_v1";
+const loadBest=()=>{ try{ return parseInt(localStorage.getItem(BEST_KEY))||0; }catch(e){ return 0; } };
+const saveBest=(v)=>{ try{ localStorage.setItem(BEST_KEY,String(v)); }catch(e){} };
+
+// 공격 정의: 윈드업 → 액티브(피격 판정) → 리커버
+const ATK={
+  light:{ wind:0.15, act:0.08, rec:0.20, dmg:9,  range:70, cost:8,  push:70,  label:"L" },
+  heavy:{ wind:0.40, act:0.10, rec:0.40, dmg:20, range:82, cost:20, push:150, label:"H" },
+};
+const PARRY_WIN=0.20;      // 막기 시작 후 이 시간 안에 맞으면 패링
+const DODGE_DUR=0.42, DODGE_IFRAME=[0.05,0.30], DODGE_COST=22, DODGE_SPEED=340;
+const MOVE_SPEED=150, MIN_SEP=64, STAM_REGEN=26;
+const HITSTOP_MAX=0.09;
+
+const DIFF={
+  easy:  {name:"쉬움",   react:0.55, aggro:0.62, atkCd:[0.55,0.95], parryChance:0.12, dodgeChance:0.16, color:"#22c55e"},
+  normal:{name:"보통",   react:0.32, aggro:0.80, atkCd:[0.40,0.75], parryChance:0.28, dodgeChance:0.24, color:"#eab308"},
+  hard:  {name:"어려움", react:0.17, aggro:0.95, atkCd:[0.28,0.55], parryChance:0.46, dodgeChance:0.34, color:"#ef4444"},
+};
+
+// 콤보 시퀀스 → 특수기 (뒤에서부터 매칭)
+const COMBOS=[
+  {seq:"LLH", name:"어퍼컷!",   dmgMul:1.6, launch:true,  stun:0.6 },
+  {seq:"HH",  name:"강타 연계!", dmgMul:1.4, gbreak:true,  stun:0.0 },
+  {seq:"LHL", name:"회전베기!", dmgMul:1.5, push:1.6,     stun:0.2 },
+  {seq:"LLL", name:"난무!",     dmgMul:1.3, stamBack:16,  stun:0.0 },
+];
+
+/* ===================== 파이터 ===================== */
+function mkFighter(side){
+  return {
+    side, x: side==="p"?270:550, y:FLOOR, facing: side==="p"?1:-1,
+    hp:100, maxHp:100, stam:100, maxStam:100,
+    state:"idle", t:0,               // idle|walk|attack|block|dodge|stun|hurt
+    atk:null,                        // {type,phase,timer,dur,hitDone}
+    guardT:0, guarding:false,        // guarding: 실제 막기 유지 중
+    combo:0, comboT:0, seq:"", special:"", specialT:0,
+    counter:false,                   // 패링 성공 후 다음 공격 강화
+    stunT:0, iframe:0, hitFlash:0, flashCol:"#fff",
+    vx:0, lungeVX:0, msg:"", msgT:0, blink:0,
+  };
+}
+
+/* ===================== 게임 컴포넌트 ===================== */
+function Game(){
+  const cvRef=useRef(null);
+  const p=useRef(null), e=useRef(null);
+  const parts=useRef([]), floats=useRef([]), sparks=useRef([]);
+  const keys=useRef({}), buf=useRef({light:false,heavy:false,dodge:false});
+  const phase=useRef("menu");        // menu|fight|roundover|matchover
+  const diff=useRef("normal");
+  const round=useRef(1), scoreP=useRef(0), scoreE=useRef(0);
+  const shake=useRef({t:0,mag:0}), hitstop=useRef(0), roundBanner=useRef({t:0,txt:""});
+  const aiRef=useRef({cd:0, react:0, plan:"approach"});
+  const [ui,setUi]=useState({phase:"menu",diff:"normal",round:1,sp:0,se:0,best:loadBest(),result:""});
+
+  const sync=()=>setUi({phase:phase.current,diff:diff.current,round:round.current,sp:scoreP.current,se:scoreE.current,best:loadBest(),result:resultTxt.current});
+  const resultTxt=useRef("");
+
+  /* ---------- 이펙트 ---------- */
+  const addParts=(x,y,col,n,spd)=>{ for(let i=0;i<n;i++){ const a=rand(0,Math.PI*2),s=rand(spd*0.3,spd); parts.current.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-rand(20,90),life:rand(.3,.6),t:0,col,r:rand(2,4)});} };
+  const addSpark=(x,y)=>{ for(let i=0;i<14;i++){ const a=rand(0,Math.PI*2),s=rand(120,320); sparks.current.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rand(.18,.34),t:0}); } };
+  const addFloat=(x,y,txt,col,big)=>floats.current.push({x,y,txt,col,life:0.9,t:0,big:!!big});
+  const doShake=(m)=>{ shake.current.t=0.22; shake.current.mag=m; };
+  const doStop=(s)=>{ hitstop.current=Math.min(HITSTOP_MAX,Math.max(hitstop.current,s)); };
+
+  /* ---------- 라운드/매치 ---------- */
+  const resetFighters=()=>{ p.current=mkFighter("p"); e.current=mkFighter("e"); parts.current=[]; floats.current=[]; sparks.current=[]; buf.current={light:false,heavy:false,dodge:false}; };
+  const startMatch=(d)=>{ diff.current=d; round.current=1; scoreP.current=0; scoreE.current=0; resetFighters(); aiRef.current={cd:rand(0.5,1),react:0,plan:"approach"}; phase.current="fight"; roundBanner.current={t:1.3,txt:"라운드 1"}; resultTxt.current=""; sync(); };
+  const nextRound=()=>{ round.current++; resetFighters(); aiRef.current={cd:rand(0.5,1),react:0,plan:"approach"}; phase.current="fight"; roundBanner.current={t:1.3,txt:"라운드 "+round.current}; sync(); };
+
+  const endRound=(pWon)=>{
+    if(phase.current!=="fight")return;
+    if(pWon)scoreP.current++; else scoreE.current++;
+    roundBanner.current={t:1.4,txt:pWon?"승리!":"패배..."};
+    if(scoreP.current>=2||scoreE.current>=2){
+      const win=scoreP.current>=2;
+      resultTxt.current= win? "매치 승리! 🏆":"매치 패배 😵";
+      // 최고 연승 기록: 매치 승리 시 누적, 패배 시 0으로 리셋
+      if(win){ saveBest(loadBest()+1); } else { saveBest(0); }
+      phase.current="matchover";
+    } else {
+      phase.current="roundover";
+    }
+    sync();
+  };
+
+  /* ---------- 공격 시작 ---------- */
+  const canAct=(f)=> (f.state==="idle"||f.state==="walk"||f.state==="block") && f.stunT<=0;
+  const startAttack=(f,type)=>{
+    const a=ATK[type];
+    if(f.stam<a.cost){ f.msg="기력 부족"; f.msgT=0.5; return false; }
+    f.stam-=a.cost; f.state="attack"; f.guarding=false;
+    f.atk={type,phase:"wind",timer:0,dur:a.wind,hitDone:false};
+    // 살짝 전진 러시
+    f.lungeVX=f.facing*(type==="heavy"?120:80);
+    return true;
+  };
+  const startBlock=(f)=>{ if(!canAct(f))return; if(f.state!=="block"){ f.state="block"; f.guarding=true; f.guardT=0; } };
+  const endBlock=(f)=>{ if(f.state==="block"){ f.state="idle"; f.guarding=false; } };
+  const startDodge=(f,dir)=>{
+    if(!canAct(f)||f.stam<DODGE_COST)return;
+    f.stam-=DODGE_COST; f.state="dodge"; f.t=0; f.atk=null; f.guarding=false;
+    f.lungeVX=(dir||-f.facing)*DODGE_SPEED;
+  };
+
+  /* ---------- 피격 판정 ---------- */
+  const resolveHit=(atk,def)=>{
+    const a=ATK[atk.atk.type];
+    // 회피(무적) 판정
+    if(def.state==="dodge"&&def.iframe>0){ addFloat(def.x,def.y-90,"회피","#67e8f9"); def.stam=clamp(def.stam+8,0,def.maxStam); return; }
+    // 막기 판정
+    if(def.state==="block"&&def.guarding){
+      if(def.guardT<=PARRY_WIN){
+        // 패링 성공!
+        atk.state="stun"; atk.stunT=(atk.atk.type==="heavy"?1.0:0.8); atk.atk=null; atk.t=0;
+        def.counter=true; def.stam=clamp(def.stam+16,0,def.maxStam);
+        addFloat((atk.x+def.x)/2,def.y-96,"패링!","#fde047",true);
+        addSpark((atk.x+def.x)/2,def.y-42); doShake(9); doStop(0.09);
+        def.msg="반격 기회!"; def.msgT=0.9;
+        return;
+      } else {
+        // 일반 가드: 칩 데미지 + 스태미너 소모
+        const chip=a.dmg*0.18; def.hp=clamp(def.hp-chip,0,def.maxHp);
+        const scost=(atk.atk.type==="heavy"?34:18);
+        def.stam-=scost;
+        def.x=clamp(def.x+atk.facing*18,60,W-60);
+        addFloat(def.x,def.y-90,"가드","#a3a3a3");
+        addSpark(def.x+atk.facing*24,def.y-42); doShake(4); doStop(0.05);
+        if(def.stam<=0){ def.stam=0; def.state="stun"; def.stunT=0.75; def.guarding=false; addFloat(def.x,def.y-96,"가드 붕괴!","#f87171",true); doShake(7); }
+        return;
+      }
+    }
+    // 무방비 히트
+    let mul=1;
+    if(atk.counter){ mul*=1.7; atk.counter=false; addFloat(atk.x,atk.y-100,"반격!","#fca5a5"); }
+    // 콤보 시퀀스 적립 & 특수기
+    atk.seq=(atk.seq+a.label).slice(-4);
+    let special=null;
+    for(const c of COMBOS){ if(atk.seq.endsWith(c.seq)){ special=c; break; } }
+    let dmg=a.dmg*mul*(1+atk.combo*0.04);
+    let push=a.push, launch=false;
+    if(special){
+      dmg*=special.dmgMul; push*=(special.push||1);
+      if(special.launch)launch=true;
+      if(special.stamBack)atk.stam=clamp(atk.stam+special.stamBack,0,atk.maxStam);
+      if(special.gbreak){ def.state="stun"; def.stunT=Math.max(def.stunT,0.6); }
+      if(special.stun>0){ def.stunT=Math.max(def.stunT,special.stun); }
+      atk.special=special.name; atk.specialT=1.1; atk.seq="";
+      addFloat(atk.x,atk.y-116,special.name,"#f0abfc",true);
+    }
+    def.hp=clamp(def.hp-dmg,0,def.maxHp);
+    def.state="hurt"; def.t=0; def.stunT=Math.max(def.stunT, launch?0.5:0.18);
+    def.hitFlash=0.18; def.flashCol="#ff5a5a";
+    def.lungeVX=atk.facing*push*(launch?1.2:1);
+    def.x=clamp(def.x,60,W-60);
+    atk.combo++; atk.comboT=1.6;
+    addParts(def.x, def.y-52, "#e11d48", launch?16:10, launch?260:180);
+    addFloat(def.x, def.y-100, Math.round(dmg)+"", "#fee2e2", launch);
+    doShake(launch?11:7); doStop(launch?0.09:0.06);
+    if(def.hp<=0){ def.hp=0; }
+  };
+
+  /* ---------- 파이터 업데이트 ---------- */
+  const stepFighter=(f,o,dt,intent)=>{
+    // 타이머 감소
+    if(f.stunT>0)f.stunT-=dt;
+    if(f.iframe>0)f.iframe-=dt;
+    if(f.hitFlash>0)f.hitFlash-=dt;
+    if(f.msgT>0)f.msgT-=dt;
+    if(f.specialT>0)f.specialT-=dt;
+    if(f.comboT>0){ f.comboT-=dt; if(f.comboT<=0){ f.combo=0; f.seq=""; f.counter=false; } }
+    f.blink+=dt;
+
+    // 항상 상대를 바라봄 (공격/피격/기절 중 제외한 안정 상태에서만 전환)
+    if(f.state==="idle"||f.state==="walk"||f.state==="block"){ f.facing = o.x>=f.x?1:-1; }
+
+    // 기절 처리
+    if(f.state==="stun"){ if(f.stunT<=0){ f.state="idle"; } }
+    // 피격 경직
+    if(f.state==="hurt"){ f.t+=dt; if(f.t>=0.22&&f.stunT<=0){ f.state="idle"; } }
+
+    // 회피(구르기)
+    if(f.state==="dodge"){
+      f.t+=dt;
+      f.iframe = (f.t>=DODGE_IFRAME[0]&&f.t<=DODGE_IFRAME[1])? Math.max(f.iframe,0.02):f.iframe;
+      f.x=clamp(f.x+f.lungeVX*dt,60,W-60);
+      f.lungeVX*=Math.pow(0.02,dt);
+      if(f.t>=DODGE_DUR){ f.state="idle"; f.lungeVX=0; }
+    }
+
+    // 공격 상태머신
+    if(f.state==="attack"&&f.atk){
+      const a=ATK[f.atk.type]; f.atk.timer+=dt;
+      // 러시 전진 감쇠
+      f.x=clamp(f.x+f.lungeVX*dt,60,W-60); f.lungeVX*=Math.pow(0.0009,dt);
+      if(f.atk.phase==="wind"&&f.atk.timer>=a.wind){ f.atk.phase="act"; f.atk.timer=0; }
+      else if(f.atk.phase==="act"){
+        // 액티브 프레임: 판정
+        if(!f.atk.hitDone){
+          const dx=o.x-f.x;
+          if(dx*f.facing>0 && Math.abs(dx)<=a.range && Math.abs(o.y-f.y)<40){
+            f.atk.hitDone=true; resolveHit(f,o);
+          }
+        }
+        if(f.atk.timer>=a.act){ f.atk.phase="rec"; f.atk.timer=0; }
+      }
+      else if(f.atk.phase==="rec"&&f.atk.timer>=a.rec){ f.state="idle"; f.atk=null; }
+      return; // 공격 중엔 이동/막기 입력 무시
+    }
+
+    // 안정 상태: 입력 처리
+    if(f.state==="idle"||f.state==="walk"||f.state==="block"){
+      // 막기 유지 타이머
+      if(f.state==="block"){ f.guardT+=dt; }
+      // 스태미너 재생 (막기/공격 중 아닐 때)
+      if(f.state!=="block"){ f.stam=clamp(f.stam+STAM_REGEN*dt,0,f.maxStam); }
+      else { f.stam=clamp(f.stam+STAM_REGEN*0.25*dt,0,f.maxStam); }
+
+      // 인텐트 적용
+      if(intent){
+        if(intent.dodge){ startDodge(f,intent.dodgeDir); }
+        else if(intent.heavy){ startAttack(f,"heavy"); }
+        else if(intent.light){ startAttack(f,"light"); }
+        else if(intent.block){ startBlock(f); }
+        else {
+          if(f.state==="block")endBlock(f);
+          // 이동
+          let mv=0; if(intent.left)mv-=1; if(intent.right)mv+=1;
+          if(mv!==0){
+            const nx=clamp(f.x+mv*MOVE_SPEED*dt,60,W-60);
+            // 상대와 겹침 방지
+            if(Math.abs(nx-o.x)>=MIN_SEP || Math.abs(nx-o.x)>Math.abs(f.x-o.x)){ f.x=nx; f.state="walk"; }
+            else f.state="idle";
+          } else f.state="idle";
+        }
+      } else if(f.state!=="block"){ f.state="idle"; }
+    }
+  };
+
+  /* ---------- AI 인텐트 ---------- */
+  const aiIntent=(f,o,dt)=>{
+    const A=aiRef.current, cfg=DIFF[diff.current];
+    const intent={left:false,right:false,light:false,heavy:false,block:false,dodge:false,dodgeDir:0};
+    if(!canAct(f)) return null;
+    A.cd-=dt; if(A.react>0)A.react-=dt;
+    const dx=o.x-f.x, adx=Math.abs(dx), dir=dx>0?1:-1;
+
+    // 상대가 공격 윈드업/액티브 중이면 반응 (거리 안일 때)
+    const oAtk = o.state==="attack" && o.atk && (o.atk.phase==="wind"||o.atk.phase==="act");
+    const inThreat = adx <= ATK.heavy.range+20;
+    if(oAtk && inThreat && A.react<=0){
+      A.react=cfg.react;
+      const r=Math.random();
+      if(r<cfg.parryChance){ intent.block=true; return intent; }       // 패링 노림
+      if(r<cfg.parryChance+cfg.dodgeChance){ intent.dodge=true; intent.dodgeDir=dir<0?1:-1; return intent; } // 뒤로 회피
+    }
+    // 가드 유지 해제 (위협 없으면 풀기 위해 아무것도 안함)
+
+    // 거리 조절 & 공격
+    if(A.cd<=0){
+      if(adx>ATK.light.range-6){
+        // 접근
+        intent[dir>0?"right":"left"]=true;
+        if(adx<=ATK.light.range+8 && Math.random()<cfg.aggro){ A.cd=rand(cfg.atkCd[0],cfg.atkCd[1]); intent.light= Math.random()<0.65; intent.heavy=!intent.light; }
+      } else {
+        // 근접: 공격 결정
+        if(Math.random()<cfg.aggro){
+          A.cd=rand(cfg.atkCd[0],cfg.atkCd[1]);
+          if(f.stam<ATK.heavy.cost){ intent.light=true; }
+          else intent.heavy=Math.random()<0.4, intent.light=!intent.heavy;
+        } else {
+          A.cd=rand(0.2,0.5);
+          // 살짝 물러서기
+          if(Math.random()<0.4)intent[dir>0?"left":"right"]=true;
+        }
+      }
+    } else {
+      // cd 대기 중엔 살짝 접근 유지
+      if(adx>ATK.light.range+30)intent[dir>0?"right":"left"]=true;
+    }
+    return intent;
+  };
+
+  /* ---------- 플레이어 인텐트 ---------- */
+  const playerIntent=()=>{
+    const k=keys.current, b=buf.current;
+    const intent={ left:!!(k["a"]||k["arrowleft"]), right:!!(k["d"]||k["arrowright"]),
+      block:!!(k["l"]||k["s"]||k["arrowdown"]), light:false, heavy:false, dodge:false, dodgeDir:0 };
+    if(b.dodge){ intent.dodge=true; intent.dodgeDir = intent.left?-1: intent.right?1: 0; b.dodge=false; }
+    else if(b.heavy){ intent.heavy=true; b.heavy=false; }
+    else if(b.light){ intent.light=true; b.light=false; }
+    return intent;
+  };
+
+  /* ---------- 이펙트 스텝 ---------- */
+  const stepFx=(dt)=>{
+    for(const q of parts.current){ q.t+=dt; q.vy+=520*dt; q.x+=q.vx*dt; q.y+=q.vy*dt; }
+    parts.current=parts.current.filter(q=>q.t<q.life);
+    for(const s of sparks.current){ s.t+=dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.vx*=Math.pow(0.02,dt); s.vy*=Math.pow(0.02,dt); }
+    sparks.current=sparks.current.filter(s=>s.t<s.life);
+    for(const fl of floats.current){ fl.t+=dt; fl.y-=34*dt; }
+    floats.current=floats.current.filter(fl=>fl.t<fl.life);
+    if(shake.current.t>0)shake.current.t-=dt;
+    if(roundBanner.current.t>0)roundBanner.current.t-=dt;
+  };
+
+  /* ---------- 메인 스텝 ---------- */
+  const step=(dt)=>{
+    if(phase.current!=="fight"){ stepFx(dt); return; }
+    const P=p.current, E=e.current; if(!P||!E)return;
+    const pI=playerIntent();
+    const eI=aiIntent(E,P,dt);
+    stepFighter(P,E,dt,pI);
+    stepFighter(E,P,dt,eI);
+    // 겹침 밀어내기 (양쪽 안정 상태에서만)
+    const gap=Math.abs(P.x-E.x);
+    if(gap<MIN_SEP-2){ const mid=(P.x+E.x)/2, half=(MIN_SEP)/2; if(P.x<=E.x){ P.x=clamp(mid-half,60,W-60); E.x=clamp(mid+half,60,W-60);} else { P.x=clamp(mid+half,60,W-60); E.x=clamp(mid-half,60,W-60);} }
+    stepFx(dt);
+    // 라운드 종료 판정
+    if(P.hp<=0||E.hp<=0){
+      if(E.hp<=0&&P.hp<=0) endRound(P.hp>=E.hp);
+      else endRound(E.hp<=0);
+    }
+  };
+
+  /* ---------- 그리기 ---------- */
+  const drawFighter=(ctx,f,main)=>{
+    const col=main? "#f59e0b":"#a855f7", dcol=main?"#b45309":"#6b21a8";
+    ctx.save(); ctx.translate(f.x,f.y);
+    const fc=f.facing;
+    // 그림자
+    ctx.fillStyle="rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(0,4,30,9,0,0,Math.PI*2); ctx.fill();
+    // 회피 중 반투명
+    ctx.globalAlpha = (f.state==="dodge"&&f.iframe>0)?0.45:1;
+    // 히트 플래시
+    const flash=f.hitFlash>0;
+    const body=flash? f.flashCol: col, bodyD=flash? f.flashCol: dcol;
+    // 기절 흔들림
+    let lean=0;
+    if(f.state==="stun") lean=Math.sin(f.blink*30)*0.12;
+    if(f.state==="attack"&&f.atk){ if(f.atk.phase==="wind")lean=-fc*0.18; else if(f.atk.phase==="act")lean=fc*0.34; else lean=fc*0.1; }
+    if(f.state==="hurt")lean=-fc*0.2;
+    ctx.rotate(lean);
+    // 다리
+    ctx.strokeStyle=bodyD; ctx.lineWidth=8; ctx.lineCap="round";
+    const stride=(f.state==="walk")?Math.sin(f.blink*12)*10:4;
+    ctx.beginPath(); ctx.moveTo(-6,-26); ctx.lineTo(-10-stride*0.3,-2); ctx.moveTo(6,-26); ctx.lineTo(10+stride*0.3,-2); ctx.stroke();
+    // 몸통
+    ctx.fillStyle=body; roundRect(ctx,-16,-72,32,48,10); ctx.fill();
+    ctx.fillStyle=bodyD; roundRect(ctx,-16,-72,32,14,8); ctx.fill(); // 어깨 갑옷
+    // 머리 (투구)
+    ctx.fillStyle=body; ctx.beginPath(); ctx.arc(0,-88,15,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle=bodyD; ctx.beginPath(); ctx.arc(0,-92,15,Math.PI,Math.PI*2); ctx.fill(); // 투구 상단
+    // 투구 볏
+    ctx.fillStyle=main?"#fca5a5":"#f0abfc"; roundRect(ctx,-3,-108,6,16,3); ctx.fill();
+    // 눈
+    ctx.fillStyle="#1a1a1a"; ctx.fillRect(fc>0?2:-8,-90,6,4);
+    // 방패 (막기 상태 강조)
+    const shieldOut = f.state==="block";
+    ctx.save(); ctx.translate(fc*(shieldOut?26:16),-52);
+    ctx.fillStyle= (f.state==="block"&&f.guardT<=PARRY_WIN)? "#fde047" : "#cbd5e1";
+    ctx.strokeStyle="#64748b"; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.ellipse(0,0,10,20,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    // 검 (공격 스윙 표현)
+    ctx.save(); ctx.translate(fc*14,-58);
+    let swordAng=fc>0?-0.4:Math.PI+0.4;
+    if(f.state==="attack"&&f.atk){ const ph=f.atk.phase; const prog= ph==="wind"?-0.9: ph==="act"?0.9:0.3; swordAng = (fc>0? -0.4 : Math.PI+0.4) + fc*prog; }
+    ctx.rotate(swordAng);
+    ctx.strokeStyle="#e2e8f0"; ctx.lineWidth=5; ctx.lineCap="round";
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(42,0); ctx.stroke();
+    ctx.strokeStyle="#94a3b8"; ctx.lineWidth=8; ctx.beginPath(); ctx.moveTo(-4,0); ctx.lineTo(-10,0); ctx.stroke();
+    // 액티브 프레임 검광
+    if(f.state==="attack"&&f.atk&&f.atk.phase==="act"){ ctx.strokeStyle="rgba(255,255,255,.6)"; ctx.lineWidth=14; ctx.beginPath(); ctx.arc(0,0,42,-0.6,0.6); ctx.stroke(); }
+    ctx.restore();
+    ctx.restore();
+
+    // 머리 위 HP/스태미너 (미니)
+    const bw=58, bx=f.x-bw/2, by=f.y-134;
+    ctx.fillStyle="rgba(0,0,0,.55)"; roundRect(ctx,bx-2,by-2,bw+4,13,3); ctx.fill();
+    ctx.fillStyle="#3f1d2b"; roundRect(ctx,bx,by,bw,6,2); ctx.fill();
+    ctx.fillStyle=main?"#22c55e":"#f43f5e"; roundRect(ctx,bx,by,bw*clamp(f.hp/f.maxHp,0,1),6,2); ctx.fill();
+    ctx.fillStyle="#1e293b"; roundRect(ctx,bx,by+7,bw,4,2); ctx.fill();
+    ctx.fillStyle="#38bdf8"; roundRect(ctx,bx,by+7,bw*clamp(f.stam/f.maxStam,0,1),4,2); ctx.fill();
+    // 특수기 라벨
+    if(f.specialT>0){ ctx.fillStyle="#f0abfc"; ctx.font="bold 13px system-ui"; ctx.textAlign="center"; ctx.fillText(f.special, f.x, by-8); }
+    // 콤보
+    if(f.combo>1){ ctx.fillStyle="#fbbf24"; ctx.font="bold 15px system-ui"; ctx.textAlign="center"; ctx.fillText(f.combo+" COMBO", f.x, f.y-150); }
+    // 메시지
+    if(f.msgT>0){ ctx.fillStyle="#fca5a5"; ctx.font="bold 12px system-ui"; ctx.textAlign="center"; ctx.fillText(f.msg,f.x,f.y-158); }
+  };
+
+  const draw=(ctx)=>{
+    // 배경
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,"#241a30"); g.addColorStop(.55,"#1a1424"); g.addColorStop(1,"#120e1a");
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    // 관중석 실루엣
+    ctx.fillStyle="#0d0a14"; ctx.fillRect(0,0,W,120);
+    ctx.fillStyle="rgba(168,85,247,.05)"; ctx.beginPath(); ctx.arc(W/2,60,260,0,Math.PI*2); ctx.fill();
+    // 바닥(모래)
+    const fg=ctx.createLinearGradient(0,FLOOR-40,0,H); fg.addColorStop(0,"#3a2f22"); fg.addColorStop(1,"#241c14");
+    ctx.fillStyle=fg; ctx.fillRect(0,FLOOR-8,W,H-FLOOR+8);
+    ctx.strokeStyle="rgba(255,255,255,.05)"; ctx.lineWidth=2;
+    for(let i=0;i<6;i++){ ctx.beginPath(); ctx.moveTo(80+i*130,FLOOR); ctx.lineTo(80+i*130+40,H); ctx.stroke(); }
+
+    if(!p.current||!e.current)return; // 안전 가드
+
+    // 파티클(뒤)
+    for(const s of sparks.current){ const al=1-s.t/s.life; ctx.strokeStyle="rgba(253,224,71,"+al+")"; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(s.x-s.vx*0.02,s.y-s.vy*0.02); ctx.stroke(); }
+
+    // 파이터
+    drawFighter(ctx,e.current,false);
+    drawFighter(ctx,p.current,true);
+
+    // 혈흔 파티클(앞)
+    for(const q of parts.current){ const al=1-q.t/q.life; ctx.fillStyle=q.col.replace(")",","+al+")").replace("rgb","rgba"); ctx.globalAlpha=al; ctx.fillStyle=q.col; ctx.beginPath(); ctx.arc(q.x,q.y,q.r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1; }
+    // 플로팅 텍스트
+    for(const fl of floats.current){ const al=clamp(1-fl.t/fl.life,0,1); ctx.globalAlpha=al; ctx.fillStyle=fl.col; ctx.font="bold "+(fl.big?24:16)+"px system-ui"; ctx.textAlign="center"; ctx.strokeStyle="rgba(0,0,0,.6)"; ctx.lineWidth=3; ctx.strokeText(fl.txt,fl.x,fl.y); ctx.fillText(fl.txt,fl.x,fl.y); ctx.globalAlpha=1; }
+
+    // 라운드 배너
+    if(roundBanner.current.t>0){ const al=clamp(roundBanner.current.t,0,1); ctx.globalAlpha=Math.min(1,al*1.5); ctx.fillStyle="rgba(0,0,0,.5)"; ctx.fillRect(0,H/2-46,W,92); ctx.fillStyle="#fde047"; ctx.font="bold 44px system-ui"; ctx.textAlign="center"; ctx.fillText(roundBanner.current.txt,W/2,H/2+15); ctx.globalAlpha=1; }
+  };
+
+  /* ---------- 루프 & 입력 ---------- */
+  useEffect(()=>{
+    const cv=cvRef.current; if(!cv)return; const ctx=cv.getContext("2d");
+    let raf, last=performance.now(), acc=0; const STEP=1/120;
+    const loop=(now)=>{
+      try{
+        let dt=(now-last)/1000; last=now; if(dt>0.3)dt=0.3;
+        if(hitstop.current>0){ hitstop.current-=dt; dt*=0.15; }
+        acc+=dt; let guard=0;
+        while(acc>=STEP&&guard++<40){ step(STEP); acc-=STEP; }
+        // 화면 흔들림 적용
+        let sx=0,sy=0; if(shake.current.t>0){ const m=shake.current.mag*(shake.current.t/0.22); sx=rand(-m,m); sy=rand(-m,m); }
+        ctx.save(); ctx.translate(sx,sy); draw(ctx); ctx.restore();
+      }catch(err){ console.error("glad loop error",err); }
+      raf=requestAnimationFrame(loop);
+    };
+    raf=requestAnimationFrame(loop);
+
+    const kd=(ev)=>{
+      const key=ev.key.toLowerCase();
+      if(["arrowleft","arrowright","arrowdown","arrowup"," "].includes(key))ev.preventDefault();
+      if(phase.current!=="fight"){ return; }
+      if(!keys.current[key]){ // 엣지 트리거
+        if(key==="j")buf.current.light=true;
+        if(key==="k")buf.current.heavy=true;
+        if(key===" "||key==="shift")buf.current.dodge=true;
+      }
+      keys.current[key]=true;
+      if(ev.key==="Shift")keys.current["shift"]=true;
+    };
+    const ku=(ev)=>{ const key=ev.key.toLowerCase(); keys.current[key]=false; if(ev.key==="Shift")keys.current["shift"]=false; };
+    window.addEventListener("keydown",kd); window.addEventListener("keyup",ku);
+    // 포커스 잃을 때 키 리셋
+    const blur=()=>{ keys.current={}; };
+    window.addEventListener("blur",blur);
+
+    return ()=>{ cancelAnimationFrame(raf); window.removeEventListener("keydown",kd); window.removeEventListener("keyup",ku); window.removeEventListener("blur",blur); };
+  },[]);
+
+  /* ---------- UI ---------- */
+  const Menu=()=>(
+    <div className="absolute inset-0 flex items-center justify-center fadein" style={{background:"rgba(10,8,15,.72)"}}>
+      <div className="glass rounded-2xl p-7 max-w-md text-center pop">
+        <div className="text-5xl mb-1">⚔️</div>
+        <h1 className="text-2xl font-black text-amber-300">검투사 아레나</h1>
+        <p className="text-sm text-purple-200/80 mt-2 leading-relaxed">완벽한 타이밍의 <b className="text-yellow-300">패링</b>으로 적을 무너뜨리고<br/>연속기 <b className="text-fuchsia-300">콤보</b>로 반격하세요. 3판 2선승제!</p>
+        <div className="mt-4 text-xs text-white/70 grid grid-cols-2 gap-1.5 text-left glass rounded-lg p-3">
+          <div><kbd>A</kbd>/<kbd>D</kbd> 이동</div><div><kbd>J</kbd> 약공격 <kbd>K</kbd> 강공격</div>
+          <div><kbd>L</kbd> 막기/패링</div><div><kbd>Space</kbd> 구르기(회피)</div>
+        </div>
+        <p className="text-[11px] text-cyan-200/70 mt-2">💡 적 공격 직전에 <kbd>L</kbd>을 누르면 <b>패링</b> → 반격 기회!</p>
+        <div className="mt-4">
+          <div className="text-xs text-white/60 mb-1.5">난이도 선택</div>
+          <div className="flex gap-2 justify-center">
+            {Object.keys(DIFF).map(d=>(
+              <button key={d} onClick={()=>startMatch(d)} className="btng px-4 py-2 rounded-xl font-bold text-sm text-black" style={{background:DIFF[d].color}}>{DIFF[d].name}</button>
+            ))}
+          </div>
+        </div>
+        <div className="text-[11px] text-amber-200/70 mt-3">🏆 최고 연승: {ui.best}</div>
+      </div>
+    </div>
+  );
+  const RoundOver=()=>(
+    <div className="absolute inset-0 flex items-center justify-center fadein" style={{background:"rgba(10,8,15,.55)"}}>
+      <div className="glass rounded-2xl p-6 text-center pop">
+        <div className="text-3xl font-black" style={{color: scoreP.current>scoreE.current?"#fde047":"#f87171"}}>{ui.sp} : {ui.se}</div>
+        <p className="text-sm text-white/80 mt-1">라운드 {round.current} 종료</p>
+        <button onClick={nextRound} className="btng mt-4 px-6 py-2.5 rounded-xl font-bold text-black bg-amber-400">다음 라운드 ▶</button>
+      </div>
+    </div>
+  );
+  const MatchOver=()=>(
+    <div className="absolute inset-0 flex items-center justify-center fadein" style={{background:"rgba(10,8,15,.72)"}}>
+      <div className="glass rounded-2xl p-7 text-center pop">
+        <div className="text-5xl mb-1">{ui.sp>ui.se?"🏆":"💀"}</div>
+        <h2 className="text-2xl font-black" style={{color:ui.sp>ui.se?"#fde047":"#f87171"}}>{ui.result}</h2>
+        <p className="text-sm text-white/70 mt-1">최종 {ui.sp} : {ui.se} · 난이도 {DIFF[ui.diff].name}</p>
+        <p className="text-[12px] text-amber-200/80 mt-2">🏆 최고 연승: {ui.best}</p>
+        <div className="flex gap-2 justify-center mt-4">
+          <button onClick={()=>startMatch(ui.diff)} className="btng px-5 py-2.5 rounded-xl font-bold text-black bg-amber-400">다시 대결</button>
+          <button onClick={()=>{ phase.current="menu"; sync(); }} className="btng px-5 py-2.5 rounded-xl font-bold text-white bg-white/15">난이도 변경</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="w-full flex flex-col items-center py-3 select-none">
+      <div className="relative" style={{width:W}}>
+        <div className="flex items-center justify-between mb-2 px-1" style={{width:W}}>
+          <div className="text-amber-300 font-black text-sm">🛡️ 플레이어 {phase.current!=="menu"?"· "+ui.sp+"승":""}</div>
+          <div className="text-white/60 text-xs">{phase.current==="fight"?"라운드 "+ui.round+" · "+DIFF[ui.diff].name:"검투사 아레나"}</div>
+          <div className="text-fuchsia-300 font-black text-sm">{phase.current!=="menu"?ui.se+"승 · ":""}적 검투사 🗡️</div>
+        </div>
+        <canvas ref={cvRef} width={W} height={H} className="w-full shadow-2xl" style={{background:"#120e1a",border:"1px solid rgba(168,85,247,.25)"}}/>
+        {ui.phase==="menu"&&<Menu/>}
+        {ui.phase==="roundover"&&<RoundOver/>}
+        {ui.phase==="matchover"&&<MatchOver/>}
+      </div>
+      <div className="mt-2 text-[11px] text-white/45" style={{width:W}}>
+        <span className="text-white/70">조작:</span> <kbd>A</kbd><kbd>D</kbd> 이동 · <kbd>J</kbd> 약공 · <kbd>K</kbd> 강공 · <kbd>L</kbd> 막기(직전에 누르면 패링) · <kbd>Space</kbd> 구르기 &nbsp;|&nbsp; 콤보: <b className="text-fuchsia-300">L-L-H</b> 어퍼컷, <b className="text-fuchsia-300">H-H</b> 강타연계, <b className="text-fuchsia-300">L-H-L</b> 회전베기, <b className="text-fuchsia-300">L-L-L</b> 난무
+      </div>
+    </div>
+  );
+}
+
+function roundRect(ctx,x,y,w,h,r){ if(w<2*r)r=w/2; if(h<2*r)r=h/2; ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+</script>
+</body>
+</html>
+'''
+
+
+def gladiator_page():
+    st.title("⚔️ 검투사 아레나")
+    st.caption("실시간 패링/반격 액션! 적 공격 직전에 막기(L)로 패링해 반격 기회를 열고, 약·강 공격 콤보로 적 검투사를 쓰러뜨리세요. 난이도별 AI · 3판 2선승제 · 최고 연승 기록")
+    components.html(GLADIATOR_HTML, height=600, scrolling=True)
+
+
+# ==========================================
 # 8. 메인 네비게이션 진입 게이트웨이
 # ==========================================
 st.set_page_config(
@@ -7449,10 +8035,11 @@ rider = st.Page(dragon_rider_page, title="드래곤 서바이버", icon="🐲")
 monggle = st.Page(monggle_page, title="몽글이 키우기", icon="🌸")
 zombie = st.Page(zombie_fps_page, title="좀비 디펜스 FPS", icon="🧟")
 ant = st.Page(ant_war_page, title="개미굴 대전", icon="🐜")
+gladiator = st.Page(gladiator_page, title="검투사 아레나", icon="⚔️")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
 adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
 typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
 
-pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, ant, wordle, adventure, typing_game])
+pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, ant, gladiator, wordle, adventure, typing_game])
 pg.run()
 
