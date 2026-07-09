@@ -6913,6 +6913,520 @@ def zombie_fps_page():
 
 
 # ==========================================
+# 7-6. 개미굴 대전 RTS (React 임베드)
+# ==========================================
+ANT_WAR_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
+</script>
+<style>
+  html,body{margin:0;padding:0;background:#0f0d0a;overflow-x:hidden;font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif;}
+  #root{min-height:100vh;}
+  .glass{background:rgba(30,24,16,.62);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);}
+  canvas{display:block;border-radius:12px;}
+  .btng{transition:transform .1s, filter .1s;}
+  .btng:hover{transform:translateY(-2px);filter:brightness(1.1);}
+  .btng:active{transform:translateY(1px);}
+  .pop{animation:pop .3s cubic-bezier(.2,1.5,.4,1);}
+  @keyframes pop{from{transform:scale(.7);opacity:0}to{transform:scale(1);opacity:1}}
+  .fadein{animation:fadein .35s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  ::-webkit-scrollbar{height:7px;width:7px}::-webkit-scrollbar-thumb{background:#57432a;border-radius:8px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="classic-react">
+const { useState, useRef, useEffect, useCallback } = React;
+
+/* ===================== 상수 ===================== */
+const W=820, H=560;
+const YOU="#f59e0b", YOU_D="#b45309", AI="#a855f7", AI_D="#6b21a8";
+const rand=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
+
+/* 개미 종류 스탯 */
+const ANT={
+  worker: {name:"일개미", icon:"🐜", hp:16, atk:2,  sp:36, cost:10, cd:0.5, gather:7,  vis:0 },
+  soldier:{name:"병정개미",icon:"⚔️", hp:70, atk:10, sp:26, cost:28, cd:1.3, gather:0,  vis:150 },
+  scout:  {name:"정찰개미",icon:"🦗", hp:24, atk:6,  sp:58, cost:18, cd:0.8, gather:0,  vis:170 },
+};
+const NEST_HP=1200;
+const DIFF={
+  easy:  {name:"쉬움",   ecoCd:1.5, wTarget:7,  push:7,  atkMul:1.0,  eco:1.0,  color:"#22c55e"},
+  normal:{name:"보통",   ecoCd:1.05,wTarget:10, push:11, atkMul:1.18, eco:1.1,  color:"#eab308"},
+  hard:  {name:"어려움", ecoCd:0.75,wTarget:13, push:14, atkMul:1.4,  eco:1.28, color:"#ef4444"},
+};
+const SAVE_KEY="ynd_ant_match_v1", REC_KEY="ynd_ant_record_v1";
+
+function loadRecord(){ try{ return JSON.parse(localStorage.getItem(REC_KEY))||{w:0,l:0}; }catch(e){ return {w:0,l:0}; } }
+function saveRecord(r){ try{ localStorage.setItem(REC_KEY,JSON.stringify(r)); }catch(e){} }
+function loadMatch(){ try{ const o=JSON.parse(localStorage.getItem(SAVE_KEY)); if(o&&o.ants&&o.you&&o.you.hp>0&&o.ai.hp>0)return o; }catch(e){} return null; }
+function clearMatch(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
+
+/* ===================== 게임 ===================== */
+function Game(){
+  const cvRef=useRef(null);
+  const ants=useRef([]), foods=useRef([]), parts=useRef([]), floats=useRef([]);
+  const you=useRef(null), ai=useRef(null);
+  const idc=useRef(1);
+  const phase=useRef("setup");           // setup|play|over
+  const rally=useRef("defend");          // defend|attack (플레이어)
+  const upg=useRef({you:{gather:0,combat:0}, ai:{gather:0,combat:0}});
+  const spawnCd=useRef({you:{worker:0,soldier:0,scout:0}, ai:{worker:0,soldier:0,scout:0}});
+  const aiBrain=useRef({mode:"eco", ecoT:0});
+  const diff=useRef("normal");
+  const foodRegen=useRef(0);
+  const timeS=useRef(0);
+  const shake=useRef({t:0,mag:0});
+  const acc=useRef(0), saveAcc=useRef(0);
+  const record=useRef(loadRecord());
+  const savedMatch=useRef(loadMatch());
+
+  const [ui,setUi]=useState({food:40, wk:0, sd:0, sc:0, yhp:NEST_HP, ahp:NEST_HP, time:0});
+  const [phaseS,setPhaseS]=useState("setup");
+  const [rallyS,setRallyS]=useState("defend");
+  const [upgS,setUpgS]=useState({gather:0,combat:0});
+  const [diffS,setDiffS]=useState("normal");
+  const [result,setResult]=useState(null);
+  const [rec,setRec]=useState(record.current);
+  const [toast,setToast]=useState(null);
+  const [hasSave,setHasSave]=useState(!!savedMatch.current);
+  const [cds,setCds]=useState({worker:0,soldier:0,scout:0});
+
+  const say=(m)=>{ setToast(m); setTimeout(()=>setToast(t=>t===m?null:t),2200); };
+  const syncUi=useCallback(()=>{ const y=you.current,a=ai.current; if(!y)return;
+    let wk=0,sd=0,sc=0; for(const an of ants.current){ if(an.side!=="you")continue;
+      if(an.type==="worker")wk++; else if(an.type==="soldier")sd++; else sc++; }
+    setUi({food:Math.floor(y.food),wk,sd,sc,yhp:Math.max(0,Math.ceil(y.hp)),ahp:Math.max(0,Math.ceil(a.hp)),time:Math.floor(timeS.current)});
+    setCds({worker:Math.max(0,spawnCd.current.you.worker),soldier:Math.max(0,spawnCd.current.you.soldier),scout:Math.max(0,spawnCd.current.you.scout)});
+  },[]);
+
+  /* ---------- 초기화 ---------- */
+  function freshFoods(){ const f=[]; for(let i=0;i<7;i++){ f.push({id:idc.current++,
+    x:rand(120,W-120), y:rand(180,H-180), amt:rand(90,150), max:150}); } return f; }
+  function newMatch(d){
+    diff.current=d; setDiffS(d);
+    you.current={side:"you",x:W/2,y:H-56,hp:NEST_HP,maxHp:NEST_HP,food:45};
+    const dc=DIFF[d];
+    ai.current={side:"ai",x:W/2,y:56,hp:NEST_HP,maxHp:NEST_HP,food:45+dc.eco*15};
+    ants.current=[]; foods.current=freshFoods(); parts.current=[]; floats.current=[];
+    idc.current=idc.current;
+    upg.current={you:{gather:0,combat:0},ai:{gather:0,combat:0}};
+    spawnCd.current={you:{worker:0,soldier:0,scout:0},ai:{worker:0,soldier:0,scout:0}};
+    aiBrain.current={mode:"eco",ecoT:0}; foodRegen.current=0; timeS.current=0;
+    rally.current="defend"; setRallyS("defend"); setUpgS({gather:0,combat:0});
+    // 시작 일개미 3마리씩
+    for(let i=0;i<3;i++){ spawnAnt("you","worker"); spawnAnt("ai","worker"); }
+    phase.current="play"; setPhaseS("play"); setResult(null); clearMatch(); setHasSave(false); syncUi();
+  }
+  function resumeMatch(){
+    const s=savedMatch.current; if(!s)return;
+    diff.current=s.diff; setDiffS(s.diff);
+    you.current=s.you; ai.current=s.ai; ants.current=s.ants; foods.current=s.foods;
+    parts.current=[]; floats.current=[];
+    upg.current=s.upg; spawnCd.current=s.spawnCd||{you:{worker:0,soldier:0,scout:0},ai:{worker:0,soldier:0,scout:0}};
+    aiBrain.current=s.aiBrain||{mode:"eco",ecoT:0}; timeS.current=s.time||0; foodRegen.current=0;
+    rally.current=s.rally||"defend"; setRallyS(rally.current); setUpgS(s.upg.you);
+    idc.current=(Math.max(0,...s.ants.map(a=>a.id),...s.foods.map(f=>f.id))||0)+1;
+    phase.current="play"; setPhaseS("play"); setResult(null); say("💾 이어하기!"); syncUi();
+  }
+  function doSave(){
+    if(phase.current!=="play")return;
+    try{ localStorage.setItem(SAVE_KEY, JSON.stringify({
+      diff:diff.current, you:you.current, ai:ai.current, ants:ants.current, foods:foods.current,
+      upg:upg.current, spawnCd:spawnCd.current, aiBrain:aiBrain.current, rally:rally.current, time:timeS.current
+    })); }catch(e){}
+  }
+
+  /* ---------- 이펙트 ---------- */
+  function burst(x,y,color,n,pow){ for(let i=0;i<n;i++){const a=Math.random()*7,s=rand(.3,1)*(pow||60);
+    parts.current.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0,max:rand(.2,.45),size:rand(1.5,3.5),color});} }
+  function floatTxt(x,y,val,color){ floats.current.push({x,y,vy:-40,life:0,max:.7,val,color:color||"#f8fafc"}); }
+  function shakeIt(t,m){ if(m>=shake.current.mag||shake.current.t<=0)shake.current={t,mag:m}; }
+
+  /* ---------- 개미 생성 ---------- */
+  function spawnAnt(side,type){
+    const nest=side==="you"?you.current:ai.current; const st=ANT[type];
+    const combatUp=upg.current[side].combat;
+    const a={id:idc.current++,side,type,
+      x:nest.x+rand(-18,18), y:nest.y+(side==="you"?-16:16)+rand(-6,6),
+      hp:st.hp*(1+combatUp*0.2), maxHp:st.hp*(1+combatUp*0.2),
+      atk:st.atk*(1+combatUp*0.25), sp:st.sp, ang:side==="you"?-1.57:1.57,
+      state:type==="worker"?"toFood":"combat", tFood:0, carry:0, cd:0};
+    ants.current.push(a);
+    return a;
+  }
+  function tryProduce(side,type){
+    const nest=side==="you"?you.current:ai.current; const st=ANT[type];
+    if(spawnCd.current[side][type]>0)return false;
+    if(nest.food<st.cost)return false;
+    // 인구 상한
+    const cnt=ants.current.filter(a=>a.side===side).length;
+    if(cnt>=64)return false;
+    nest.food-=st.cost; spawnCd.current[side][type]=st.cd; spawnAnt(side,type);
+    const n=side==="you"?you.current:ai.current; burst(n.x,n.y,side==="you"?YOU:AI,6,60);
+    return true;
+  }
+
+  /* ---------- 근처 적 탐색 ---------- */
+  function nearestEnemy(a,maxD,workerFirst){
+    let best=null,bd=maxD*maxD, bw=null,bwd=maxD*maxD;
+    for(const o of ants.current){ if(o.side===a.side||o.dead)continue;
+      const dd=(o.x-a.x)**2+(o.y-a.y)**2;
+      if(dd<bd){bd=dd;best=o;}
+      if(workerFirst&&o.type==="worker"&&dd<bwd){bwd=dd;bw=o;}
+    }
+    return (workerFirst&&bw)?bw:best;
+  }
+
+  /* ---------- 스텝 ---------- */
+  function step(dt){
+    if(phase.current!=="play")return;
+    const y=you.current,a=ai.current;
+    timeS.current+=dt;
+    for(const s of ["you","ai"])for(const t of ["worker","soldier","scout"])
+      if(spawnCd.current[s][t]>0)spawnCd.current[s][t]-=dt;
+
+    /* 먹이 재생성 */
+    foodRegen.current-=dt;
+    const aliveFood=foods.current.filter(f=>f.amt>0.5).length;
+    if(aliveFood<6 && foodRegen.current<=0){ foodRegen.current=3.5;
+      foods.current.push({id:idc.current++,x:rand(120,W-120),y:rand(180,H-180),amt:rand(90,150),max:150}); }
+    foods.current=foods.current.filter(f=>f.amt>0.5);
+
+    /* AI 두뇌 */
+    aiBrain.current.ecoT-=dt;
+    const dc=DIFF[diff.current];
+    if(aiBrain.current.ecoT<=0){ aiBrain.current.ecoT=dc.ecoCd;
+      const mine=ants.current.filter(x=>x.side==="ai");
+      const wk=mine.filter(x=>x.type==="worker").length;
+      const sd=mine.filter(x=>x.type==="soldier").length;
+      const sc=mine.filter(x=>x.type==="scout").length;
+      if(wk<dc.wTarget) tryProduce("ai","worker");
+      else if(sc<3 && Math.random()<0.4) tryProduce("ai","scout");
+      else tryProduce("ai","soldier");
+      // 업그레이드
+      if(a.food>90 && upg.current.ai.combat<3 && Math.random()<0.3){ a.food-=70; upg.current.ai.combat++; }
+      // 공격 전환
+      aiBrain.current.mode = sd>=dc.push ? "attack" : (y._pushSeen&&sd<3?"defend":aiBrain.current.mode);
+      if(sd>=dc.push)aiBrain.current.mode="attack"; else if(sd<Math.max(2,dc.push-6))aiBrain.current.mode="eco";
+    }
+
+    /* 개미 업데이트 */
+    for(const an of ants.current){ if(an.dead)continue;
+      an.cd-=dt;
+      const nest=an.side==="you"?y:a;
+      const enemyNest=an.side==="you"?a:y;
+      const st=ANT[an.type];
+      const gatherUp=upg.current[an.side].gather;
+
+      if(an.type==="worker"){
+        /* 채집 */
+        if(an.carry){ // 둥지로
+          const d=dist(an.x,an.y,nest.x,nest.y); an.ang=Math.atan2(nest.y-an.y,nest.x-an.x);
+          if(d<22){ nest.food+=st.gather*(1+gatherUp*0.35); an.carry=0; an.state="toFood";
+            burst(nest.x,nest.y,"#84cc16",3,40); }
+          else moveTo(an,nest.x,nest.y,dt);
+        } else {
+          let f=foods.current.find(x=>x.id===an.tFood&&x.amt>0.5);
+          if(!f){ // 가장 가까운 먹이
+            let bd=1e12; for(const ff of foods.current){ if(ff.amt<=0.5)continue;
+              const dd=(ff.x-an.x)**2+(ff.y-an.y)**2; if(dd<bd){bd=dd;f=ff;} }
+            an.tFood=f?f.id:0;
+          }
+          if(f){ const d=dist(an.x,an.y,f.x,f.y); an.ang=Math.atan2(f.y-an.y,f.x-an.x);
+            if(d<14){ f.amt-=st.gather; an.carry=1; an.state="toNest"; }
+            else moveTo(an,f.x,f.y,dt);
+          } else { // 먹이 없음 → 둥지 근처 배회
+            if(dist(an.x,an.y,nest.x,nest.y)>60)moveTo(an,nest.x,nest.y,dt);
+            else { an.x+=rand(-8,8)*dt; an.y+=rand(-8,8)*dt; }
+          }
+        }
+        /* 워커도 인접 적 살짝 물기 */
+        const e=nearestEnemy(an,18);
+        if(e&&an.cd<=0){ hitAnt(e,an.atk); an.cd=0.9; }
+      } else {
+        /* 전투 유닛 */
+        const e=nearestEnemy(an, st.vis, an.type==="scout");
+        const aggressive = an.side==="you" ? (rally.current==="attack") : (aiBrain.current.mode==="attack");
+        if(e){ const d=dist(an.x,an.y,e.x,e.y); an.ang=Math.atan2(e.y-an.y,e.x-an.x);
+          if(d<15){ if(an.cd<=0){ hitAnt(e,an.atk*DIFF[diff.current].atkMul*(an.side==="ai"?1:1)); an.cd=st.cd*0.5;
+            burst((an.x+e.x)/2,(an.y+e.y)/2,"#fca5a5",3,50); } }
+          else moveTo(an,e.x,e.y,dt);
+        } else if(aggressive){ // 적 둥지로 진격
+          const d=dist(an.x,an.y,enemyNest.x,enemyNest.y); an.ang=Math.atan2(enemyNest.y-an.y,enemyNest.x-an.x);
+          if(d<38){ if(an.cd<=0){ enemyNest.hp-=an.atk*1.4*DIFF[diff.current].atkMul; an.cd=st.cd;
+            burst(enemyNest.x+rand(-16,16),enemyNest.y+rand(-10,10),an.side==="you"?YOU:AI,3,50);
+            if(an.side==="ai")shakeIt(.12,3); } }
+          else moveTo(an,enemyNest.x,enemyNest.y,dt);
+        } else { // 방어: 둥지 주변 순찰
+          const guardY=nest.y+(an.side==="you"?-70:70);
+          const gx=nest.x+Math.sin(timeS.current*0.6+an.id)*90;
+          if(dist(an.x,an.y,gx,guardY)>16)moveTo(an,gx,guardY,dt);
+        }
+      }
+    }
+    ants.current=ants.current.filter(an=>{ if(an.dead){ burst(an.x,an.y,an.side==="you"?YOU_D:AI_D,5,55); return false; } return true; });
+
+    /* 파티클/텍스트 */
+    for(const p of parts.current){ p.life+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=0.92; p.vy*=0.92; }
+    parts.current=parts.current.filter(p=>p.life<p.max);
+    if(parts.current.length>360)parts.current.splice(0,parts.current.length-360);
+    for(const f of floats.current){ f.life+=dt; f.y+=f.vy*dt; }
+    floats.current=floats.current.filter(f=>f.life<f.max);
+    if(shake.current.t>0)shake.current.t-=dt;
+
+    /* 승패 */
+    if(y.hp<=0||a.hp<=0){ endMatch(a.hp<=0&&y.hp>0); }
+
+    /* 자동 저장(2초) */
+    saveAcc.current+=dt; if(saveAcc.current>=2){ saveAcc.current=0; doSave(); }
+    acc.current+=dt; if(acc.current>=0.12){ acc.current=0; syncUi(); }
+  }
+  function moveTo(an,tx,ty,dt){ const d=dist(an.x,an.y,tx,ty)||1;
+    an.x+=(tx-an.x)/d*an.sp*dt; an.y+=(ty-an.y)/d*an.sp*dt; }
+  function hitAnt(o,dmg){ o.hp-=dmg; if(o.hp<=0)o.dead=true; }
+
+  function endMatch(won){
+    phase.current="over"; setPhaseS("over"); clearMatch(); setHasSave(false);
+    const r={...record.current}; if(won)r.w++; else r.l++;
+    record.current=r; saveRecord(r); setRec(r);
+    setResult({won, time:Math.floor(timeS.current), diff:diff.current});
+  }
+
+  /* ---------- 렌더 ---------- */
+  function draw(now){
+    const cv=cvRef.current; if(!cv)return; const ctx=cv.getContext("2d");
+    const DPR=cv._dpr||1; ctx.setTransform(DPR,0,0,DPR,0,0);
+    let sx=0,sy=0; if(shake.current.t>0){const m=shake.current.mag*(shake.current.t/.3);sx=rand(-m,m);sy=rand(-m,m);}
+    // 흙 배경
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,"#3a2c1c"); g.addColorStop(.5,"#2a2012"); g.addColorStop(1,"#3a2c1c");
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.translate(sx,sy);
+    // 흙 얼룩
+    ctx.globalAlpha=.5;
+    for(let i=0;i<40;i++){ const x=(i*137.5)%W, yy=((i*89.3)%H); ctx.fillStyle=i%2?"#33261700":"#4a3a2233";
+      ctx.beginPath(); ctx.arc(x,yy,rand(6,16),0,7); ctx.fill(); }
+    ctx.globalAlpha=1;
+    // 먹이(잎)
+    for(const f of foods.current){ const s=0.5+0.5*(f.amt/f.max);
+      ctx.save(); ctx.translate(f.x,f.y);
+      ctx.fillStyle="#3f6212"; ctx.beginPath(); ctx.ellipse(0,4,16*s,6*s,0,0,7); ctx.fill();
+      for(let k=0;k<3;k++){ ctx.save(); ctx.rotate(k*2.1); ctx.fillStyle=k%2?"#65a30d":"#4d7c0f";
+        ctx.beginPath(); ctx.ellipse(0,-6*s,7*s,12*s,0,0,7); ctx.fill();
+        ctx.strokeStyle="#365314"; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,-16*s); ctx.lineTo(0,2*s); ctx.stroke(); ctx.restore(); }
+      ctx.restore();
+      // 잔량바
+      ctx.fillStyle="rgba(0,0,0,.4)"; ctx.fillRect(f.x-12,f.y-24,24,3);
+      ctx.fillStyle="#a3e635"; ctx.fillRect(f.x-12,f.y-24,24*(f.amt/f.max),3);
+    }
+    // 둥지
+    drawNest(ctx,you.current,YOU,YOU_D,"내 개미굴");
+    drawNest(ctx,ai.current,AI,AI_D,"적 개미굴");
+    // 개미 (깊이 정렬 대충 y순)
+    const sorted=ants.current.slice().sort((p,q)=>p.y-q.y);
+    for(const an of sorted)drawAnt(ctx,an);
+    // 파티클
+    for(const p of parts.current){ const al=1-p.life/p.max; ctx.globalAlpha=al; ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size*al+0.5,0,7); ctx.fill(); }
+    ctx.globalAlpha=1;
+    // 텍스트
+    for(const f of floats.current){ const al=1-f.life/f.max; ctx.globalAlpha=al;
+      ctx.font="bold 12px ui-monospace,monospace"; ctx.textAlign="center"; ctx.lineWidth=3; ctx.strokeStyle="rgba(0,0,0,.6)";
+      ctx.fillStyle=f.color; ctx.strokeText(f.val,f.x,f.y); ctx.fillText(f.val,f.x,f.y); }
+    ctx.globalAlpha=1;
+    ctx.restore();
+  }
+  function drawNest(ctx,n,col,cold,label){
+    ctx.save(); ctx.translate(n.x,n.y);
+    // 흙더미
+    const grd=ctx.createRadialGradient(0,-4,4,0,0,40); grd.addColorStop(0,cold); grd.addColorStop(1,"#241a10");
+    ctx.fillStyle=grd; ctx.beginPath(); ctx.ellipse(0,0,42,26,0,0,7); ctx.fill();
+    ctx.fillStyle="#1a1208"; ctx.beginPath(); ctx.ellipse(0,-2,12,7,0,0,7); ctx.fill(); // 입구
+    ctx.strokeStyle=col; ctx.lineWidth=2; ctx.beginPath(); ctx.ellipse(0,-2,12,7,0,0,7); ctx.stroke();
+    ctx.restore();
+    // HP바
+    const w=80, r=Math.max(0,n.hp/n.maxHp);
+    ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(n.x-w/2,n.y-42,w,6);
+    ctx.fillStyle=r>.5?col:r>.25?"#eab308":"#ef4444"; ctx.fillRect(n.x-w/2,n.y-42,w*r,6);
+    ctx.font="bold 10px sans-serif"; ctx.textAlign="center"; ctx.fillStyle="#fff";
+    ctx.fillText(label+" "+Math.ceil(n.hp),n.x,n.y-46);
+  }
+  function drawAnt(ctx,an){
+    const col=an.side==="you"?YOU:AI, cold=an.side==="you"?YOU_D:AI_D;
+    const sc=an.type==="soldier"?1.35:an.type==="scout"?0.9:1;
+    ctx.save(); ctx.translate(an.x,an.y); ctx.rotate(an.ang);
+    // 다리
+    ctx.strokeStyle=cold; ctx.lineWidth=1;
+    for(let i=-1;i<=1;i++){ ctx.beginPath(); ctx.moveTo(i*3*sc,0); ctx.lineTo(i*3*sc-4*sc,-5*sc); ctx.moveTo(i*3*sc,0); ctx.lineTo(i*3*sc-4*sc,5*sc); ctx.stroke(); }
+    // 몸통 3마디
+    ctx.fillStyle=col;
+    ctx.beginPath(); ctx.ellipse(-5*sc,0,4*sc,3.4*sc,0,0,7); ctx.fill();   // 배
+    ctx.fillStyle=cold; ctx.beginPath(); ctx.ellipse(0,0,3*sc,2.6*sc,0,0,7); ctx.fill(); // 가슴
+    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(5*sc,0,3*sc,0,7); ctx.fill(); // 머리
+    // 더듬이/큰턱 (병정)
+    ctx.strokeStyle=cold; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(7*sc,-2*sc); ctx.lineTo(11*sc,-4*sc); ctx.moveTo(7*sc,2*sc); ctx.lineTo(11*sc,4*sc); ctx.stroke();
+    if(an.type==="soldier"){ ctx.lineWidth=2; ctx.strokeStyle="#f8fafc";
+      ctx.beginPath(); ctx.moveTo(8*sc,-2*sc); ctx.lineTo(13*sc,-3*sc); ctx.moveTo(8*sc,2*sc); ctx.lineTo(13*sc,3*sc); ctx.stroke(); }
+    // 짐(잎)
+    if(an.carry){ ctx.rotate(-an.ang); ctx.fillStyle="#65a30d"; ctx.beginPath(); ctx.ellipse(0,-6*sc,4,6,0,0,7); ctx.fill(); ctx.rotate(an.ang); }
+    ctx.restore();
+    // 체력바 (피해 입은 전투유닛)
+    if(an.type!=="worker" && an.hp<an.maxHp){ const w=12*sc,r=an.hp/an.maxHp;
+      ctx.fillStyle="rgba(0,0,0,.5)"; ctx.fillRect(an.x-w/2,an.y-10*sc,w,2);
+      ctx.fillStyle=r>.4?"#84cc16":"#ef4444"; ctx.fillRect(an.x-w/2,an.y-10*sc,w*r,2); }
+  }
+
+  /* ---------- 루프/입력 ---------- */
+  useEffect(()=>{
+    const cv=cvRef.current; const DPR=Math.min(2,window.devicePixelRatio||1);
+    cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+"px";cv.style.height=H+"px";cv._dpr=DPR;
+    let raf,last=performance.now(),accum=0;const STEP=1/60;
+    const loop=(now)=>{ let dt=(now-last)/1000;last=now;if(dt>0.4)dt=0.4;accum+=dt;let g=0;
+      while(accum>=STEP&&g++<30){ step(STEP); accum-=STEP; }
+      if(accum>=STEP)accum=0; draw(now); raf=requestAnimationFrame(loop); };
+    raf=requestAnimationFrame(loop);
+    return ()=>cancelAnimationFrame(raf);
+  },[]);
+
+  function setRally(r){ rally.current=r; setRallyS(r); }
+  function buyUpg(kind){ const y=you.current; if(phase.current!=="play")return;
+    const cost=kind==="gather"?60:75;
+    if(y.food<cost){ say("💰 먹이가 부족해요!"); return; }
+    if(upg.current.you[kind]>=3){ say("최대 레벨!"); return; }
+    y.food-=cost; upg.current.you[kind]++; setUpgS({...upg.current.you}); syncUi();
+    say(kind==="gather"?"🍃 채집력 강화!":"⚔️ 병력 강화!"); }
+  function produce(type){ if(phase.current!=="play")return; if(!tryProduce("you",type))say("먹이 부족 또는 대기 중"); else syncUi(); }
+  function quit(){ doSave(); savedMatch.current=loadMatch(); setHasSave(!!savedMatch.current);
+    phase.current="setup"; setPhaseS("setup"); say("💾 저장하고 나왔어요"); }
+
+  const bothHp=(ui.yhp+0.001);
+  return (
+    <div className="min-h-screen w-full flex flex-col items-center p-3 text-amber-50"
+      style={{background:"radial-gradient(900px 400px at 50% -10%, #4a2c0d55, transparent), #0f0d0a"}}>
+      {/* HUD */}
+      <div className="glass rounded-2xl px-4 py-2 mb-2 flex items-center gap-3 flex-wrap shadow-xl" style={{width:W}}>
+        <div className="font-black text-lg bg-gradient-to-r from-amber-300 to-lime-400 bg-clip-text text-transparent">🐜 개미굴 대전</div>
+        {phaseS==="play"&&<>
+          <span className="text-sm font-bold text-lime-300">🍃 {ui.food}</span>
+          <span className="text-sm font-bold text-amber-200">🐜{ui.wk} ⚔️{ui.sd} 🦗{ui.sc}</span>
+          <div className="flex-1"></div>
+          <span className="text-xs font-bold" style={{color:YOU}}>내 굴 {ui.yhp}</span>
+          <span className="text-xs font-bold" style={{color:AI}}>적 굴 {ui.ahp}</span>
+          <span className="text-xs font-bold text-slate-300">⏱ {Math.floor(ui.time/60)}:{String(ui.time%60).padStart(2,"0")}</span>
+        </>}
+        {phaseS!=="play"&&<>
+          <div className="flex-1"></div>
+          <span className="text-sm font-bold text-yellow-300">🏆 {rec.w}승 {rec.l}패</span>
+        </>}
+      </div>
+
+      <div className="relative">
+        <canvas ref={cvRef} className="shadow-2xl" style={{border:"1px solid rgba(255,255,255,.08)"}}/>
+        {/* 셋업(대결 상대 선택) */}
+        {phaseS==="setup"&&(
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70 rounded-xl">
+            <div className="text-center pop max-w-md px-6">
+              <div className="text-5xl mb-2">🐜⚔️🐜</div>
+              <div className="text-2xl font-black text-amber-300 mb-1">개미굴 vs 개미굴</div>
+              <div className="text-xs text-amber-100/70 mb-4 leading-relaxed">
+                일개미로 잎을 모으고, 병정·정찰 개미를 길러 적의 개미굴을 무너뜨리세요!<br/>
+                <b className="text-lime-300">🍃 채집 → 개미 생산 → 총공격</b></div>
+              {hasSave&&(
+                <button onClick={resumeMatch} className="btng w-full py-2.5 rounded-xl font-black text-slate-900 bg-gradient-to-r from-lime-300 to-emerald-400 shadow-lg mb-3">
+                  💾 이어하기 (저장된 대결)</button>)}
+              <div className="text-xs font-bold text-amber-100/60 mb-2">대결 상대 (AI 난이도)</div>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {Object.entries(DIFF).map(([k,v])=>(
+                  <button key={k} onClick={()=>newMatch(k)}
+                    className="btng rounded-xl py-3 font-black border-2"
+                    style={{borderColor:v.color,background:v.color+"22",color:v.color}}>{v.name}</button>))}
+              </div>
+              <div className="text-xs text-amber-100/50">🏆 전적: {rec.w}승 {rec.l}패</div>
+            </div>
+          </div>)}
+      </div>
+
+      {/* 컨트롤 */}
+      {phaseS==="play"&&(
+        <div className="glass rounded-2xl px-3 py-2 mt-2 shadow-xl" style={{width:W}}>
+          <div className="flex items-center gap-2 flex-wrap">
+            {["worker","soldier","scout"].map(t=>{ const st=ANT[t]; const cd=cds[t]||0; const can=ui.food>=st.cost&&cd<=0;
+              return (
+                <button key={t} onClick={()=>produce(t)}
+                  className="btng rounded-xl px-3 py-1.5 flex items-center gap-2 border-2 relative overflow-hidden"
+                  style={{borderColor:"rgba(255,255,255,.12)",background:"rgba(40,32,20,.6)",opacity:can?1:.55}}>
+                  {cd>0&&<div className="absolute inset-0 bg-black/50" style={{clipPath:"inset("+(100-cd/st.cd*100)+"% 0 0 0)"}}></div>}
+                  <span className="text-xl">{st.icon}</span>
+                  <span className="text-left leading-tight relative"><div className="text-[11px] font-bold">{st.name}</div>
+                    <div className="text-[10px] text-lime-300">🍃{st.cost}</div></span>
+                </button>); })}
+            <div className="w-px h-8 bg-white/10 mx-1"></div>
+            <button onClick={()=>buyUpg("gather")} className="btng rounded-xl px-2.5 py-1.5 border-2 text-center"
+              style={{borderColor:"#84cc1655",background:"rgba(40,50,20,.5)"}}>
+              <div className="text-lg">🍃</div><div className="text-[9px] font-bold text-lime-300">채집 Lv{upgS.gather} (60)</div></button>
+            <button onClick={()=>buyUpg("combat")} className="btng rounded-xl px-2.5 py-1.5 border-2 text-center"
+              style={{borderColor:"#f8717155",background:"rgba(50,25,25,.5)"}}>
+              <div className="text-lg">⚔️</div><div className="text-[9px] font-bold text-red-300">병력 Lv{upgS.combat} (75)</div></button>
+            <div className="w-px h-8 bg-white/10 mx-1"></div>
+            <button onClick={()=>setRally(rallyS==="attack"?"defend":"attack")}
+              className={"btng rounded-xl px-4 py-2 font-black border-2 "+(rallyS==="attack"?"animate-pulse":"")}
+              style={{borderColor:rallyS==="attack"?"#ef4444":"#38bdf8",background:rallyS==="attack"?"#ef444433":"#38bdf822",color:rallyS==="attack"?"#fca5a5":"#7dd3fc"}}>
+              {rallyS==="attack"?"⚔️ 총공격 중":"🛡️ 방어 중"}</button>
+            <div className="flex-1"></div>
+            <button onClick={quit} className="btng rounded-xl px-3 py-2 font-bold text-xs glass">💾 저장·나가기</button>
+          </div>
+          <div className="text-[10px] text-amber-100/50 mt-1">
+            {rallyS==="attack"?"⚔️ 병정·정찰 개미가 적 개미굴로 진격합니다":"🛡️ 병정 개미가 내 굴을 지킵니다. 병력을 모아 총공격하세요!"}
+          </div>
+        </div>)}
+
+      {/* 결과 */}
+      {result&&(
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="glass rounded-2xl p-8 text-center pop max-w-sm w-full" style={{borderColor:result.won?"#84cc1688":"#ef444488"}}>
+            <div className="text-6xl mb-2">{result.won?"🏆🐜":"💀🐜"}</div>
+            <div className={"text-2xl font-black mb-3 "+(result.won?"text-lime-300":"text-red-400")}>
+              {result.won?"승리! 적 개미굴 파괴!":"패배... 개미굴이 무너졌다"}</div>
+            <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
+              <div className="rounded-xl bg-white/5 p-2"><div className="text-amber-100/60 text-[11px]">난이도</div><div className="text-lg font-black" style={{color:DIFF[result.diff].color}}>{DIFF[result.diff].name}</div></div>
+              <div className="rounded-xl bg-white/5 p-2"><div className="text-amber-100/60 text-[11px]">소요 시간</div><div className="text-lg font-black text-sky-300">{Math.floor(result.time/60)}:{String(result.time%60).padStart(2,"0")}</div></div>
+            </div>
+            <div className="text-xs text-amber-100/60 mb-4">🏆 전적: <b className="text-yellow-300">{rec.w}승 {rec.l}패</b></div>
+            <button onClick={()=>{setResult(null);phase.current="setup";setPhaseS("setup");}}
+              className="btng w-full py-3 rounded-xl font-black text-slate-900 bg-gradient-to-r from-amber-300 to-lime-400 shadow-lg">🔄 다시 대결</button>
+          </div>
+        </div>)}
+
+      {toast&&<div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl glass font-bold shadow-2xl fadein">{toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+</script>
+</body>
+</html>'''
+
+
+def ant_war_page():
+    st.title("🐜 개미굴 vs 개미굴 대전")
+    st.caption("실시간 전략! 일개미로 잎을 모으고 병정·정찰 개미를 길러 적 개미굴을 파괴하세요. 난이도별 AI 대결 · 자동 저장/이어하기 · 전적 기록")
+    components.html(ANT_WAR_HTML, height=820, scrolling=True)
+
+
+# ==========================================
 # 8. 메인 네비게이션 진입 게이트웨이
 # ==========================================
 st.set_page_config(
@@ -6931,10 +7445,11 @@ dragon = st.Page(dragon_nursery_page, title="드래곤 보육원 & 배틀", icon
 rider = st.Page(dragon_rider_page, title="드래곤 서바이버", icon="🐲")
 monggle = st.Page(monggle_page, title="몽글이 키우기", icon="🌸")
 zombie = st.Page(zombie_fps_page, title="좀비 디펜스 FPS", icon="🧟")
+ant = st.Page(ant_war_page, title="개미굴 대전", icon="🐜")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
 adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
 typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
 
-pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, wordle, adventure, typing_game])
+pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, ant, wordle, adventure, typing_game])
 pg.run()
 
