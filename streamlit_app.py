@@ -7212,6 +7212,8 @@ function Game(){
     // 흙 배경
     const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,"#3a2c1c"); g.addColorStop(.5,"#2a2012"); g.addColorStop(1,"#3a2c1c");
     ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    // 셋업/미시작 단계: 둥지가 아직 없으면 배경만 그리고 반환 (null 참조로 루프 죽는 것 방지)
+    if(!you.current||!ai.current)return;
     ctx.save(); ctx.translate(sx,sy);
     // 흙 얼룩
     ctx.globalAlpha=.5;
@@ -7294,8 +7296,9 @@ function Game(){
     cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+"px";cv.style.height=H+"px";cv._dpr=DPR;
     let raf,last=performance.now(),accum=0;const STEP=1/60;
     const loop=(now)=>{ let dt=(now-last)/1000;last=now;if(dt>0.4)dt=0.4;accum+=dt;let g=0;
-      while(accum>=STEP&&g++<30){ step(STEP); accum-=STEP; }
-      if(accum>=STEP)accum=0; draw(now); raf=requestAnimationFrame(loop); };
+      try{ while(accum>=STEP&&g++<30){ step(STEP); accum-=STEP; }
+        if(accum>=STEP)accum=0; draw(now); }catch(err){ console.error("ant loop error",err); }
+      raf=requestAnimationFrame(loop); };
     raf=requestAnimationFrame(loop);
     return ()=>cancelAnimationFrame(raf);
   },[]);
