@@ -8030,6 +8030,12 @@ ABYSS_RPG_HTML = r'''<!DOCTYPE html>
 <script>
   Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
 </script>
+<script type="module">
+  // Trystero: 서버 없이 브라우저끼리 직접 연결(P2P). 광장(접속자/채팅/PvP 결투)에 사용.
+  import { joinRoom } from 'https://esm.run/@trystero-p2p/torrent';
+  window.__trystero = { joinRoom };
+  window.dispatchEvent(new Event('trystero-ready'));
+</script>
 <style>
   html,body{margin:0;padding:0;background:#0b0a0d;font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif;color:#e4e0d8;}
   #root{min-height:100vh;}
@@ -8043,6 +8049,11 @@ ABYSS_RPG_HTML = r'''<!DOCTYPE html>
   .fadein{animation:fadein .3s ease;}
   @keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   .glow{text-shadow:0 0 12px rgba(255,120,60,.6);}
+  .dfloat{position:absolute;animation:dfloat .9s ease-out forwards;pointer-events:none;font-weight:900;white-space:nowrap;z-index:30;}
+  @keyframes dfloat{from{opacity:1;transform:translateY(0) scale(1)}30%{transform:translateY(-10px) scale(1.15)}to{opacity:0;transform:translateY(-48px) scale(.95)}}
+  .shake{animation:shake .32s;}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}50%{transform:translateX(5px)}75%{transform:translateX(-3px)}}
+  .chip{display:inline-flex;align-items:center;gap:3px;padding:1px 8px;border-radius:9999px;font-size:10px;font-weight:700;}
   input{outline:none;}
   ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#4a3a30;border-radius:8px}::-webkit-scrollbar-track{background:#17131a}
 </style>
@@ -8057,6 +8068,11 @@ const fmt=n=>{n=Math.floor(n); if(n>=1e9)return (n/1e9).toFixed(2)+"B"; if(n>=1e
 const hashPw=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);};
 const KEYP="ynd_rpg2_sav_";
 const needXp=lv=>Math.floor(60*Math.pow(1.5,lv-1));
+function ensureTrystero(cb){
+  if(window.__trystero){ cb(window.__trystero); return; }
+  const h=()=>{ window.removeEventListener("trystero-ready",h); cb(window.__trystero); };
+  window.addEventListener("trystero-ready",h);
+}
 
 /* ===================== 직업 ===================== */
 const CLS={
@@ -8070,20 +8086,51 @@ const HID={
   assassin:{name:"암살자",icon:"🌑",need:"Lv20 도달 + 치명타 확률 40% 이상",check:(s,st)=>s.lv>=20&&st.crit>=40,mult:{atk:1.3,hp:1.15,def:1.1,mp:1.2,critF:10,critdF:40},skill:"silentKill"},
 };
 
-/* ===================== 스킬 ===================== */
+/* ===================== 스킬 =====================
+   fx: stun(기절) gcrit(확정치명) critB(치명확률+) critdB(치피+) heal(피해흡혈%) selfHeal(최대HP%회복)
+       shield(최대HP% 보호막) atkB/critBf/dodge({v,t} 버프) deb({v,t} 적 공격력 감소) dot({k,pct,t} 지속피해)
+       exec({below,mult} 처형) mpR(최대MP% 회복) / hits: 연속 타격 수 / mult 0 = 비공격(보조) 스킬 */
 const SKILLS={
+  /* --- 전사 (10) --- */
   powerStrike:{name:"강타",icon:"💢",cls:"warrior",lv:1,mp:8,mult:1.8,desc:"180% 피해의 묵직한 일격"},
-  shieldBash:{name:"방패 치기",icon:"🛡️",cls:"warrior",lv:6,mp:14,mult:1.5,fx:{stun:1},desc:"150% 피해 + 적 1턴 기절"},
-  warCry:{name:"전쟁의 함성",icon:"📣",cls:"warrior",lv:14,mp:24,mult:2.7,desc:"혼신의 일격 (270%)"},
+  ironWall:{name:"방패 올리기",icon:"🛡️",cls:"warrior",lv:4,mp:12,mult:0,fx:{shield:.3},desc:"최대 HP 30% 보호막 생성"},
+  shieldBash:{name:"방패 치기",icon:"💥",cls:"warrior",lv:8,mp:15,mult:1.5,fx:{stun:1},desc:"150% 피해 + 적 1턴 기절"},
+  taunt:{name:"도발",icon:"😤",cls:"warrior",lv:12,mp:14,mult:1.2,fx:{deb:{v:.25,t:3}},desc:"120% 피해 + 적 공격력 -25% (3턴)"},
+  warCry:{name:"전쟁의 함성",icon:"📣",cls:"warrior",lv:16,mp:20,mult:0,fx:{atkB:{v:.35,t:3}},desc:"공격력 +35% (3턴)"},
+  whirlwind:{name:"회전 베기",icon:"🌪️",cls:"warrior",lv:20,mp:24,mult:2.4,desc:"240% 회전 참격"},
+  execute:{name:"처형",icon:"⚰️",cls:"warrior",lv:24,mp:26,mult:2.0,fx:{exec:{below:.3,mult:2.2}},desc:"200% 피해, 적 HP 30% 미만 시 440%"},
+  indomitable:{name:"불굴",icon:"✊",cls:"warrior",lv:28,mp:30,mult:0,fx:{selfHeal:.35},desc:"최대 HP 35% 회복"},
+  earthSplit:{name:"대지 가르기",icon:"⛰️",cls:"warrior",lv:32,mp:34,mult:3.2,fx:{stun:1},desc:"320% 피해 + 기절"},
+  ragnarok:{name:"라그나로크",icon:"🌋",cls:"warrior",lv:36,mp:45,mult:5.0,desc:"500% 필멸의 일격"},
+  /* --- 마법사 (10) --- */
   fireball:{name:"파이어볼",icon:"🔥",cls:"mage",lv:1,mp:10,mult:2.0,desc:"200% 화염 피해"},
-  iceSpear:{name:"아이스 스피어",icon:"🧊",cls:"mage",lv:6,mp:16,mult:2.3,fx:{stun:1},desc:"230% 피해 + 적 1턴 빙결"},
-  meteor:{name:"메테오",icon:"☄️",cls:"mage",lv:14,mp:32,mult:3.8,desc:"380% 운석 낙하"},
+  manaShield:{name:"마나 실드",icon:"🔵",cls:"mage",lv:4,mp:14,mult:0,fx:{shield:.35},desc:"최대 HP 35% 마력 보호막"},
+  iceSpear:{name:"아이스 스피어",icon:"🧊",cls:"mage",lv:8,mp:16,mult:2.3,fx:{stun:1},desc:"230% 피해 + 적 1턴 빙결"},
+  ignite:{name:"점화",icon:"🕯️",cls:"mage",lv:12,mp:18,mult:1.3,fx:{dot:{k:"burn",pct:.5,t:3}},desc:"130% 피해 + 화상(3턴 지속피해)"},
+  arcaneFocus:{name:"비전 집중",icon:"✨",cls:"mage",lv:16,mp:22,mult:0,fx:{atkB:{v:.4,t:3}},desc:"공격력 +40% (3턴)"},
+  chainLightning:{name:"체인 라이트닝",icon:"⚡",cls:"mage",lv:20,mp:26,mult:1.1,hits:3,desc:"110% × 3연격 번개"},
+  manaBurn:{name:"마나 번",icon:"🌀",cls:"mage",lv:24,mp:28,mult:2.6,fx:{mpR:.2},desc:"260% 피해 + 최대 MP 20% 회수"},
+  lifeConvert:{name:"생명 변환",icon:"💞",cls:"mage",lv:28,mp:36,mult:0,fx:{selfHeal:.3},desc:"최대 HP 30% 회복"},
+  blizzard:{name:"블리자드",icon:"❄️",cls:"mage",lv:32,mp:38,mult:3.4,fx:{stun:1},desc:"340% 피해 + 빙결"},
+  armageddon:{name:"아마겟돈",icon:"☄️",cls:"mage",lv:36,mp:50,mult:5.5,desc:"550% 종말의 화염"},
+  /* --- 도적 (10) --- */
   vitalStab:{name:"급소 찌르기",icon:"🎯",cls:"thief",lv:1,mp:8,mult:1.6,fx:{critB:25},desc:"160% 피해, 치명타 확률 +25%"},
-  poisonBlade:{name:"독날",icon:"🐍",cls:"thief",lv:6,mp:14,mult:2.1,desc:"210% 맹독 피해"},
-  shadowStrike:{name:"그림자 일격",icon:"🌫️",cls:"thief",lv:14,mp:26,mult:2.6,fx:{gcrit:1},desc:"260% 피해, 확정 치명타"},
+  smokeScreen:{name:"연막",icon:"💨",cls:"thief",lv:4,mp:12,mult:0,fx:{dodge:{v:.5,t:3}},desc:"3턴간 적 공격 50% 회피"},
+  poisonBlade:{name:"독날",icon:"🐍",cls:"thief",lv:8,mp:15,mult:1.5,fx:{dot:{k:"poison",pct:.45,t:3}},desc:"150% 피해 + 중독(3턴 지속피해)"},
+  doubleSlash:{name:"이단 베기",icon:"⚔️",cls:"thief",lv:12,mp:16,mult:.95,hits:2,desc:"95% × 2연격"},
+  huntPrep:{name:"사냥 준비",icon:"🏹",cls:"thief",lv:16,mp:18,mult:0,fx:{critBf:{v:30,t:3}},desc:"치명타 확률 +30% (3턴)"},
+  shadowStrike:{name:"그림자 일격",icon:"🌫️",cls:"thief",lv:20,mp:24,mult:2.6,fx:{gcrit:1},desc:"260% 피해, 확정 치명타"},
+  flurry:{name:"급소 연타",icon:"🗡️",cls:"thief",lv:24,mp:28,mult:.85,hits:3,desc:"85% × 3연격, 각각 치명타 가능"},
+  vampBlade:{name:"흡혈 단검",icon:"🩸",cls:"thief",lv:28,mp:30,mult:2.2,fx:{heal:.4},desc:"220% 피해 + 피해의 40% 흡혈"},
+  assassinate:{name:"암살",icon:"🌑",cls:"thief",lv:32,mp:36,mult:3.5,fx:{gcrit:1},desc:"350% 확정 치명타"},
+  deathBlow:{name:"절명",icon:"☠️",cls:"thief",lv:36,mp:44,mult:3.0,fx:{exec:{below:.25,mult:3}},desc:"300% 피해, 적 HP 25% 미만 시 900%"},
+  /* --- 히든 직업 (각 2) --- */
   dragonBreath:{name:"용의 숨결",icon:"🐲",cls:"dragonKnight",lv:20,mp:36,mult:4.4,desc:"[히든] 440% 용염 피해"},
+  dragonHeart:{name:"드래곤 하트",icon:"❤️‍🔥",cls:"dragonKnight",lv:30,mp:42,mult:0,fx:{selfHeal:.5,atkB:{v:.5,t:3}},desc:"[히든] HP 50% 회복 + 공격력 +50% (3턴)"},
   soulDrain:{name:"영혼 흡수",icon:"💀",cls:"darkMage",lv:20,mp:32,mult:3.4,fx:{heal:.35},desc:"[히든] 340% 피해 + 35% 흡혈"},
+  deathSentence:{name:"죽음의 선고",icon:"⚱️",cls:"darkMage",lv:30,mp:48,mult:6.0,desc:"[히든] 600% 죽음의 선고"},
   silentKill:{name:"침묵의 암살",icon:"🌑",cls:"assassin",lv:20,mp:30,mult:3.2,fx:{gcrit:1,critdB:80},desc:"[히든] 320% 확정 치명타 + 치피 +80%"},
+  shadowClones:{name:"그림자 분신",icon:"👥",cls:"assassin",lv:30,mp:46,mult:.9,hits:4,fx:{gcrit:1},desc:"[히든] 90% × 4연격, 전부 확정 치명타"},
 };
 
 /* ===================== 몬스터 ===================== */
@@ -8110,21 +8157,120 @@ const MONS={
 /* ===================== 맵 (노드형 + 포탈) ===================== */
 const MAPS={
   village:{name:"초보자 마을",icon:"🏘️",lv:1,portals:["forest"],mons:["slime","rat"],npc:"촌장 로한: 어서 오게, 모험가여. 고블린 숲의 마수들이 마을을 위협하고 있다네.",boss:null},
-  forest:{name:"고블린 숲",icon:"🌲",lv:5,portals:["village","orc","grave"],mons:["goblin","gobArcher","wolf"],npc:"정찰병 리나: 오크 주둔지와 어둠의 묘지로 가는 갈림길이야. 준비는 됐어?",boss:"bKing"},
-  orc:{name:"오크 주둔지",icon:"⛺",lv:12,portals:["forest","canyon"],mons:["orcGrunt","orcWarrior","orcShaman"],npc:"포로 상인: 살려줘서 고맙네… 오크 로드는 괴물이야. 조심하게.",boss:"bLord"},
-  grave:{name:"어둠의 묘지",icon:"🪦",lv:15,portals:["forest","canyon"],mons:["skeleton","zombie","ghost"],npc:"수도사 엘렌: 이곳의 언데드를 정화하는 자, 어둠의 힘에 눈뜨리라…",boss:"bLich"},
-  canyon:{name:"얼어붙은 협곡",icon:"🏔️",lv:22,portals:["orc","grave","nest"],mons:["iceGolem","frostWolf","frostSpirit"],npc:"산악 안내인: 이 협곡 너머가 화룡의 둥지다. 돌아가려면 지금이 마지막 기회야.",boss:"bGiant"},
-  nest:{name:"화룡의 둥지",icon:"🌋",lv:30,portals:["canyon"],mons:["dragonWhelp","lavaSpirit","drakeWarrior"],npc:"용사냥꾼의 유서: …이그니스를 잡는 자, 전설이 되리라.",boss:"bIgnis"},
+  forest:{name:"고블린 숲",icon:"🌲",lv:5,portals:["village","orc","grave"],mons:["goblin","gobArcher","wolf"],npc:"정찰병 리나: 오크 주둔지와 어둠의 묘지로 가는 갈림길이야. 준비는 됐어?",boss:"b103"},
+  orc:{name:"오크 주둔지",icon:"⛺",lv:12,portals:["forest","canyon"],mons:["orcGrunt","orcWarrior","orcShaman"],npc:"포로 상인: 살려줘서 고맙네… 오크 로드는 괴물이야. 조심하게.",boss:"b301"},
+  grave:{name:"어둠의 묘지",icon:"🪦",lv:15,portals:["forest","canyon"],mons:["skeleton","zombie","ghost"],npc:"수도사 엘렌: 이곳의 언데드를 정화하는 자, 어둠의 힘에 눈뜨리라…",boss:"b302"},
+  canyon:{name:"얼어붙은 협곡",icon:"🏔️",lv:22,portals:["orc","grave","nest"],mons:["iceGolem","frostWolf","frostSpirit"],npc:"산악 안내인: 이 협곡 너머가 화룡의 둥지다. 돌아가려면 지금이 마지막 기회야.",boss:"b401"},
+  nest:{name:"화룡의 둥지",icon:"🌋",lv:30,portals:["canyon"],mons:["dragonWhelp","lavaSpirit","drakeWarrior"],npc:"용사냥꾼의 유서: …이그니스를 잡는 자, 전설이 되리라.",boss:"b501"},
 };
 
-/* ===================== 보스 ===================== */
-const BOSSES={
-  bKing:{id:"bKing",name:"고블린 킹",icon:"👹",hp:2200,atk:24,def:6,xp:800,gold:600,tier:2,turns:25},
-  bLord:{id:"bLord",name:"오크 로드",icon:"🗿",hp:9000,atk:52,def:18,xp:3200,gold:2000,tier:3,turns:28},
-  bLich:{id:"bLich",name:"리치 하르가스",icon:"☠️",hp:16000,atk:75,def:20,xp:6000,gold:3600,tier:3,turns:30,tags:["undead"]},
-  bGiant:{id:"bGiant",name:"프로스트 자이언트",icon:"🗻",hp:30000,atk:115,def:40,xp:15000,gold:8000,tier:4,turns:32},
-  bIgnis:{id:"bIgnis",name:"화룡 이그니스",icon:"🔥",hp:90000,atk:175,def:60,xp:48000,gold:25000,tier:5,turns:40,tags:["dragon"]},
+/* ===================== 보스 (35종 · 7티어 · 기믹) ===================== */
+const MECH={
+  enrage:{n:"격노",icon:"😡",d:"HP 40% 이하일 때 공격력 +50%"},
+  regen:{n:"재생",icon:"💚",d:"매 턴 최대 HP의 3% 회복"},
+  double:{n:"연격",icon:"⚡",d:"한 턴에 2회 공격"},
+  burn:{n:"작열",icon:"🔥",d:"35% 확률로 화상 부여 (3턴 지속피해)"},
+  poison:{n:"맹독",icon:"☠️",d:"35% 확률로 중독 부여 (3턴 지속피해)"},
+  shieldp:{n:"수호막",icon:"🛡️",d:"HP 60% 도달 시 보호막 생성 (1회)"},
+  lifesteal:{n:"흡혈",icon:"🩸",d:"가한 피해의 30% 회복"},
+  crush:{n:"분쇄",icon:"🔨",d:"아군 방어력 50% 무시"},
+  stunp:{n:"강타",icon:"💫",d:"20% 확률로 충격 — 아군 다음 공격 위력 -50%"},
 };
+const BT={1:{hp:2200,atk:24,def:6,turns:26,lvq:1},2:{hp:6500,atk:46,def:13,turns:28,lvq:8},
+  3:{hp:16000,atk:76,def:21,turns:30,lvq:15},4:{hp:36000,atk:118,def:38,turns:32,lvq:23},
+  5:{hp:85000,atk:180,def:60,turns:36,lvq:30},6:{hp:190000,atk:265,def:90,turns:40,lvq:38},
+  7:{hp:420000,atk:390,def:135,turns:45,lvq:46}};
+const mkB=(id,name,icon,tier,hpM,mech,tags)=>{const b=BT[tier];const hp=Math.round(b.hp*hpM);
+  return{id,name,icon,tier,hp,atk:Math.round(b.atk*(0.88+hpM*0.12)),def:b.def,turns:b.turns,lvq:b.lvq,
+    xp:Math.round(hp/5),gold:Math.round(hp/9),mech:mech||[],tags:tags||[]};};
+const BOSS_LIST=[
+  /* T1 */
+  mkB("b101","슬라임 킹","👑",1,1,[]),
+  mkB("b102","거대 들쥐 라투스","🐀",1,.85,["double"]),
+  mkB("b103","고블린 킹","👹",1,1.1,["enrage"]),
+  mkB("b104","광폭 멧돼지","🐗",1,.95,["crush"]),
+  mkB("b105","도적단 두목 베인","🗡️",1,1.05,["stunp"]),
+  /* T2 */
+  mkB("b201","늑대 우두머리 팽","🐺",2,1,["double"]),
+  mkB("b202","고블린 샤먼로드","🔮",2,.9,["burn"]),
+  mkB("b203","트롤 파쇄자","🪨",2,1.2,["regen","crush"]),
+  mkB("b204","거미 여왕 아라크네","🕷️",2,.95,["poison"]),
+  mkB("b205","숲의 폭군 엔트","🌳",2,1.15,["regen"]),
+  /* T3 */
+  mkB("b301","오크 로드","🗿",3,1,["enrage","crush"]),
+  mkB("b302","리치 하르가스","☠️",3,1.05,["lifesteal"],["undead"]),
+  mkB("b303","해골 기사단장","⚔️",3,.95,["double"],["undead"]),
+  mkB("b304","늪의 히드라","🐍",3,1.2,["regen","poison"]),
+  mkB("b305","망령 군주","👻",3,.9,["lifesteal","stunp"],["undead"]),
+  /* T4 */
+  mkB("b401","프로스트 자이언트","🗻",4,1,["crush","stunp"]),
+  mkB("b402","얼음 마녀 시렌","🧙",4,.9,["shieldp","burn"]),
+  mkB("b403","빙하 골렘","🧊",4,1.25,["shieldp","regen"]),
+  mkB("b404","설산의 예티","🦍",4,1.1,["enrage","double"]),
+  mkB("b405","서리 와이번","🐉",4,.95,["double"],["dragon"]),
+  /* T5 */
+  mkB("b501","화룡 이그니스","🔥",5,1.05,["burn","enrage"],["dragon"]),
+  mkB("b502","용암 거인 마그마르","🌋",5,1.2,["burn","crush"]),
+  mkB("b503","불사조 피닉스","🐦‍🔥",5,.9,["regen","burn"]),
+  mkB("b504","지옥견 케르베로스","🐕",5,1,["double","enrage"]),
+  mkB("b505","화염 군주 이프리트","😈",5,1.1,["burn","shieldp"]),
+  /* T6 */
+  mkB("b601","심연의 감시자","👁️",6,1,["stunp","lifesteal"]),
+  mkB("b602","공허 드래곤 니드호그","🐲",6,1.15,["double","crush"],["dragon"]),
+  mkB("b603","타락 대천사 루시엘","😇",6,.95,["shieldp","regen"]),
+  mkB("b604","그림자 군주 녹스","🌑",6,1.05,["lifesteal","poison"]),
+  mkB("b605","종말의 기사","🐎",6,1.1,["enrage","stunp"]),
+  /* T7 */
+  mkB("b701","태초의 용 바하무트","🐉",7,1.1,["double","burn","enrage"],["dragon"]),
+  mkB("b702","죽음 그 자체, 타나토스","💀",7,1,["lifesteal","crush"],["undead"]),
+  mkB("b703","별을 삼킨 자","⭐",7,1.2,["shieldp","regen"]),
+  mkB("b704","시간의 지배자 크로노스","⏳",7,.95,["double","stunp"]),
+  mkB("b705","나락의 신 어비스","🕳️",7,1.3,["enrage","lifesteal","crush"]),
+];
+const BOSSES={}; BOSS_LIST.forEach(b=>BOSSES[b.id]=b);
+const BOSS_ITEM_T=[0,1,2,3,4,5,6,6];
+
+/* ===================== 던전 (30종 · 6티어 · 수식어) ===================== */
+const MODS={
+  none:{n:"표준",icon:"⬜",d:"기본 규칙의 던전"},
+  poison:{n:"독안개",icon:"🟣",d:"매 턴 최대 HP의 2% 피해를 입음"},
+  berserk:{n:"광폭화",icon:"🔴",d:"몬스터 공격력 +40%"},
+  iron:{n:"강철화",icon:"⚙️",d:"몬스터 방어력 +60%"},
+  gold:{n:"황금",icon:"🟡",d:"처치 골드 2배"},
+  xp:{n:"수련",icon:"🔵",d:"처치 경험치 1.7배"},
+  noheal:{n:"저주",icon:"🖤",d:"처치 시 HP/MP 회복 없음"},
+  swarm:{n:"물량",icon:"🟠",d:"웨이브 7개 (보상 +30%)"},
+  elite:{n:"정예",icon:"🟪",d:"몬스터 HP +80%, 룬 보상 등급 +1"},
+  thorn:{n:"가시",icon:"🌵",d:"가한 피해의 12%를 반사당함"},
+  rich:{n:"보물",icon:"💎",d:"클리어 보상 1.8배"},
+  dark:{n:"암흑",icon:"🌑",d:"치명타 봉인 (확정 치명타 제외)"},
+};
+const DG_LV=[0,1,6,13,22,30,40];
+const DG_POOL={1:["slime","rat"],2:["goblin","gobArcher","wolf"],3:["orcGrunt","orcWarrior","orcShaman","skeleton","zombie","ghost"],
+  4:["iceGolem","frostWolf","frostSpirit"],5:["dragonWhelp","lavaSpirit","drakeWarrior"],6:["dragonWhelp","lavaSpirit","drakeWarrior"]};
+const DG_MUL=[0,1,1,1,1,1,2.15];
+const mkD=(id,n,i,t,mod)=>({id,n,i,t,mod,lvq:DG_LV[t]});
+const DGS=[
+  mkD("d101","슬라임 소굴","🟢",1,"none"),   mkD("d102","쥐떼 하수도","🐀",1,"swarm"),
+  mkD("d103","버섯 포자 동굴","🍄",1,"poison"),mkD("d104","도적의 은신처","🗡️",1,"gold"),
+  mkD("d105","초심자의 시험장","🎯",1,"xp"),
+  mkD("d201","고블린 광산","⛏️",2,"none"),   mkD("d202","늑대 둥지","🐺",2,"berserk"),
+  mkD("d203","가시덤불 미로","🌵",2,"thorn"), mkD("d204","폐허가 된 병영","🏚️",2,"iron"),
+  mkD("d205","황금 개미굴","🐜",2,"gold"),
+  mkD("d301","오크 투기장","🏟️",3,"berserk"),mkD("d302","유령 저택","🏰",3,"dark"),
+  mkD("d303","지하 납골당","⚱️",3,"swarm"),  mkD("d304","독안개 늪지","🐸",3,"poison"),
+  mkD("d305","버려진 보물 금고","💰",3,"rich"),
+  mkD("d401","얼음 결정 동굴","❄️",4,"iron"),mkD("d402","눈보라 협로","🌨️",4,"berserk"),
+  mkD("d403","서리 제단","🧊",4,"elite"),    mkD("d404","크리스탈 광산","💎",4,"gold"),
+  mkD("d405","냉기의 심장","🫀",4,"noheal"),
+  mkD("d501","용암 지대","🌋",5,"poison"),   mkD("d502","화산 심장부","❤️‍🔥",5,"elite"),
+  mkD("d503","재의 사원","🛕",5,"dark"),     mkD("d504","용의 보고","🐲",5,"rich"),
+  mkD("d505","지옥문 앞마당","👿",5,"swarm"),
+  mkD("d601","심연의 회랑","🌀",6,"noheal"), mkD("d602","나락의 밑바닥","🕳️",6,"berserk"),
+  mkD("d603","공허의 틈","🌌",6,"dark"),     mkD("d604","별이 죽는 곳","💫",6,"elite"),
+  mkD("d605","종말의 성소","⛩️",6,"swarm"),
+];
+const DG_MAP={}; DGS.forEach(d=>DG_MAP[d.id]=d);
 
 /* ===================== 장비 ===================== */
 const ITEMS={
@@ -8133,20 +8279,23 @@ const ITEMS={
   w3:{slot:"weapon",name:"강철 대검",icon:"🔪",tier:3,atk:30},
   w4:{slot:"weapon",name:"미스릴 블레이드",icon:"✨",tier:4,atk:56},
   w5:{slot:"weapon",name:"용살자 대검",icon:"🌟",tier:5,atk:100,critd:30},
+  w6:{slot:"weapon",name:"신룡의 파멸검",icon:"🌠",tier:6,atk:185,critd:45},
   a1:{slot:"armor",name:"천 갑옷",icon:"👕",tier:1,def:4,hp:25},
   a2:{slot:"armor",name:"가죽 갑옷",icon:"🦺",tier:2,def:11,hp:60},
   a3:{slot:"armor",name:"사슬 갑옷",icon:"⛓️",tier:3,def:22,hp:130},
   a4:{slot:"armor",name:"미스릴 갑옷",icon:"🥋",tier:4,def:40,hp:270},
   a5:{slot:"armor",name:"용비늘 갑옷",icon:"🐲",tier:5,def:75,hp:560},
+  a6:{slot:"armor",name:"태초의 신갑",icon:"🌌",tier:6,def:135,hp:1050},
   c1:{slot:"acc",name:"나무 목걸이",icon:"📿",tier:1,crit:2,critd:10},
   c2:{slot:"acc",name:"은 반지",icon:"💍",tier:2,crit:4,critd:20,mp:30},
   c3:{slot:"acc",name:"마력의 부적",icon:"🧿",tier:3,crit:6,critd:35,mp:70},
   c4:{slot:"acc",name:"용안 펜던트",icon:"🔱",tier:4,crit:9,critd:60,atk:15},
   c5:{slot:"acc",name:"이그니스의 심장",icon:"❤️‍🔥",tier:5,crit:14,critd:100,atk:25,hp:200},
+  c6:{slot:"acc",name:"어비스의 눈",icon:"🧿",tier:6,crit:20,critd:160,atk:45,hp:380},
 };
-const TIER_POOL={1:["w1","a1","c1"],2:["w2","a2","c2"],3:["w3","a3","c3"],4:["w4","a4","c4"],5:["w5","a5","c5"]};
-const TIER_NAME=["","일반","고급","희귀","영웅","전설"];
-const TIER_COL=["","#9ca3af","#4ade80","#60a5fa","#c084fc","#fb923c"];
+const TIER_POOL={1:["w1","a1","c1"],2:["w2","a2","c2"],3:["w3","a3","c3"],4:["w4","a4","c4"],5:["w5","a5","c5"],6:["w6","a6","c6"]};
+const TIER_NAME=["","일반","고급","희귀","영웅","전설","신화"];
+const TIER_COL=["","#9ca3af","#4ade80","#60a5fa","#c084fc","#fb923c","#f43f5e"];
 const SLOT_NAME={weapon:"무기",armor:"방어구",acc:"장신구"};
 
 /* ===================== 룬 ===================== */
@@ -8194,7 +8343,8 @@ function mkSave(nick,pwh,cls){
     visits:{village:1},deaths:0,innCount:0,failStreak:0,enhOk:0,fuseCount:0,
     quests:{},questsDone:{},hiddenClaimed:{},hiddenFound:{},
     world:{prog:0,donated:0,goal:10000,done:false},
-    combat:{mon:null,stun:false},dungeon:null,boss:null,
+    dgClears:{},bossKills:{},pvpW:0,pvpL:0,
+    combat:{mon:null,stun:false,buffs:[],shield:0,pdots:[],pstun:false},dungeon:null,boss:null,
     log:[],seq:1,created:Date.now()};
 }
 function hydrate(o){
@@ -8207,8 +8357,9 @@ function hydrate(o){
   m.inv=o.inv||[]; m.runes=o.runes||[]; m.log=o.log||[];
   m.quests=o.quests||{}; m.questsDone=o.questsDone||{}; m.hiddenClaimed=o.hiddenClaimed||{}; m.hiddenFound=o.hiddenFound||{};
   m.kills=o.kills||{}; m.tagKills=o.tagKills||{}; m.visits=o.visits||{village:1}; m.skills=o.skills||{}; m.lastMon=o.lastMon||{};
+  m.dgClears=o.dgClears||{}; m.bossKills=o.bossKills||{}; m.pvpW=o.pvpW||0; m.pvpL=o.pvpL||0;
   if(!MAPS[m.map])m.map="village";
-  m.combat={mon:null,stun:false}; m.dungeon=null; m.boss=null; m.mode="hunt"; m._auto=false;
+  m.combat={mon:null,stun:false,buffs:[],shield:0,pdots:[],pstun:false}; m.dungeon=null; m.boss=null; m.mode="hunt"; m._auto=false;
   return m;
 }
 
@@ -8244,6 +8395,10 @@ function Game(){
   const scr=useRef("login");         // login|create|game
   const tab=useRef("hunt");
   const fuseSel=useRef(null);
+  const fx=useRef([]);               // 데미지 플로트 [{id,txt,col,x,born}]
+  const fxSeq=useRef(1);
+  const shakeK=useRef(0);            // 몬스터 피격 흔들림 키
+  const dgSel=useRef(null);          // 선택한 던전 id (UI)
   const [,bump]=useReducer(x=>x+1,0);
   const [nick,setNick]=useState(""),[pw,setPw]=useState(""),[err,setErr]=useState("");
   const [toast,setToast]=useState(null);
@@ -8288,15 +8443,22 @@ function Game(){
     log(`${CLS[cid].icon} [${CLS[cid].name}] ${nick}의 모험이 시작됩니다!`,"g");
     commit();
   };
-  const logout=()=>{ persist(); S.current=null; scr.current="login"; setPw(""); bump(); };
+  const logout=()=>{ persist(); leavePlaza(); S.current=null; scr.current="login"; setPw(""); bump(); };
 
   /* ---------- 전투 ---------- */
-  const mkMon=t=>({tpl:t,hp:t.hp,maxHp:t.hp});
+  const addFx=(txt,col)=>{ const now=Date.now();
+    fx.current=fx.current.filter(f=>now-f.born<900);
+    fx.current.push({id:fxSeq.current++,txt,col,x:8+Math.floor(R()*52),born:now});
+    if(fx.current.length>8)fx.current.shift(); };
+  const resetCombat=()=>({mon:null,stun:false,buffs:[],shield:0,pdots:[],pstun:false});
+  const mkMon=t=>({tpl:t,hp:t.hp,maxHp:t.hp,dots:[],shield:0,shielded:false,deb:null});
+  const buffVal=(k)=>{ const c=S.current.combat; let v=0; for(const b of c.buffs)if(b.k===k)v+=b.v; return v; };
   const spawn=(monId)=>{
     const s=S.current;
     const t=MONS[monId]; if(!t)return;
     s.lastMon[s.map]=monId;
-    s.combat={mon:mkMon(t),stun:false};
+    const keep=s.combat;
+    s.combat={...resetCombat(),mon:mkMon(t),buffs:keep.buffs,shield:keep.shield,pdots:keep.pdots,pstun:keep.pstun};
   };
   const gainXp=(n)=>{
     const s=S.current; s.xp+=n;
@@ -8354,18 +8516,59 @@ function Game(){
     const lost=Math.floor(s.gold*0.05); s.gold-=lost;
     log(`💀 사망… 골드 ${fmt(lost)} 잃고 초보자 마을에서 부활합니다.`,"r");
     s.map="village"; s.visits.village=(s.visits.village||0)+1;
-    s.mode="hunt"; s.combat={mon:null,stun:false}; s.dungeon=null; s.boss=null; s._auto=false;
+    s.mode="hunt"; s.combat=resetCombat(); s.dungeon=null; s.boss=null; s._auto=false;
     const st=calc(s); s.hp=Math.round(st.hp*0.3); s.mp=Math.round(st.mp*0.3);
     checkHidden();
   };
+  const hurtPlayer=(dmg)=>{ // 보호막 → HP 순서로 피해 적용, 실제 HP 피해량 반환
+    const c=S.current.combat;
+    if(c.shield>0){ const ab=Math.min(c.shield,dmg); c.shield-=ab; dmg-=ab; if(ab>0)log(`🔷 보호막이 ${fmt(ab)} 피해를 흡수!`); }
+    if(dmg>0)S.current.hp-=dmg;
+    return dmg;
+  };
   const monsterTurn=()=>{
-    const s=S.current, mon=s.combat.mon;
+    const s=S.current, mon=s.combat.mon, c=s.combat;
     if(!mon||mon.hp<=0)return;
-    if(s.combat.stun){ s.combat.stun=false; log(`💫 ${mon.tpl.name}이(가) 기절해 행동하지 못합니다!`); return; }
+    /* 몬스터 도트 (내가 건 화상/중독) */
+    if(mon.dots.length){
+      let tot=0;
+      mon.dots.forEach(d=>{ tot+=d.dmg; d.t--; });
+      mon.dots=mon.dots.filter(d=>d.t>0);
+      if(tot>0){ mon.hp-=tot; addFx("-"+fmt(tot),"#a3e635"); log(`🧪 지속 피해로 ${mon.tpl.name}에게 ${fmt(tot)} 피해`,"d"); }
+      if(mon.hp<=0){ mon.hp=0; onKill(); return; }
+    }
+    if(c.stun){ c.stun=false; log(`💫 ${mon.tpl.name}이(가) 기절해 행동하지 못합니다!`); return; }
     const st=calc(s);
-    const dmg=Math.max(1,Math.round((mon.tpl.atk-st.def*0.55)*(0.85+R()*0.3)));
-    s.hp-=dmg;
-    log(`🩸 ${mon.tpl.name}의 공격! -${fmt(dmg)}`,"r");
+    const mech=mon.tpl.mech||[];
+    /* 재생 */
+    if(mech.includes("regen")&&mon.hp<mon.maxHp){ const h=Math.round(mon.maxHp*0.03); mon.hp=Math.min(mon.maxHp,mon.hp+h); log(`💚 ${mon.tpl.name}이(가) ${fmt(h)} 회복`,"r"); }
+    /* 수호막 (60% 이하 1회) */
+    if(mech.includes("shieldp")&&!mon.shielded&&mon.hp<=mon.maxHp*0.6){ mon.shielded=true; mon.shield=Math.round(mon.maxHp*0.15); log(`🛡️ ${mon.tpl.name}이(가) 수호막을 펼쳤다! (${fmt(mon.shield)})`,"r"); }
+    /* 공격 (연격 시 2회) */
+    let atkEff=mon.tpl.atk;
+    if(mech.includes("enrage")&&mon.hp<=mon.maxHp*0.4)atkEff=Math.round(atkEff*1.5);
+    if(mon.deb){ atkEff=Math.round(atkEff*(1-mon.deb.v)); }
+    const hits=mech.includes("double")?2:1;
+    const defEff=st.def*0.55*(mech.includes("crush")?0.5:1);
+    const dodge=buffVal("dodge");
+    for(let i=0;i<hits;i++){
+      if(s.hp<=0)break;
+      if(dodge>0&&R()<dodge){ log(`💨 ${mon.tpl.name}의 공격을 회피!`,"g"); continue; }
+      const raw=Math.max(1,Math.round((atkEff-defEff)*(0.85+R()*0.3)));
+      const dealt=hurtPlayer(raw);
+      log(`🩸 ${mon.tpl.name}의 공격! -${fmt(raw)}`,"r");
+      if(dealt>0&&mech.includes("lifesteal")){ const h=Math.round(dealt*0.3); mon.hp=Math.min(mon.maxHp,mon.hp+h); }
+      if(mech.includes("burn")&&R()<0.35){ c.pdots=c.pdots.filter(d=>d.k!=="burn"); c.pdots.push({k:"burn",dmg:Math.round(atkEff*0.5),t:3}); log("🔥 화상에 걸렸다! (3턴)","r"); }
+      if(mech.includes("poison")&&R()<0.35){ c.pdots=c.pdots.filter(d=>d.k!=="poison"); c.pdots.push({k:"poison",dmg:Math.round(atkEff*0.5),t:3}); log("☠️ 중독되었다! (3턴)","r"); }
+      if(mech.includes("stunp")&&R()<0.2){ c.pstun=true; log("💫 충격! 다음 공격 위력 -50%","r"); }
+    }
+    /* 내 도트 (화상/중독) */
+    if(s.hp>0&&c.pdots.length){
+      let tot=0; c.pdots.forEach(d=>{ tot+=d.dmg; d.t--; }); c.pdots=c.pdots.filter(d=>d.t>0);
+      if(tot>0){ s.hp-=tot; log(`🧪 지속 피해 -${fmt(tot)}`,"r"); }
+    }
+    /* 몬스터 공격력 디버프 턴 감소 */
+    if(mon.deb){ mon.deb.t--; if(mon.deb.t<=0)mon.deb=null; }
     if(s.hp<=0)death();
   };
   const questTick=()=>{}; // 진행도는 카운터 기반으로 파생 계산
@@ -8375,16 +8578,22 @@ function Game(){
     (t.tags||[]).forEach(tg=>s.tagKills[tg]=(s.tagKills[tg]||0)+1);
     const xpMul=s.world.done?1.25:1;
     let gx=Math.round(t.xp*xpMul), gg=t.gold;
-    if(s.mode==="dungeon"){ gx=Math.round(gx*2); gg=Math.round(gg*2.2); }
+    const dmod=s.mode==="dungeon"&&s.dungeon?DG_MAP[s.dungeon.id].mod:null;
+    if(s.mode==="dungeon"){
+      gx=Math.round(gx*2*(dmod==="xp"?1.7:1));
+      gg=Math.round(gg*2.2*(dmod==="gold"?2:1));
+    }
     s.gold+=gg;
     log(`☠️ ${t.name} 처치! +${fmt(gx)}XP +${fmt(gg)}G`);
     gainXp(gx);
-    if(s.mode!=="boss")drops(t.tier);
+    if(s.mode!=="boss")drops(Math.min(t.tier,5));
     s.world.prog=Math.min(s.world.goal,s.world.prog+2+Math.floor(R()*9));
     if(!s.world.done&&s.world.prog>=s.world.goal){ s.world.done=true; log("🌍 월드 퀘스트 달성! 모든 모험가에게 경험치 +25% 버프!","g"); }
     const st=calc(s);
-    s.hp=Math.min(st.hp,s.hp+Math.round(st.hp*0.1));
-    s.mp=Math.min(st.mp,s.mp+Math.round(st.mp*0.1));
+    if(dmod!=="noheal"){
+      s.hp=Math.min(st.hp,s.hp+Math.round(st.hp*0.1));
+      s.mp=Math.min(st.mp,s.mp+Math.round(st.mp*0.1));
+    }
     if(s.mode==="hunt"){ spawn(t.id); }
     else if(s.mode==="dungeon"){ dungeonNext(); }
     else if(s.mode==="boss"){ bossWin(t); }
@@ -8398,23 +8607,63 @@ function Game(){
       if(s.mode==="hunt"){ const mid=s.lastMon[s.map]||MAPS[s.map].mons[0]; spawn(mid); }
       else return;
     }
-    const mon=s.combat.mon;
+    const c=s.combat, mon=c.mon;
     const st=calc(s);
-    let mult=1, fx={}, usedSkill=null;
+    const dmod=s.mode==="dungeon"&&s.dungeon?DG_MAP[s.dungeon.id].mod:null;
+    let mult=1, sfx={}, usedSkill=null, hits=1;
     if(skillId){
       const sk=SKILLS[skillId], slv=s.skills[skillId]||0;
       if(!slv){ if(!isAuto)say("아직 습득하지 않은 스킬입니다."); }
       else if(s.mp<sk.mp){ if(!isAuto){ say("MP가 부족합니다!"); return; } }
-      else { s.mp-=sk.mp; mult=sk.mult*(1+0.12*(slv-1)); fx=sk.fx||{}; usedSkill=sk; }
+      else { s.mp-=sk.mp; mult=sk.mult*(1+0.12*(slv-1)); sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1; }
     }
-    const critCh=fx.gcrit?100:st.crit+(fx.critB||0);
-    const isCrit=R()*100<critCh;
-    let dmg=Math.max(1,Math.round((st.atk*mult-mon.tpl.def)*(0.9+R()*0.2)));
-    if(isCrit)dmg=Math.round(dmg*(st.critd+(fx.critdB||0))/100);
-    mon.hp-=dmg;
-    log(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${isCrit?"치명타! ":""}${mon.tpl.name}에게 ${fmt(dmg)} 피해`,isCrit?"c":"");
-    if(fx.heal){ s.hp=Math.min(st.hp,s.hp+Math.round(dmg*fx.heal)); }
-    if(fx.stun&&mon.hp>0){ s.combat.stun=true; }
+    /* --- 공격 페이즈 (보조 스킬 mult 0 제외) --- */
+    let total=0;
+    if(!usedSkill||usedSkill.mult>0){
+      const atkEff=st.atk*(1+buffVal("atk"));
+      let critCh;
+      if(sfx.gcrit)critCh=100;
+      else if(dmod==="dark")critCh=0;
+      else critCh=st.crit+buffVal("critf")+(sfx.critB||0);
+      let anyCrit=false;
+      for(let i=0;i<hits;i++){
+        let m=mult;
+        if(sfx.exec&&mon.hp<=mon.maxHp*sfx.exec.below)m=mult*sfx.exec.mult;
+        const isCrit=R()*100<critCh; if(isCrit)anyCrit=true;
+        let dmg=Math.max(1,Math.round((atkEff*m-mon.tpl.def)*(0.9+R()*0.2)));
+        if(isCrit)dmg=Math.round(dmg*(st.critd+(sfx.critdB||0))/100);
+        if(c.pstun)dmg=Math.max(1,Math.round(dmg*0.5));
+        if(mon.shield>0){ const ab=Math.min(mon.shield,dmg); mon.shield-=ab; dmg-=ab; if(ab>0)log(`🛡️ 수호막이 ${fmt(ab)} 흡수`); }
+        mon.hp-=dmg; total+=dmg;
+        addFx("-"+fmt(dmg),isCrit?"#fde047":"#fca5a5");
+        if(mon.hp<=0)break;
+      }
+      if(c.pstun)c.pstun=false;
+      shakeK.current++;
+      log(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${anyCrit?"치명타! ":""}${hits>1?hits+"연격! ":""}${mon.tpl.name}에게 ${fmt(total)} 피해`,anyCrit?"c":"");
+      if(dmod==="thorn"&&total>0&&s.hp>0){ const th=Math.max(1,Math.round(total*0.12)); hurtPlayer(th); log(`🌵 가시 반사 -${fmt(th)}`,"r"); }
+      if(sfx.heal&&total>0){ s.hp=Math.min(st.hp,s.hp+Math.round(total*sfx.heal)); }
+      if(sfx.mpR)s.mp=Math.min(st.mp,s.mp+Math.round(st.mp*sfx.mpR));
+      if(sfx.stun&&mon.hp>0)c.stun=true;
+      if(sfx.dot&&mon.hp>0){
+        const dd=Math.max(1,Math.round(atkEff*sfx.dot.pct));
+        mon.dots=mon.dots.filter(d=>d.k!==sfx.dot.k);
+        mon.dots.push({k:sfx.dot.k,dmg:dd,t:sfx.dot.t});
+        log(`${sfx.dot.k==="burn"?"🔥 화상":"☠️ 중독"} 부여! (턴당 ${fmt(dd)}, ${sfx.dot.t}턴)`,"d");
+      }
+      if(sfx.deb&&mon.hp>0){ mon.deb={v:sfx.deb.v,t:sfx.deb.t}; log(`😤 ${mon.tpl.name} 공격력 -${Math.round(sfx.deb.v*100)}% (${sfx.deb.t}턴)`,"d"); }
+    } else {
+      log(`${usedSkill.icon} [${usedSkill.name}] 사용!`,"g");
+    }
+    /* --- 보조 효과 --- */
+    if(usedSkill){
+      if(sfx.selfHeal){ const h=Math.round(st.hp*sfx.selfHeal); s.hp=Math.min(st.hp,s.hp+h); log(`💞 HP ${fmt(h)} 회복`,"g"); }
+      if(sfx.shield){ const v=Math.round(st.hp*sfx.shield); c.shield=Math.max(c.shield,v); log(`🔷 보호막 ${fmt(v)} 생성`,"g"); }
+      const pushBuff=(k,v,t,icon,name)=>{ c.buffs=c.buffs.filter(b=>b.k!==k); c.buffs.push({k,v,t,icon,name}); };
+      if(sfx.atkB)pushBuff("atk",sfx.atkB.v,sfx.atkB.t,"⚔️","공격 +"+Math.round(sfx.atkB.v*100)+"%");
+      if(sfx.critBf)pushBuff("critf",sfx.critBf.v,sfx.critBf.t,"🎯","치명 +"+sfx.critBf.v+"%");
+      if(sfx.dodge)pushBuff("dodge",sfx.dodge.v,sfx.dodge.t,"💨","회피 "+Math.round(sfx.dodge.v*100)+"%");
+    }
     s.mp=Math.min(st.mp,s.mp+Math.round(st.mp*0.03));
     if(mon.hp<=0){ mon.hp=0; onKill(); }
     else{
@@ -8423,73 +8672,96 @@ function Game(){
         s.boss.turns--;
         if(s.boss.turns<=0&&s.combat.mon&&s.combat.mon.hp>0){
           log(`⏳ 턴 제한 초과! ${s.combat.mon.tpl.name} 토벌 실패…`,"r");
-          s.mode="hunt"; s.combat={mon:null,stun:false}; s.boss=null;
+          s.mode="hunt"; s.combat=resetCombat(); s.boss=null;
         }
       }
     }
+    /* 독안개 */
+    if(dmod==="poison"&&s.hp>0&&s.mode==="dungeon"){
+      const p=Math.max(1,Math.round(st.hp*0.02)); s.hp-=p; log(`🟣 독안개 -${fmt(p)}`,"r");
+      if(s.hp<=0)death();
+    }
+    /* 버프 턴 경과 */
+    c.buffs.forEach(b=>b.t--); c.buffs=c.buffs.filter(b=>b.t>0);
     commit();
   };
   const flee=()=>{
     const s=S.current;
     if(s.mode==="dungeon"){ log("🏃 던전에서 후퇴했습니다. (입장권은 소모됨)","r"); }
     else if(s.mode==="boss"){ log("🏃 레이드를 포기했습니다.","r"); }
-    s.mode="hunt"; s.combat={mon:null,stun:false}; s.dungeon=null; s.boss=null; s._auto=false;
+    s.mode="hunt"; s.combat=resetCombat(); s.dungeon=null; s.boss=null; s._auto=false;
     commit();
   };
 
-  /* ---------- 던전 ---------- */
+  /* ---------- 던전 (30종 카탈로그) ---------- */
+  const dgWaves=d=>DG_MAP[d].mod==="swarm"?7:5;
   const dungeonWave=()=>{
-    const s=S.current, d=s.dungeon, map=MAPS[s.map];
-    const pool=map.mons;
-    const base=MONS[d.wave>=5?pool[pool.length-1]:pool[Math.floor(R()*pool.length)]];
-    const hpM=1.4+0.5*d.wave, atkM=1.1+0.15*d.wave;
-    const t={...base,name:`${base.name} · 심층${d.wave}`,hp:Math.round(base.hp*hpM),atk:Math.round(base.atk*atkM),def:Math.round(base.def*1.2),xp:Math.round(base.xp*1.5),gold:Math.round(base.gold*1.4)};
-    s.combat={mon:mkMon(t),stun:false};
+    const s=S.current, d=s.dungeon, D=DG_MAP[d.id], mod=D.mod;
+    const pool=DG_POOL[D.t];
+    const total=dgWaves(d.id);
+    const base=MONS[d.wave>=total?pool[pool.length-1]:pool[Math.floor(R()*pool.length)]];
+    const tierM=DG_MUL[D.t];
+    let hpM=(1.4+0.5*d.wave)*tierM*(mod==="elite"?1.8:1);
+    let atkM=(1.1+0.15*d.wave)*tierM*(mod==="berserk"?1.4:1);
+    let defM=1.2*tierM*(mod==="iron"?1.6:1);
+    const t={...base,name:`${base.name} · ${D.n} ${d.wave}층`,hp:Math.round(base.hp*hpM),atk:Math.round(base.atk*atkM),def:Math.round(base.def*defM),xp:Math.round(base.xp*1.5*tierM),gold:Math.round(base.gold*1.4*tierM)};
+    const keep=s.combat;
+    s.combat={...resetCombat(),mon:mkMon(t),buffs:keep.buffs,shield:keep.shield,pdots:keep.pdots,pstun:keep.pstun};
   };
-  const enterDungeon=()=>{
-    const s=S.current;
+  const enterDungeon=(dgId)=>{
+    const s=S.current, D=DG_MAP[dgId];
+    if(!D)return;
     if(s.mode!=="hunt"){ say("이미 전투 콘텐츠 진행 중입니다."); return; }
+    if(s.lv<D.lvq){ say(`레벨 ${D.lvq}부터 입장할 수 있습니다.`); return; }
     if(s.dkey<1){ say("던전 입장권이 없습니다!"); return; }
-    s.dkey--; s.mode="dungeon"; s.dungeon={wave:1};
-    log(`🕳️ [${MAPS[s.map].name}] 지하 던전 입장! (5웨이브)`,"g");
+    s.dkey--; s.mode="dungeon"; s.dungeon={id:dgId,wave:1};
+    const M=MODS[D.mod];
+    log(`🕳️ [${D.n}] 입장! (${dgWaves(dgId)}웨이브${D.mod!=="none"?` · ${M.icon} ${M.n}: ${M.d}`:""})`,"g");
     dungeonWave(); tab.current="hunt"; commit();
   };
   const dungeonNext=()=>{
-    const s=S.current, d=s.dungeon;
-    if(d.wave>=5){
-      const tier=MONS[MAPS[s.map].mons[0]].tier;
-      const stones=4+2*tier, gold=120*tier*tier;
+    const s=S.current, d=s.dungeon, D=DG_MAP[d.id], mod=D.mod;
+    const total=dgWaves(d.id);
+    if(d.wave>=total){
+      const tier=D.t;
+      const richM=(mod==="rich"?1.8:1)*(mod==="swarm"?1.3:1);
+      const stones=Math.round((4+2*tier)*richM), gold=Math.round(150*tier*tier*richM);
       s.stone+=stones; s.gold+=gold;
       const types=Object.keys(RUNE_T); const ty=types[Math.floor(R()*types.length)];
-      addRune(ty,clamp(tier,1,5));
+      const rg=clamp(tier+(mod==="elite"?1:0),1,6);
+      addRune(ty,rg);
       let itemTxt="";
-      if(R()<0.4){ const pool=TIER_POOL[tier]; const tid=pool[Math.floor(R()*pool.length)]; addItem(tid); itemTxt=` + ${ITEMS[tid].name}`; }
-      log(`🏆 던전 클리어! 강화석 ${stones}, ${fmt(gold)}G, [${GRADE[clamp(tier,1,5)]}] ${RUNE_T[ty].name}${itemTxt}`,"g");
-      s.mode="hunt"; s.dungeon=null; s.combat={mon:null,stun:false};
-    } else { d.wave++; dungeonWave(); log(`⬇️ 웨이브 ${d.wave}/5 진입!`); }
+      if(R()<(tier>=6?0.55:0.4)){ const pool=TIER_POOL[Math.min(tier,6)]; const tid=pool[Math.floor(R()*pool.length)]; addItem(tid); itemTxt=` + [${TIER_NAME[ITEMS[tid].tier]}] ${ITEMS[tid].name}`; }
+      s.dgClears[d.id]=(s.dgClears[d.id]||0)+1;
+      log(`🏆 [${D.n}] 클리어! 강화석 ${stones}, ${fmt(gold)}G, [${GRADE[rg]}] ${RUNE_T[ty].name}${itemTxt}`,"g");
+      s.mode="hunt"; s.dungeon=null; s.combat=resetCombat();
+    } else { d.wave++; dungeonWave(); log(`⬇️ 웨이브 ${d.wave}/${total} 진입!`); }
   };
 
-  /* ---------- 보스 ---------- */
-  const enterBoss=()=>{
-    const s=S.current, map=MAPS[s.map];
-    if(!map.boss){ say("이 맵에는 보스가 없습니다."); return; }
+  /* ---------- 보스 (35종 카탈로그) ---------- */
+  const enterBoss=(bossId)=>{
+    const s=S.current, B=BOSSES[bossId];
+    if(!B)return;
     if(s.mode!=="hunt"){ say("이미 전투 콘텐츠 진행 중입니다."); return; }
+    if(s.lv<B.lvq){ say(`레벨 ${B.lvq}부터 도전할 수 있습니다.`); return; }
     if(s.rticket<1){ say("레이드 입장권이 없습니다!"); return; }
     s.rticket--;
-    const B=BOSSES[map.boss];
-    s.mode="boss"; s.boss={turns:B.turns};
-    s.combat={mon:mkMon(B),stun:false};
-    log(`👹 보스 레이드! [${B.name}] — ${B.turns}턴 안에 처치하세요!`,"r");
+    s.mode="boss"; s.boss={id:bossId,turns:B.turns};
+    s.combat={...resetCombat(),mon:mkMon(B)};
+    const mtxt=(B.mech||[]).map(m=>MECH[m].icon+MECH[m].n).join(" ");
+    log(`👹 보스 레이드! [${B.name}] — ${B.turns}턴 제한${mtxt?` · 기믹: ${mtxt}`:""}`,"r");
     tab.current="hunt"; commit();
   };
   const bossWin=(t)=>{
     const s=S.current;
     const stones=6+3*t.tier; s.stone+=stones;
     const types=Object.keys(RUNE_T); const ty=types[Math.floor(R()*types.length)];
-    const g=clamp(t.tier+1,1,6); addRune(ty,g);
-    const pool=TIER_POOL[t.tier]; const tid=pool[Math.floor(R()*pool.length)]; addItem(tid);
-    log(`🏆 레이드 성공! 강화석 ${stones}, [${GRADE[g]}] ${RUNE_T[ty].name}, [${TIER_NAME[t.tier]}] ${ITEMS[tid].name} 획득!`,"g");
-    s.mode="hunt"; s.boss=null; s.combat={mon:null,stun:false};
+    const g=clamp(t.tier>=7?6:t.tier+1,1,6); addRune(ty,g);
+    const it=BOSS_ITEM_T[t.tier]; const pool=TIER_POOL[it]; const tid=pool[Math.floor(R()*pool.length)]; addItem(tid);
+    if(t.tier>=6&&R()<0.5){ s.rticket++; log("🎟️ 레이드 입장권을 되찾았다!","d"); }
+    s.bossKills[t.id]=(s.bossKills[t.id]||0)+1;
+    log(`🏆 레이드 성공! 강화석 ${stones}, [${GRADE[g]}] ${RUNE_T[ty].name}, [${TIER_NAME[it]}] ${ITEMS[tid].name} 획득!`,"g");
+    s.mode="hunt"; s.boss=null; s.combat=resetCombat();
   };
 
   /* ---------- 포탈 ---------- */
@@ -8693,6 +8965,200 @@ function Game(){
     return ()=>clearInterval(iv);
   },[]);
 
+  /* ================= 광장 (P2P 온라인) ================= */
+  const plaza=useRef({room:null,acts:null,peers:{},chat:[],duel:null,pending:null,joining:false});
+  const [chatIn,setChatIn]=useState("");
+
+  const pSnap=()=>{ const s=S.current, st=calc(s);
+    return {nick:s.nick,lv:s.lv,icon:s.hcls?HID[s.hcls].icon:CLS[s.cls].icon,cname:s.hcls?HID[s.hcls].name:CLS[s.cls].name,
+      w:s.pvpW,l:s.pvpL,hp:st.hp,mp:st.mp,atk:st.atk,def:st.def,crit:st.crit,critd:st.critd}; };
+  const sendHello=()=>{ const P=plaza.current; if(P.room&&S.current)P.acts.hello.send(pSnap()); };
+  const joinPlaza=()=>{
+    const P=plaza.current;
+    if(P.room||P.joining)return;
+    P.joining=true; bump();
+    ensureTrystero(t=>{
+      if(!S.current){ P.joining=false; return; }
+      const room=t.joinRoom({appId:"yunny-abyss-rpg-v1"},"ynd-abyss-plaza-1");
+      const acts={};
+      for(const a of ["hello","chat","dreq","dacc","dact","dsync","dend"])acts[a]=room.makeAction(a);
+      P.room=room; P.acts=acts;
+      const meNick=()=>S.current&&S.current.nick;
+      acts.hello.onMessage=d=>{ if(!d||!d.nick||d.nick===meNick())return;
+        const isNew=!P.peers[d.nick];
+        P.peers[d.nick]={...d,ts:Date.now()};
+        if(isNew)sendHello();
+        bump(); };
+      acts.chat.onMessage=d=>{ if(!d||!d.txt||!d.from||d.from===meNick())return;
+        P.chat.push({...d,id:Date.now()+R()}); if(P.chat.length>60)P.chat.shift(); bump(); };
+      acts.dreq.onMessage=d=>{ if(!d||d.to!==meNick()||P.duel)return; P.pending={from:d.from,st:d.st}; bump(); };
+      acts.dacc.onMessage=d=>{ if(!d||d.to!==meNick())return; if(P.duel&&!P.duel.over)return;
+        startDuel(d.st,true); bump(); };   // 내가 도전자 → 선공
+      acts.dact.onMessage=d=>{ if(!d||d.to!==meNick())return; recvAct(d); };
+      acts.dsync.onMessage=d=>{ if(!d||d.to!==meNick())return; const du=P.duel;
+        if(du&&!du.over){
+          du.oppHp=d.hp; du.lastAct=Date.now();
+          if(d.ackTn&&du.pendingAct&&du.pendingAct.payload.tn===d.ackTn)du.pendingAct=null; // 재전송 큐 해제
+          bump();
+        } };
+      acts.dend.onMessage=d=>{ if(!d||d.to!==meNick())return; finishDuel(d.winner); };
+      sendHello();
+      P.joining=false; bump();
+    });
+  };
+  const leavePlaza=()=>{
+    const P=plaza.current;
+    if(P.duel&&!P.duel.over&&P.acts){ try{ P.acts.dend.send({from:S.current.nick,to:P.duel.opp.nick,winner:P.duel.opp.nick}); }catch(e){} }
+    if(P.room){ try{ P.room.leave(); }catch(e){} }
+    plaza.current={room:null,acts:null,peers:{},chat:[],duel:null,pending:null,joining:false};
+    bump();
+  };
+  /* 하트비트: 8초마다 존재 알림 + 오래된 피어 정리 */
+  useEffect(()=>{
+    const iv=setInterval(()=>{
+      const P=plaza.current;
+      if(!P.room)return;
+      sendHello();
+      const now=Date.now();
+      for(const k of Object.keys(P.peers)){ if(now-P.peers[k].ts>25000)delete P.peers[k]; }
+      bump();
+    },8000);
+    return ()=>clearInterval(iv);
+  },[]);
+  /* 결투 재전송: 상대 ack(dsync) 미수신 시 2.5초마다 마지막 행동 재송신 (연결 순단 대비) */
+  useEffect(()=>{
+    const iv=setInterval(()=>{
+      const P=plaza.current, du=P.duel;
+      if(!P.room||!du||du.over||!du.pendingAct)return;
+      const pa=du.pendingAct;
+      if(Date.now()-pa.sentAt>2500&&pa.tries<10){ pa.tries++; pa.sentAt=Date.now(); P.acts.dact.send(pa.payload); }
+    },1000);
+    return ()=>clearInterval(iv);
+  },[]);
+
+  /* ---------- PvP 결투 ---------- */
+  const dlog=(t,c)=>{ const du=plaza.current.duel; if(!du)return; du.log.unshift({t,c:c||"",id:"dl"+Date.now()+Math.floor(R()*1e6)}); if(du.log.length>30)du.log.length=30; };
+  const startDuel=(oppSt,myTurn)=>{
+    const P=plaza.current, st=calc(S.current);
+    P.pending=null;
+    P.duel={opp:oppSt,myHp:st.hp,myMax:st.hp,myMp:st.mp,myShield:0,buffs:[],
+      oppHp:oppSt.hp,oppMax:oppSt.hp,myTurn,log:[],over:null,lastAct:Date.now(),
+      turnNo:0,lastRecvTurn:0,pendingAct:null};
+    dlog(`⚔️ ${oppSt.nick} (Lv.${oppSt.lv} ${oppSt.cname})와(과)의 결투 시작! ${myTurn?"선공입니다!":"상대가 선공입니다."}`,"g");
+    tab.current="plaza";
+  };
+  const challenge=(nick)=>{
+    const P=plaza.current; if(!P.room||P.duel)return;
+    P.acts.dreq.send({from:S.current.nick,to:nick,st:pSnap()});
+    say(`${nick}에게 결투 신청을 보냈습니다!`);
+  };
+  const acceptDuel=()=>{
+    const P=plaza.current; if(!P.pending)return;
+    const opp=P.pending;
+    startDuel(opp.st,false);                               // 수락자는 후공
+    P.acts.dacc.send({from:S.current.nick,to:opp.from,st:pSnap()});
+    bump();
+  };
+  const declineDuel=()=>{ plaza.current.pending=null; bump(); };
+  const duelAct=(skillId)=>{
+    const P=plaza.current, du=P.duel;
+    if(!du||du.over||!du.myTurn)return;
+    const s=S.current, st=calc(s);
+    let mult=1,sfx={},usedSkill=null,hits=1;
+    if(skillId){
+      const sk=SKILLS[skillId], slv=s.skills[skillId]||0;
+      if(!slv)return;
+      if(du.myMp<sk.mp){ say("MP가 부족합니다!"); return; }
+      du.myMp-=sk.mp; mult=sk.mult*(1+0.12*(slv-1)); sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1;
+    }
+    let total=0,anyCrit=false;
+    if(!usedSkill||usedSkill.mult>0){
+      const atkEff=st.atk*(1+du.buffs.filter(b=>b.k==="atk").reduce((a,b)=>a+b.v,0));
+      const critCh=sfx.gcrit?100:st.crit+du.buffs.filter(b=>b.k==="critf").reduce((a,b)=>a+b.v,0)+(sfx.critB||0);
+      for(let i=0;i<hits;i++){
+        let m=mult;
+        if(sfx.exec&&du.oppHp<=du.oppMax*sfx.exec.below)m=mult*sfx.exec.mult;
+        const isCrit=R()*100<critCh; if(isCrit)anyCrit=true;
+        let dmg=Math.max(1,Math.round((atkEff*m-du.opp.def)*(0.9+R()*0.2)));
+        if(isCrit)dmg=Math.round(dmg*(st.critd+(sfx.critdB||0))/100);
+        total+=dmg;
+      }
+      du.oppHp-=total;                                      // 낙관 반영 → dsync로 정정
+      if(sfx.heal&&total>0)du.myHp=Math.min(du.myMax,du.myHp+Math.round(total*sfx.heal));
+    }
+    if(usedSkill){
+      if(sfx.selfHeal){ du.myHp=Math.min(du.myMax,du.myHp+Math.round(du.myMax*sfx.selfHeal)); dlog("💞 HP 회복!","g"); }
+      if(sfx.shield){ du.myShield=Math.max(du.myShield,Math.round(du.myMax*sfx.shield)); dlog("🔷 보호막 생성!","g"); }
+      if(sfx.mpR)du.myMp=Math.min(st.mp,du.myMp+Math.round(st.mp*sfx.mpR));
+      if(sfx.atkB){ du.buffs=du.buffs.filter(b=>b.k!=="atk"); du.buffs.push({k:"atk",v:sfx.atkB.v,t:sfx.atkB.t}); }
+      if(sfx.critBf){ du.buffs=du.buffs.filter(b=>b.k!=="critf"); du.buffs.push({k:"critf",v:sfx.critBf.v,t:sfx.critBf.t}); }
+    }
+    du.myMp=Math.min(st.mp,du.myMp+Math.round(st.mp*0.05));
+    du.buffs.forEach(b=>b.t--); du.buffs=du.buffs.filter(b=>b.t>0);
+    if(total>0)dlog(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${anyCrit?"치명타! ":""}${du.opp.nick}에게 ${fmt(total)} 피해`,anyCrit?"c":"");
+    else if(usedSkill)dlog(`${usedSkill.icon} [${usedSkill.name}] 사용`,"g");
+    du.myTurn=false; du.lastAct=Date.now();
+    du.turnNo++;
+    const payload={from:s.nick,to:du.opp.nick,tn:du.turnNo,name:usedSkill?usedSkill.name:"기본 공격",icon:usedSkill?usedSkill.icon:"⚔️",dmg:total,crit:anyCrit,hp:Math.max(0,du.myHp)};
+    du.pendingAct={payload,sentAt:Date.now(),tries:0};      // dsync(ack) 수신 시 해제, 미수신 시 재전송
+    P.acts.dact.send(payload);
+    bump();
+  };
+  const recvAct=(d)=>{                                     // 상대 공격 수신 — 내 HP는 내가 권위
+    const P=plaza.current, du=P.duel;
+    if(!du||du.over)return;
+    const s=S.current;
+    if(d.tn&&d.tn<=du.lastRecvTurn){                        // 재전송 중복 → ack만 다시
+      P.acts.dsync.send({from:s.nick,to:du.opp.nick,hp:Math.max(0,du.myHp),ackTn:d.tn});
+      return;
+    }
+    if(d.tn)du.lastRecvTurn=d.tn;
+    let dmg=d.dmg;
+    if(du.myShield>0){ const ab=Math.min(du.myShield,dmg); du.myShield-=ab; dmg-=ab; }
+    du.myHp-=dmg;
+    if(d.hp!==undefined)du.oppHp=Math.min(du.oppMax,d.hp);
+    dlog(`${d.icon} [${d.name}] ${d.crit?"치명타! ":""}${fmt(d.dmg)} 피해를 받음${dmg<d.dmg?" (일부 보호막 흡수)":""}`,"r");
+    du.myTurn=true; du.lastAct=Date.now();
+    P.acts.dsync.send({from:s.nick,to:du.opp.nick,hp:Math.max(0,du.myHp),ackTn:d.tn});
+    if(du.myHp<=0){
+      du.myHp=0;
+      P.acts.dend.send({from:s.nick,to:du.opp.nick,winner:du.opp.nick});
+      finishDuel(du.opp.nick);
+      return;
+    }
+    bump();
+  };
+  const finishDuel=(winner)=>{
+    const P=plaza.current, du=P.duel;
+    if(!du||du.over)return;
+    const s=S.current, won=winner===s.nick;
+    du.over=won?"win":"lose"; du.myTurn=false;
+    if(won){ s.pvpW++; const g=150*Math.max(1,du.opp.lv); s.gold+=g; log(`🏟️ [PvP] ${du.opp.nick}에게 승리! +${fmt(g)}G`,"g"); dlog(`🏆 승리! 보상 +${fmt(g)}G`,"g"); }
+    else { s.pvpL++; log(`🏟️ [PvP] ${du.opp.nick}에게 패배…`,"r"); dlog("💀 패배…","r"); }
+    commit(); sendHello();
+  };
+  const surrender=()=>{
+    const P=plaza.current, du=P.duel;
+    if(!du||du.over)return;
+    P.acts.dend.send({from:S.current.nick,to:du.opp.nick,winner:du.opp.nick});
+    finishDuel(du.opp.nick);
+  };
+  const claimTimeout=()=>{
+    const P=plaza.current, du=P.duel;
+    if(!du||du.over||du.myTurn)return;
+    if(Date.now()-du.lastAct<30000)return;
+    P.acts.dend.send({from:S.current.nick,to:du.opp.nick,winner:S.current.nick});
+    finishDuel(S.current.nick);
+  };
+  const closeDuel=()=>{ plaza.current.duel=null; bump(); };
+  const sendChat=()=>{
+    const P=plaza.current, txt=chatIn.trim();
+    if(!txt||!P.room)return;
+    const msg={from:S.current.nick,txt:txt.slice(0,120),ts:Date.now()};
+    P.chat.push({...msg,id:Date.now()+R()}); if(P.chat.length>60)P.chat.shift();
+    P.acts.chat.send(msg); setChatIn(""); bump();
+  };
+
   /* ================= UI 헬퍼 ================= */
   const Bar=(cur,max,col,h)=>(
     <div className="w-full rounded-full overflow-hidden" style={{background:"rgba(0,0,0,.5)",height:h||10}}>
@@ -8773,30 +9239,52 @@ function Game(){
 
   /* ================= 탭 콘텐츠 ================= */
   const renderHunt=(s,st)=>{
-    const map=MAPS[s.map], mon=s.combat.mon;
+    const map=MAPS[s.map], mon=s.combat.mon, c=s.combat;
     const learned=Object.keys(s.skills).filter(id=>s.skills[id]>0);
+    const hasStatus=c.buffs.length>0||c.shield>0||c.pdots.length>0||c.pstun;
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="text-sm font-bold">{map.icon} {map.name} <span className="text-[10px] text-zinc-500">권장 Lv.{map.lv}</span></div>
-          {s.mode==="dungeon"&&<span className="text-xs font-bold text-purple-300 pop">🕳️ 던전 웨이브 {s.dungeon.wave}/5</span>}
+          {s.mode==="dungeon"&&s.dungeon&&<span className="text-xs font-bold text-purple-300 pop">{DG_MAP[s.dungeon.id].i} {DG_MAP[s.dungeon.id].n} — 웨이브 {s.dungeon.wave}/{dgWaves(s.dungeon.id)} {DG_MAP[s.dungeon.id].mod!=="none"&&<span className="text-[10px]">({MODS[DG_MAP[s.dungeon.id].mod].icon}{MODS[DG_MAP[s.dungeon.id].mod].n})</span>}</span>}
           {s.mode==="boss"&&<span className="text-xs font-bold text-red-400 pop">👹 보스전 · 남은 턴 {s.boss.turns}</span>}
           <label className="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer">
             <input type="checkbox" checked={s._auto} onChange={()=>{s._auto=!s._auto;bump();}}/>
             자동 사냥 {s.autoSkill&&s.skills[s.autoSkill]?`(${SKILLS[s.autoSkill].name})`:"(기본 공격)"}
           </label>
         </div>
+        {hasStatus&&(
+          <div className="flex flex-wrap gap-1">
+            {c.shield>0&&<span className="chip" style={{background:"rgba(34,211,238,.15)",color:"#67e8f9"}}>🔷 보호막 {fmt(c.shield)}</span>}
+            {c.buffs.map(b=><span key={b.k} className="chip" style={{background:"rgba(52,211,153,.15)",color:"#6ee7b7"}}>{b.icon} {b.name} · {b.t}턴</span>)}
+            {c.pdots.map(d=><span key={d.k} className="chip" style={{background:"rgba(239,68,68,.15)",color:"#fca5a5"}}>{d.k==="burn"?"🔥 화상":"☠️ 중독"} · {d.t}턴</span>)}
+            {c.pstun&&<span className="chip" style={{background:"rgba(250,204,21,.15)",color:"#fde047"}}>💫 충격 (다음 공격 -50%)</span>}
+          </div>
+        )}
         {mon?(
           <div className="panel p-4">
             <div className="flex items-center gap-4">
-              <div className="text-5xl">{mon.tpl.icon}</div>
+              <div className="relative" style={{width:56}}>
+                <div key={shakeK.current} className={"text-5xl "+(shakeK.current>0?"shake":"")}>{mon.tpl.icon}</div>
+                {fx.current.map(f=>(
+                  <span key={f.id} className="dfloat text-sm" style={{color:f.col,left:(f.x-16)+"px",top:"-8px"}}>{f.txt}</span>
+                ))}
+              </div>
               <div className="flex-1">
                 <div className="flex justify-between text-sm font-bold">
-                  <span>{mon.tpl.name}{s.combat.stun?" 💫":""}</span>
+                  <span>{mon.tpl.name}{c.stun?" 💫":""}</span>
                   <span className="text-zinc-400">{fmt(Math.max(0,mon.hp))}/{fmt(mon.maxHp)}</span>
                 </div>
                 <div className="mt-1">{Bar(mon.hp,mon.maxHp,"linear-gradient(90deg,#ef4444,#b91c1c)",12)}</div>
-                <div className="text-[11px] text-zinc-500 mt-1">공격 {mon.tpl.atk} · 방어 {mon.tpl.def} · 보상 {fmt(mon.tpl.xp)}XP/{fmt(mon.tpl.gold)}G</div>
+                <div className="text-[11px] text-zinc-500 mt-1">공격 {fmt(mon.tpl.atk)} · 방어 {fmt(mon.tpl.def)} · 보상 {fmt(mon.tpl.xp)}XP/{fmt(mon.tpl.gold)}G</div>
+                {((mon.tpl.mech||[]).length>0||mon.shield>0||mon.dots.length>0||mon.deb)&&(
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {(mon.tpl.mech||[]).map(m=><span key={m} className="chip" title={MECH[m].d} style={{background:"rgba(239,68,68,.15)",color:"#fca5a5"}}>{MECH[m].icon} {MECH[m].n}</span>)}
+                    {mon.shield>0&&<span className="chip" style={{background:"rgba(148,163,184,.2)",color:"#cbd5e1"}}>🛡️ {fmt(mon.shield)}</span>}
+                    {mon.dots.map(d=><span key={d.k} className="chip" style={{background:"rgba(163,230,53,.15)",color:"#bef264"}}>{d.k==="burn"?"🔥":"☠️"} {fmt(d.dmg)}×{d.t}턴</span>)}
+                    {mon.deb&&<span className="chip" style={{background:"rgba(251,191,36,.15)",color:"#fcd34d"}}>😤 공격 -{Math.round(mon.deb.v*100)}% · {mon.deb.t}턴</span>}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-3">
@@ -8857,50 +9345,72 @@ function Game(){
     );
   };
 
-  const renderDungeon=(s)=>{
-    const tier=MONS[MAPS[s.map].mons[0]].tier;
-    return (
-      <div className="space-y-3">
-        <div className="panel p-5 text-center">
-          <div className="text-4xl mb-1">🕳️</div>
-          <div className="font-black">[{MAPS[s.map].name}] 지하 던전</div>
-          <p className="text-xs text-zinc-400 mt-1">강화된 몬스터 5웨이브 연전. 클리어 시 강화석·룬·장비 보상!<br/>도중 사망 시 보상 없음. 후퇴 가능(입장권 소모).</p>
-          <div className="text-xs text-amber-300 mt-3">보유 입장권 🗝️ {s.dkey}</div>
-          <div className="flex gap-2 justify-center mt-3">
-            <button onClick={enterDungeon} disabled={s.mode!=="hunt"||s.dkey<1} className="btn px-5 py-2.5 rounded-lg bg-purple-800 text-white text-sm font-bold">입장하기</button>
-            <button onClick={()=>{const c=400; if(S.current.gold<c){say("골드 부족!");return;} S.current.gold-=c; S.current.dkey++; log("🗝️ 던전 입장권 구매 (-400G)"); commit();}}
-              className="btn px-5 py-2.5 rounded-lg bg-zinc-700 text-sm">입장권 구매 (400G)</button>
+  const renderDungeon=(s)=>(
+    <div className="space-y-3">
+      <div className="panel p-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="text-xs text-zinc-400">🗝️ 입장권 <b className="text-amber-300">{s.dkey}</b> — 총 30개 던전, 각기 다른 규칙(수식어). 도중 사망 시 보상 없음!</div>
+        <button onClick={()=>{const cc=400; if(S.current.gold<cc){say("골드 부족!");return;} S.current.gold-=cc; S.current.dkey++; log("🗝️ 던전 입장권 구매 (-400G)"); commit();}}
+          className="btn px-3 py-1.5 rounded-lg bg-zinc-700 text-xs">입장권 구매 (400G)</button>
+      </div>
+      {[1,2,3,4,5,6].map(t=>(
+        <div key={t}>
+          <div className="text-xs font-bold text-purple-300 mb-1.5">🕳️ 티어 {t} <span className="text-zinc-500 font-normal">권장 Lv.{DG_LV[t]}+ · 보상 강화석 {4+2*t}, 룬 [{GRADE[clamp(t,1,6)]}]</span></div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-2 mb-3">
+            {DGS.filter(d=>d.t===t).map(d=>{
+              const M=MODS[d.mod], locked=s.lv<d.lvq, clears=s.dgClears[d.id]||0;
+              return (
+                <div key={d.id} className={"panel p-3 "+(locked?"opacity-50":"")}>
+                  <div className="flex justify-between items-start">
+                    <div className="text-sm font-bold">{d.i} {d.n}</div>
+                    {clears>0&&<span className="text-[9px] text-emerald-400 font-bold">✓{clears}회</span>}
+                  </div>
+                  <div className="mt-1"><span className="chip" style={{background:"rgba(147,51,234,.18)",color:"#d8b4fe"}}>{M.icon} {M.n}</span></div>
+                  <div className="text-[10px] text-zinc-500 mt-1 min-h-[26px]">{M.d}</div>
+                  <button onClick={()=>enterDungeon(d.id)} disabled={locked||s.mode!=="hunt"||s.dkey<1}
+                    className="btn w-full mt-1.5 py-1.5 rounded-lg bg-purple-800 text-xs font-bold">{locked?`🔒 Lv.${d.lvq} 필요`:"입장 (🗝️1)"}</button>
+                </div>
+              );
+            })}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-3">예상 보상: 강화석 {4+2*tier}개 + {fmt(120*tier*tier)}G + [{GRADE[clamp(tier,1,5)]}] 룬</div>
         </div>
-      </div>
-    );
-  };
+      ))}
+    </div>
+  );
 
-  const renderBoss=(s)=>{
-    const map=MAPS[s.map], B=map.boss?BOSSES[map.boss]:null;
-    return (
-      <div className="space-y-3">
-        {B?(
-          <div className="panel p-5 text-center">
-            <div className="text-5xl mb-1">{B.icon}</div>
-            <div className="font-black text-red-400 text-lg">{B.name}</div>
-            <div className="text-xs text-zinc-400 mt-1">HP {fmt(B.hp)} · 공격 {B.atk} · 턴 제한 {B.turns}턴</div>
-            <p className="text-xs text-zinc-500 mt-2">턴 안에 처치하면 희귀 장비·상위 룬·대량 강화석 확정 드랍!</p>
-            <div className="text-xs text-amber-300 mt-3">보유 레이드 입장권 🎟️ {s.rticket}</div>
-            <div className="flex gap-2 justify-center mt-3">
-              <button onClick={enterBoss} disabled={s.mode!=="hunt"||s.rticket<1} className="btn px-5 py-2.5 rounded-lg bg-red-800 text-white text-sm font-bold">⚔️ 도전하기</button>
-              <button onClick={()=>{const c=900; if(S.current.gold<c){say("골드 부족!");return;} S.current.gold-=c; S.current.rticket++; log("🎟️ 레이드 입장권 구매 (-900G)"); commit();}}
-                className="btn px-5 py-2.5 rounded-lg bg-zinc-700 text-sm">입장권 구매 (900G)</button>
-            </div>
-            <div className="text-[11px] text-zinc-500 mt-3">확정 보상: 강화석 {6+3*B.tier} + [{GRADE[clamp(B.tier+1,1,6)]}] 룬 + [{TIER_NAME[B.tier]}] 장비</div>
-          </div>
-        ):(
-          <div className="panel p-6 text-center text-sm text-zinc-500">이 맵에는 보스가 없습니다. 다른 맵으로 이동해 보세요.</div>
-        )}
+  const renderBoss=(s)=>(
+    <div className="space-y-3">
+      <div className="panel p-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="text-xs text-zinc-400">🎟️ 입장권 <b className="text-red-300">{s.rticket}</b> — 총 35마리 보스. 기믹을 읽고 스킬로 공략하세요. 턴 제한 초과 시 실패!</div>
+        <button onClick={()=>{const cc=900; if(S.current.gold<cc){say("골드 부족!");return;} S.current.gold-=cc; S.current.rticket++; log("🎟️ 레이드 입장권 구매 (-900G)"); commit();}}
+          className="btn px-3 py-1.5 rounded-lg bg-zinc-700 text-xs">입장권 구매 (900G)</button>
       </div>
-    );
-  };
+      {[1,2,3,4,5,6,7].map(t=>(
+        <div key={t}>
+          <div className="text-xs font-bold text-red-300 mb-1.5">👹 티어 {t} <span className="text-zinc-500 font-normal">Lv.{BT[t].lvq}+ · 확정 [{TIER_NAME[BOSS_ITEM_T[t]]}] 장비 + [{GRADE[clamp(t>=7?6:t+1,1,6)]}] 룬</span></div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-2 mb-3">
+            {BOSS_LIST.filter(b=>b.tier===t).map(b=>{
+              const locked=s.lv<b.lvq, kills=s.bossKills[b.id]||0;
+              return (
+                <div key={b.id} className={"panel p-3 "+(locked?"opacity-50":"")}>
+                  <div className="flex justify-between items-start">
+                    <div className="text-sm font-bold">{b.icon} {b.name}</div>
+                    {kills>0&&<span className="text-[9px] text-emerald-400 font-bold">✓{kills}회</span>}
+                  </div>
+                  <div className="text-[10px] text-zinc-500 mt-0.5">HP {fmt(b.hp)} · 공격 {fmt(b.atk)} · {b.turns}턴 제한</div>
+                  <div className="flex flex-wrap gap-1 mt-1 min-h-[20px]">
+                    {b.mech.map(m=><span key={m} className="chip" title={MECH[m].d} style={{background:"rgba(239,68,68,.15)",color:"#fca5a5"}}>{MECH[m].icon} {MECH[m].n}</span>)}
+                    {b.mech.length===0&&<span className="text-[9px] text-zinc-600">기믹 없음</span>}
+                  </div>
+                  <button onClick={()=>enterBoss(b.id)} disabled={locked||s.mode!=="hunt"||s.rticket<1}
+                    className="btn w-full mt-1.5 py-1.5 rounded-lg bg-red-800 text-xs font-bold">{locked?`🔒 Lv.${b.lvq} 필요`:"⚔️ 도전 (🎟️1)"}</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   const renderForge=(s)=>(
     <div className="space-y-2">
@@ -8979,10 +9489,10 @@ function Game(){
             <div key={id} className="panel p-3 flex items-center justify-between gap-2 flex-wrap">
               <div>
                 <div className="text-sm font-bold">{sk.icon} {sk.name} {cur>0&&<span className="text-amber-300">Lv.{cur}</span>} {locked&&<span className="text-[10px] text-red-400">🔒 Lv.{sk.lv} 필요</span>}</div>
-                <div className="text-[11px] text-zinc-500">{sk.desc} · MP {sk.mp}{cur>0?` · 현재 배율 ${Math.round(sk.mult*(1+0.12*(cur-1))*100)}%`:""}</div>
+                <div className="text-[11px] text-zinc-500">{sk.desc} · MP {sk.mp}{cur>0&&sk.mult>0?` · 현재 배율 ${Math.round(sk.mult*(1+0.12*(cur-1))*100)}%`:""}</div>
               </div>
               <div className="flex gap-1.5 items-center">
-                {cur>0&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}}
+                {cur>0&&sk.mult>0&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}}
                   className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-zinc-700")}>{s.autoSkill===id?"자동 사용중":"자동 지정"}</button>}
                 <button onClick={()=>learnSkill(id)} disabled={locked||cur>=10||s.skp<1}
                   className="btn px-3 py-1.5 rounded-lg bg-indigo-800 text-xs font-bold">{cur===0?"습득 (1P)":cur>=10?"MAX":"강화 (1P)"}</button>
@@ -9145,10 +9655,139 @@ function Game(){
     );
   };
 
+  /* ================= 화면: 광장 & 결투 ================= */
+  const renderDuel=(s,st)=>{
+    const P=plaza.current, du=P.duel;
+    const learned=Object.keys(s.skills).filter(id=>s.skills[id]>0);
+    const canTimeout=!du.myTurn&&!du.over&&Date.now()-du.lastAct>30000;
+    const meIcon=s.hcls?HID[s.hcls].icon:CLS[s.cls].icon;
+    return (
+      <div className="space-y-3">
+        <div className="text-center text-sm font-black text-red-300 pop">🏟️ 결투장 — {du.over?(du.over==="win"?"승리!":"패배…"):du.myTurn?"내 턴!":du.opp.nick+"의 턴을 기다리는 중…"}</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className={"panel p-4 "+(du.myTurn&&!du.over?"border-amber-400/60":"")}>
+            <div className="text-sm font-bold">{meIcon} {s.nick} <span className="text-[10px] text-zinc-500">Lv.{s.lv}</span> <span className="text-[9px] text-cyan-400">(나)</span></div>
+            <div className="mt-2 text-[10px] flex justify-between"><span className="text-red-400">HP</span><span>{fmt(Math.max(0,Math.round(du.myHp)))}/{fmt(du.myMax)}</span></div>
+            {Bar(du.myHp,du.myMax,"linear-gradient(90deg,#dc2626,#991b1b)",10)}
+            <div className="mt-1 text-[10px] flex justify-between"><span className="text-blue-400">MP</span><span>{fmt(Math.max(0,Math.round(du.myMp)))}/{fmt(st.mp)}</span></div>
+            {Bar(du.myMp,st.mp,"linear-gradient(90deg,#2563eb,#1e40af)",7)}
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {du.myShield>0&&<span className="chip" style={{background:"rgba(34,211,238,.15)",color:"#67e8f9"}}>🔷 {fmt(du.myShield)}</span>}
+              {du.buffs.map(b=><span key={b.k} className="chip" style={{background:"rgba(52,211,153,.15)",color:"#6ee7b7"}}>{b.k==="atk"?"⚔️":"🎯"} {b.t}턴</span>)}
+            </div>
+          </div>
+          <div className={"panel p-4 "+(!du.myTurn&&!du.over?"border-red-400/50":"")}>
+            <div className="text-sm font-bold">{du.opp.icon} {du.opp.nick} <span className="text-[10px] text-zinc-500">Lv.{du.opp.lv} {du.opp.cname}</span></div>
+            <div className="mt-2 text-[10px] flex justify-between"><span className="text-purple-400">HP</span><span>{fmt(Math.max(0,Math.round(du.oppHp)))}/{fmt(du.oppMax)}</span></div>
+            {Bar(du.oppHp,du.oppMax,"linear-gradient(90deg,#7c3aed,#4c1d95)",10)}
+            <div className="text-[10px] text-zinc-500 mt-2">⚔️ {fmt(du.opp.atk)} · 🛡️ {fmt(du.opp.def)} · 🎯 {du.opp.crit}% · 💥 {du.opp.critd}%</div>
+            <div className="text-[10px] text-zinc-500 mt-1">PvP 전적 {du.opp.w}승 {du.opp.l}패</div>
+          </div>
+        </div>
+        {!du.over?(
+          <div className="panel p-3">
+            <div className="flex flex-wrap gap-2">
+              <button onClick={()=>duelAct(null)} disabled={!du.myTurn} className="btn px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-bold">⚔️ 공격</button>
+              {learned.map(id=>{
+                const sk=SKILLS[id];
+                return <button key={id} onClick={()=>duelAct(id)} disabled={!du.myTurn||du.myMp<sk.mp}
+                  className="btn px-3 py-2 rounded-lg bg-indigo-800 text-white text-xs font-bold">{sk.icon} {sk.name} <span className="text-indigo-300">MP{sk.mp}</span></button>;
+              })}
+              <button onClick={surrender} className="btn px-3 py-2 rounded-lg bg-zinc-700 text-xs">🏳️ 항복</button>
+              {canTimeout&&<button onClick={claimTimeout} className="btn px-3 py-2 rounded-lg bg-amber-700 text-xs font-bold pop">⏰ 응답 없음 — 승리 선언</button>}
+            </div>
+            <div className="text-[10px] text-zinc-600 mt-2">PvP에서는 기절·회피·도트·디버프가 적용되지 않습니다. 30초간 응답이 없으면 승리를 선언할 수 있습니다.</div>
+          </div>
+        ):(
+          <div className="panel p-4 text-center pop">
+            <div className="text-4xl mb-1">{du.over==="win"?"🏆":"💀"}</div>
+            <div className="text-sm font-bold mb-2">{du.over==="win"?`승리! +${fmt(150*Math.max(1,du.opp.lv))}G`:"패배… 다음엔 이긴다!"}</div>
+            <button onClick={closeDuel} className="btn px-5 py-2 rounded-lg bg-cyan-800 text-sm font-bold">광장으로 돌아가기</button>
+          </div>
+        )}
+        <div className="panel p-3 h-40 overflow-y-auto text-[12px] leading-relaxed">
+          {du.log.map(l=>(
+            <div key={l.id} className={l.c==="r"?"text-red-400":l.c==="g"?"text-emerald-300":l.c==="c"?"text-yellow-300 font-bold":"text-zinc-300"}>{l.t}</div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPlaza=(s,st)=>{
+    const P=plaza.current;
+    if(P.duel)return renderDuel(s,st);
+    return (
+      <div className="space-y-3">
+        {!P.room?(
+          <div className="panel p-6 text-center space-y-3">
+            <div className="text-4xl">🌐</div>
+            <div className="font-black">모험가 광장</div>
+            <p className="text-xs text-zinc-400 leading-relaxed">서버 없이 브라우저끼리 직접 연결(P2P)됩니다.<br/>지금 접속해 있는 다른 모험가들과 채팅하고, 1:1 결투를 벌이세요!<br/>결투 승리 시 상대 레벨 × 150G 보상!</p>
+            <button onClick={joinPlaza} disabled={P.joining} className="btn px-6 py-2.5 rounded-lg bg-cyan-800 text-sm font-bold">{P.joining?"연결 중…":"🌐 광장 입장"}</button>
+            <div className="text-[11px] text-zinc-500">내 PvP 전적: <b className="text-amber-300">{s.pvpW}승 {s.pvpL}패</b></div>
+          </div>
+        ):(
+          <React.Fragment>
+            {P.pending&&(
+              <div className="panel p-4 border-red-400/60 pop flex items-center justify-between flex-wrap gap-2">
+                <div className="text-sm font-bold text-red-300">⚔️ {P.pending.from} (Lv.{P.pending.st.lv} {P.pending.st.cname})의 결투 신청!</div>
+                <div className="flex gap-2">
+                  <button onClick={acceptDuel} className="btn px-4 py-1.5 rounded-lg bg-red-700 text-xs font-bold">수락</button>
+                  <button onClick={declineDuel} className="btn px-3 py-1.5 rounded-lg bg-zinc-700 text-xs">거절</button>
+                </div>
+              </div>
+            )}
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="panel p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-xs font-bold text-cyan-300">👥 접속 중인 모험가 ({Object.keys(P.peers).length+1})</div>
+                  <button onClick={leavePlaza} className="btn px-2 py-1 rounded bg-zinc-800 text-[10px] text-zinc-400">퇴장</button>
+                </div>
+                <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                  <div className="flex items-center justify-between text-xs bg-white/5 rounded-lg px-2.5 py-2">
+                    <span>{s.hcls?HID[s.hcls].icon:CLS[s.cls].icon} <b>{s.nick}</b> <span className="text-zinc-500">Lv.{s.lv}</span> <span className="text-[9px] text-cyan-400">(나)</span></span>
+                    <span className="text-[10px] text-zinc-500">{s.pvpW}승 {s.pvpL}패</span>
+                  </div>
+                  {Object.values(P.peers).map(p=>(
+                    <div key={p.nick} className="flex items-center justify-between text-xs bg-white/5 rounded-lg px-2.5 py-2">
+                      <span>{p.icon} <b>{p.nick}</b> <span className="text-zinc-500">Lv.{p.lv} {p.cname}</span></span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-[10px] text-zinc-500">{p.w}승 {p.l}패</span>
+                        <button onClick={()=>challenge(p.nick)} className="btn px-2.5 py-1 rounded bg-red-900 text-[10px] font-bold">⚔️ 결투</button>
+                      </span>
+                    </div>
+                  ))}
+                  {Object.keys(P.peers).length===0&&(
+                    <div className="text-[11px] text-zinc-600 text-center py-4 leading-relaxed">아직 다른 모험가가 보이지 않습니다.<br/>다른 브라우저/기기에서 이 게임을 열고 광장에 입장하면<br/>몇 초 안에 서로 연결됩니다!</div>
+                  )}
+                </div>
+              </div>
+              <div className="panel p-3 flex flex-col">
+                <div className="text-xs font-bold text-cyan-300 mb-2">💬 광장 채팅</div>
+                <div className="flex-1 min-h-[180px] max-h-72 overflow-y-auto space-y-1 text-[11px] mb-2">
+                  {P.chat.map(m=>(
+                    <div key={m.id}><b className={m.from===s.nick?"text-amber-300":"text-cyan-300"}>{m.from}</b> <span className="text-zinc-300">{m.txt}</span></div>
+                  ))}
+                  {P.chat.length===0&&<div className="text-zinc-600">아직 대화가 없습니다. 먼저 인사해 보세요!</div>}
+                </div>
+                <div className="flex gap-1.5">
+                  <input value={chatIn} onChange={e=>setChatIn(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")sendChat();}}
+                    placeholder="메시지 입력… (Enter 전송)" className="flex-1 px-3 py-2 rounded-lg bg-black/50 border border-zinc-700 text-xs"/>
+                  <button onClick={sendChat} className="btn px-3 py-2 rounded-lg bg-cyan-800 text-xs font-bold">전송</button>
+                </div>
+              </div>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    );
+  };
+
   /* ================= 메인 게임 화면 ================= */
   const TABS=[
     ["hunt","⚔️","사냥터"],["portal","🌀","포탈"],["dungeon","🕳️","던전"],["boss","👹","보스"],
-    ["forge","⚒️","대장간"],["rune","💠","룬 공방"],["skill","📜","스킬"],["quest","📋","퀘스트"],
+    ["plaza","🌐","광장"],["forge","⚒️","대장간"],["rune","💠","룬 공방"],["skill","📜","스킬"],["quest","📋","퀘스트"],
     ["inv","🎒","가방"],["inn","🛏️","여관"],
   ];
   const renderGame=()=>{
@@ -9195,6 +9834,7 @@ function Game(){
         {tab.current==="portal"&&renderPortal(s)}
         {tab.current==="dungeon"&&renderDungeon(s)}
         {tab.current==="boss"&&renderBoss(s)}
+        {tab.current==="plaza"&&renderPlaza(s,st)}
         {tab.current==="forge"&&renderForge(s)}
         {tab.current==="rune"&&renderRune(s)}
         {tab.current==="skill"&&renderSkill(s)}
@@ -9224,7 +9864,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
 
 def abyss_rpg_page():
     st.title("🩸 나락의 심연 — 하드코어 RPG")
-    st.caption("초장기 파밍 RPG! 닉네임/비밀번호 계정으로 저장되는 극악 성장 시스템 — 3직업+히든 전직, 6개 맵 포탈 탐험, 장비 강화/룬 합성, 던전·보스 레이드, 일반/월드/히든 퀘스트, 자동사냥")
+    st.caption("초장기 파밍 RPG! 계정 저장 · 직업당 스킬 10종+히든 전직 · 던전 30종(수식어 규칙) · 보스 35종(기믹 공략) · 신화 장비 · 장비 강화/룬 합성 · 🌐 온라인 광장(실시간 접속자·채팅·1:1 PvP 결투)")
     components.html(ABYSS_RPG_HTML, height=920, scrolling=True)
 
 
