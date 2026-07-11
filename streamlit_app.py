@@ -8064,7 +8064,7 @@ ABYSS_RPG_HTML = r'''<!DOCTYPE html>
 const { useState, useRef, useEffect, useReducer } = React;
 const R=Math.random;
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
-const fmt=n=>{n=Math.floor(n); if(n>=1e9)return (n/1e9).toFixed(2)+"B"; if(n>=1e6)return (n/1e6).toFixed(2)+"M"; if(n>=1e4)return (n/1e3).toFixed(1)+"K"; return n.toLocaleString();};
+const fmt=n=>{n=Math.floor(n); if(n>=1e18)return (n/1e18).toFixed(2)+"Qi"; if(n>=1e15)return (n/1e15).toFixed(2)+"Q"; if(n>=1e12)return (n/1e12).toFixed(2)+"T"; if(n>=1e9)return (n/1e9).toFixed(2)+"B"; if(n>=1e6)return (n/1e6).toFixed(2)+"M"; if(n>=1e4)return (n/1e3).toFixed(1)+"K"; return n.toLocaleString();};
 const hashPw=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);};
 const KEYP="ynd_rpg2_sav_";
 const needXp=lv=>Math.floor(60*Math.pow(1.5,lv-1));
@@ -8081,9 +8081,9 @@ const CLS={
   thief:{name:"도적",icon:"🥷",desc:"치명타 특화. 급소를 노리는 한 방의 미학.",base:{hp:120,mp:45,atk:14,def:5,crit:15,critd:185},grow:{hp:16,mp:6,atk:3.3,def:1.5,crit:.45,critd:3},hidden:"assassin"},
 };
 const HID={
-  dragonKnight:{name:"용기사",icon:"🐲",need:"Lv20 도달 + 드래곤류 50마리 처치",check:(s,st)=>s.lv>=20&&(s.tagKills.dragon||0)>=50,mult:{atk:1.35,hp:1.3,def:1.2,mp:1.1,critF:0,critdF:20},skill:"dragonBreath"},
-  darkMage:{name:"흑마법사",icon:"💀",need:"Lv20 도달 + 언데드 100마리 처치",check:(s,st)=>s.lv>=20&&(s.tagKills.undead||0)>=100,mult:{atk:1.5,hp:1.1,def:1.05,mp:1.4,critF:5,critdF:0},skill:"soulDrain"},
-  assassin:{name:"암살자",icon:"🌑",need:"Lv20 도달 + 치명타 확률 40% 이상",check:(s,st)=>s.lv>=20&&st.crit>=40,mult:{atk:1.3,hp:1.15,def:1.1,mp:1.2,critF:10,critdF:40},skill:"silentKill"},
+  dragonKnight:{name:"용기사",icon:"🐲",base:"warrior",need:"Lv20 도달 + 드래곤류 50마리 처치",check:(s,st)=>s.lv>=20&&(s.tagKills.dragon||0)>=50,mult:{atk:1.35,hp:1.3,def:1.2,mp:1.1,critF:0,critdF:20},skill:"dragonBreath"},
+  darkMage:{name:"흑마법사",icon:"💀",base:"mage",need:"Lv20 도달 + 언데드 100마리 처치",check:(s,st)=>s.lv>=20&&(s.tagKills.undead||0)>=100,mult:{atk:1.5,hp:1.1,def:1.05,mp:1.4,critF:5,critdF:0},skill:"soulDrain"},
+  assassin:{name:"암살자",icon:"🌑",base:"thief",need:"Lv20 도달 + 치명타 확률 40% 이상",check:(s,st)=>s.lv>=20&&st.crit>=40,mult:{atk:1.3,hp:1.15,def:1.1,mp:1.2,critF:10,critdF:40},skill:"silentKill"},
 };
 
 /* ===================== 스킬 =====================
@@ -8133,6 +8133,88 @@ const SKILLS={
   shadowClones:{name:"그림자 분신",icon:"👥",cls:"assassin",lv:30,mp:46,mult:.9,hits:4,fx:{gcrit:1},desc:"[히든] 90% × 4연격, 전부 확정 치명타"},
 };
 
+/* ===================== 히든 직업 확장 (총 53종) =====================
+   각 히든 직업은 고유 조건·고유 스킬·전용 스탯 보정을 가진다. 전직은 1회 영구. */
+const sumV=o=>Object.values(o||{}).reduce((a,b)=>a+b,0);
+const tk=(s,t)=>s.tagKills[t]||0;
+const HFX={
+  gcrit:{fx:{gcrit:1},d:"확정 치명타"},
+  heal:{fx:{heal:.35},d:"피해의 35% 흡혈"},
+  stun:{fx:{stun:1},d:"적 1턴 기절"},
+  burn:{fx:{dot:{k:"burn",pct:.55,t:3}},d:"강력한 화상(3턴)"},
+  poison:{fx:{dot:{k:"poison",pct:.55,t:3}},d:"맹독(3턴)"},
+  hits2:{hits:2,d:"2연격"},
+  hits3:{hits:3,d:"3연격"},
+  exec:{fx:{exec:{below:.3,mult:2}},d:"적 HP 30% 미만 시 피해 2배"},
+  buff:{fx:{atkB:{v:.4,t:3}},d:"공격력 +40%(3턴)"},
+  shield:{fx:{selfHeal:.25,shield:.25},d:"HP 25% 회복 + 보호막"},
+  critd:{fx:{gcrit:1,critdB:60},d:"확정 치명타 + 치피 +60%"},
+  mpr:{fx:{mpR:.25},d:"최대 MP 25% 회수"},
+};
+/* [id, 기반직업, 이름, 아이콘, 등급(1~5), 조건 설명, 조건 검사, 스킬명, 스킬 아이콘, 스킬 패턴] */
+const HROWS=[
+ ["berserker","warrior","광전사","😡",1,"누적 500마리 처치",(s,st)=>s.killTotal>=500,"피의 분노","🩸","heal"],
+ ["paladin","warrior","성기사","⚜️",2,"Lv25 도달 + 사망 0회",(s,st)=>s.lv>=25&&s.deaths===0,"심판의 빛","🌟","shield"],
+ ["juggernaut","warrior","파괴전차","🛡️",3,"방어력 300 이상",(s,st)=>st.def>=300,"철갑 돌진","💥","stun"],
+ ["warlord","warrior","전쟁군주","👑",2,"보스 누적 10회 처치",(s,st)=>sumV(s.bossKills)>=10,"군주의 명령","⚔️","buff"],
+ ["gladiatorH","warrior","검투왕","🏛️",2,"PvP 5승",(s,st)=>s.pvpW>=5,"투기장의 포효","📣","hits2"],
+ ["dragonSlayer","warrior","용살자","🗡️",3,"드래곤류 300마리 처치",(s,st)=>tk(s,"dragon")>=300,"용멸섬","🐉","exec"],
+ ["titan","warrior","거신","🗿",3,"최대 HP 10,000 이상",(s,st)=>st.hp>=10000,"대지 붕괴","⛰️","stun"],
+ ["deathKnight","warrior","죽음의 기사","⚰️",3,"사망 10회 + 언데드 200마리",(s,st)=>s.deaths>=10&&tk(s,"undead")>=200,"망자의 검","💀","heal"],
+ ["vanguard","warrior","선봉장","🚩",2,"서로 다른 맵 30곳 방문",(s,st)=>Object.keys(s.visits).length>=30,"돌파 선언","🏇","hits2"],
+ ["smithLord","warrior","전장의 대장장이","⚒️",2,"장비 강화 성공 30회",(s,st)=>s.enhOk>=30,"모루 내려찍기","🔨","stun"],
+ ["colossus","warrior","강철 거인","⚙️",4,"기계류 200마리 처치",(s,st)=>tk(s,"machine")>=200,"파쇄 기동","🤖","exec"],
+ ["flameGuard","warrior","화염 수호자","🔥",4,"Lv100 + 화염 심연 진입",(s,st)=>s.lv>=100&&(s.visits.hf1||0)>=1,"작열 방패","♨️","burn"],
+ ["abyssalLord","warrior","심연 군주","🕳️",5,"공허류 500마리 처치",(s,st)=>tk(s,"void")>=500,"나락 강타","🌑","critd"],
+ ["immortal","warrior","불멸자","💎",5,"Lv80 도달 + 사망 0회",(s,st)=>s.lv>=80&&s.deaths===0,"불멸의 일격","✨","shield"],
+ ["beastMaster","warrior","야수왕","🐺",3,"야수류 400마리 처치",(s,st)=>tk(s,"beast")>=400,"야성 해방","🐾","hits3"],
+ ["runeKnight","warrior","룬 기사","💠",2,"룬 합성 20회",(s,st)=>s.fuseCount>=20,"룬 블레이드","🔷","mpr"],
+ ["elementalist","mage","원소술사","🌈",2,"정령류 100마리 처치",(s,st)=>tk(s,"elemental")>=100,"원소 폭발","💥","burn"],
+ ["necromancer","mage","강령술사","🦴",3,"언데드 300마리 처치",(s,st)=>tk(s,"undead")>=300,"시체 폭발","☠️","poison"],
+ ["stormCaller","mage","폭풍 소환사","🌩️",3,"Lv60 + 천공 섬 진입",(s,st)=>s.lv>=60&&(s.visits.sk1||0)>=1,"천둥 강림","⚡","hits3"],
+ ["sage","mage","대현자","📖",2,"퀘스트 누적 30회 완료",(s,st)=>sumV(s.questsDone)>=30,"지혜의 섬광","🌟","mpr"],
+ ["frostWeaver","mage","서리 직조자","❄️",4,"빙결 리치 100마리 처치",(s,st)=>(s.kills.iceLich||0)>=100,"절대영도","🧊","stun"],
+ ["pyromancer","mage","겁화술사","🔥",4,"지옥 임프 100마리 처치",(s,st)=>(s.kills.hellImp||0)>=100,"겁화","🌋","burn"],
+ ["voidMage","mage","공허 마도사","🌀",5,"공허류 300마리 처치",(s,st)=>tk(s,"void")>=300,"공허 붕괴","🕳️","critd"],
+ ["archmage","mage","대마법사","🧙",3,"최대 MP 2,000 이상",(s,st)=>st.mp>=2000,"마나 해일","🌊","mpr"],
+ ["alchemist","mage","연금술사","⚗️",2,"골드 100만 보유",(s,st)=>s.gold>=1e6,"황금 변환","💰","poison"],
+ ["chronomancer","mage","시간술사","⏳",3,"여관 휴식 30회",(s,st)=>s.innCount>=30,"시간 정지","🕰️","stun"],
+ ["starSeer","mage","별의 예언자","🌠",4,"별의 잔해 진입",(s,st)=>(s.visits.st1||0)>=1,"유성우","☄️","hits3"],
+ ["runeMasterH","mage","룬 마스터","💠",3,"전설 등급 룬 3개 보유",(s,st)=>s.runes.filter(r=>r.g>=6).length>=3,"룬 폭풍","🔮","buff"],
+ ["demonologist","mage","악마학자","😈",4,"악마류 250마리 처치",(s,st)=>tk(s,"demon")>=250,"악마 소환","👿","heal"],
+ ["lifeBinder","mage","생명 결속자","💞",2,"월드 퀘스트 달성",(s,st)=>s.world.done,"생명의 맥동","🌿","shield"],
+ ["mindBreaker","mage","정신 파괴자","🧠",3,"PvP 10승",(s,st)=>s.pvpW>=10,"정신 붕괴","💫","stun"],
+ ["voidWalker","mage","공허 방랑자","🌌",4,"서로 다른 맵 40곳 방문",(s,st)=>Object.keys(s.visits).length>=40,"차원 균열","🌀","exec"],
+ ["nightBlade","thief","밤의 검","🌙",2,"치명타 확률 50% 이상",(s,st)=>st.crit>=50,"월광 베기","🌙","gcrit"],
+ ["venomancer","thief","맹독술사","🐍",3,"식인 꽃 100마리 처치",(s,st)=>(s.kills.manEater||0)>=100,"맹독 폭발","☠️","poison"],
+ ["pirateKing","thief","해적왕","🏴‍☠️",3,"크라켄 촉수 100마리 처치",(s,st)=>(s.kills.kraken||0)>=100,"해적의 급습","⚓","hits2"],
+ ["shadowDancer","thief","그림자 무희","💃",3,"Lv40 + 사망 2회 이하",(s,st)=>s.lv>=40&&s.deaths<=2,"환영무","🌫️","gcrit"],
+ ["trickster","thief","기교왕","🎭",2,"던전 누적 20회 클리어",(s,st)=>sumV(s.dgClears)>=20,"속임수 연격","🃏","hits3"],
+ ["bountyHunter","thief","현상금 사냥꾼","💰",4,"서로 다른 보스 20종 처치",(s,st)=>Object.keys(s.bossKills).length>=20,"현상 집행","🎯","exec"],
+ ["phantomH","thief","팬텀","👻",3,"원혼 150마리 처치",(s,st)=>(s.kills.ghost||0)>=150,"유령 일격","🌫️","gcrit"],
+ ["plunderer","thief","약탈자","💎",4,"골드 1,000만 보유",(s,st)=>s.gold>=1e7,"강탈","🪙","heal"],
+ ["duelist","thief","결투가","🤺",4,"PvP 20승",(s,st)=>s.pvpW>=20,"필살 찌르기","🗡️","critd"],
+ ["stalker","thief","추적자","🐾",3,"야수류 250마리 처치",(s,st)=>tk(s,"beast")>=250,"사냥 개시","🏹","hits2"],
+ ["saboteur","thief","파괴공작원","🧨",4,"기계류 300마리 처치",(s,st)=>tk(s,"machine")>=300,"폭파 공작","💣","burn"],
+ ["voidReaver","thief","공허 약탈자","🌀",5,"나락 최심부 진입 + 치명 60%",(s,st)=>(s.visits.ab1||0)>=1&&st.crit>=60,"공허 갈퀴","🕳️","critd"],
+ ["silencer","thief","침묵자","🤫",4,"누적 3,000마리 처치",(s,st)=>s.killTotal>=3000,"소리 없는 죽음","☠️","gcrit"],
+ ["luckyRogue","thief","행운아","🍀",2,"강화 성공 10회 + 사망 3회 이상",(s,st)=>s.enhOk>=10&&s.deaths>=3,"행운의 급소","🎲","exec"],
+ ["relicHunter","thief","유물 사냥꾼","🏺",3,"고대 유적 50회 방문",(s,st)=>(s.visits.jg4||0)>=50,"유물의 힘","🗿","buff"],
+ ["kingSlayer","thief","왕 시해자","🗡️",5,"티어 7 보스 처치",(s,st)=>Object.keys(s.bossKills).some(k=>k.startsWith("b7")),"왕의 목","👑","exec"],
+ ["worldWalker","any","세계 방랑자","🌍",5,"서로 다른 맵 50곳 방문",(s,st)=>Object.keys(s.visits).length>=50,"세계의 걸음","🌏","buff"],
+ ["godSlayer","any","신살자","⚡",5,"나락의 신 어비스 처치",(s,st)=>(s.bossKills.b705||0)>=1,"신살","🌩️","critd"],
+ ["abyssHeart","any","심연의 심장","🖤",5,"Lv120 도달",(s,st)=>s.lv>=120,"심연 공명","🕳️","shield"],
+ ["legendH","any","살아있는 전설","🏆",5,"누적 10,000마리 처치",(s,st)=>s.killTotal>=10000,"전설의 일격","✨","critd"],
+ ["collector","any","수집왕","📦",2,"장비 15개 + 룬 20개 보유",(s,st)=>s.inv.length>=15&&s.runes.length>=20,"수집품 투척","🎁","hits3"],
+];
+for(const [id,base,name,icon,t,need,check,sn,si,fk] of HROWS){
+  const f=HFX[fk], skid="hs_"+id;
+  let mu=+(2.6+0.55*t).toFixed(2); if(f.hits)mu=+(mu*0.5).toFixed(2);
+  SKILLS[skid]={name:sn,icon:si,cls:id,lv:20,mp:28+4*t,mult:mu,hits:f.hits||1,fx:f.fx||{},
+    desc:`[히든] ${Math.round(mu*100)}%${f.hits?" × "+f.hits+"연격":""} 피해 · ${f.d}`};
+  HID[id]={name,icon,base,need,check,mult:{atk:+(1.15+0.09*t).toFixed(2),hp:+(1.1+0.06*t).toFixed(2),def:+(1.05+0.05*t).toFixed(2),mp:+(1.05+0.07*t).toFixed(2),critF:2*t-2,critdF:10*t},skill:skid};
+}
+
 /* ===================== 몬스터 ===================== */
 const MONS={
   slime:{id:"slime",name:"슬라임",icon:"🟢",hp:22,atk:4,def:1,xp:9,gold:6,tier:1},
@@ -8163,6 +8245,93 @@ const MAPS={
   canyon:{name:"얼어붙은 협곡",icon:"🏔️",lv:22,portals:["orc","grave","nest"],mons:["iceGolem","frostWolf","frostSpirit"],npc:"산악 안내인: 이 협곡 너머가 화룡의 둥지다. 돌아가려면 지금이 마지막 기회야.",boss:"b401"},
   nest:{name:"화룡의 둥지",icon:"🌋",lv:30,portals:["canyon"],mons:["dragonWhelp","lavaSpirit","drakeWarrior"],npc:"용사냥꾼의 유서: …이그니스를 잡는 자, 전설이 되리라.",boss:"b501"},
 };
+
+/* ===================== 확장 세계 (신규 몬스터 30종 + 맵 50개 · 10개 지역) =====================
+   몬스터 스탯은 맵 레벨 기반 공식 생성 — xp는 needXp 지수 곡선에 맞춰 레벨당 약 1100마리 사냥 밸런스 */
+const mkM2=(id,name,icon,L,hpM,atkM,tags)=>{ MONS[id]={id,name,icon,
+  hp:Math.round(2.6*L*L*hpM), atk:Math.round(3.2*L*atkM), def:Math.round(0.9*L),
+  xp:Math.max(1,Math.round(needXp(L)/1100)), gold:Math.max(30,Math.round(Math.pow(L,2.4)*hpM)),
+  tier:L>=60?6:5, tags:tags||[]}; };
+/* 지역 1: 모래바람 사막 (Lv32~40) */
+mkM2("scorpion","사막 전갈","🦂",36,0.8,1.1,["beast"]);
+mkM2("sandGolem","모래 골렘","🗿",36,1.3,0.85,["elemental"]);
+mkM2("mummy","미라 전사","⚰️",38,1.0,1.0,["undead"]);
+/* 지역 2: 잊혀진 해안 (Lv42~50) */
+mkM2("crab","심해 집게","🦀",46,1.25,0.9,["beast"]);
+mkM2("siren","세이렌","🧜",46,0.8,1.25,["demon"]);
+mkM2("kraken","크라켄 촉수","🐙",48,1.4,1.0,["beast"]);
+/* 지역 3: 원시 정글 (Lv52~60) */
+mkM2("jaguar","독니 재규어","🐆",56,0.85,1.2,["beast"]);
+mkM2("manEater","식인 꽃","🌺",56,1.2,0.95,[]);
+mkM2("jungleTroll","정글 트롤","🦍",58,1.35,1.05,["beast"]);
+/* 지역 4: 천공 섬 (Lv62~70) */
+mkM2("harpy","하피","🦅",66,0.85,1.2,["beast"]);
+mkM2("griffin","그리핀","🦁",66,1.15,1.1,["beast"]);
+mkM2("stormSpirit","폭풍 정령","🌩️",68,0.95,1.3,["elemental"]);
+/* 지역 5: 지저 왕국 (Lv72~80) */
+mkM2("caveBrute","동굴 파쇄자","🦴",76,1.3,1.0,["beast"]);
+mkM2("crystalGolem","수정 골렘","💎",76,1.45,0.9,["elemental"]);
+mkM2("deepDrake","지저 드레이크","🦎",78,1.1,1.15,["dragon"]);
+/* 지역 6: 기계 도시 폐허 (Lv82~90) */
+mkM2("sentry","고장난 경비병","🤖",86,1.1,1.05,["machine"]);
+mkM2("steelSpider","강철 거미","🕸️",86,0.85,1.25,["machine"]);
+mkM2("warGolem","전쟁 골렘","⚙️",88,1.5,1.05,["machine"]);
+/* 지역 7: 저주받은 빙토 (Lv92~100) */
+mkM2("frozenWraith","얼어붙은 망령","🥶",96,0.9,1.25,["undead"]);
+mkM2("iceLich","빙결 리치","☃️",96,1.1,1.2,["undead"]);
+mkM2("frostDragon","서리 고룡","🐉",98,1.35,1.15,["dragon"]);
+/* 지역 8: 화염 심연 (Lv102~110) */
+mkM2("hellImp","지옥 임프","😈",106,0.8,1.3,["demon"]);
+mkM2("hellKnight","지옥 기사","🏇",106,1.25,1.15,["demon"]);
+mkM2("lavaDragon","용암 고룡","🌋",108,1.4,1.2,["dragon"]);
+/* 지역 9: 별의 잔해 (Lv112~120) */
+mkM2("starSpirit","별빛 정령","✨",116,0.9,1.25,["elemental"]);
+mkM2("voidEater","공허 포식자","🌀",116,1.2,1.25,["void"]);
+mkM2("meteorGolem","운석 거인","☄️",118,1.5,1.1,["elemental"]);
+/* 지역 10: 나락 최심부 (Lv122~130) */
+mkM2("abyssWatcher","심연 감시자","🫥",126,1.15,1.3,["void"]);
+mkM2("abyssDragon","나락 고룡","🐲",126,1.45,1.25,["dragon","void"]);
+mkM2("abyssSpawn","어비스 스폰","👾",128,1.0,1.4,["void","demon"]);
+
+const NEW_REGIONS=[
+ {key:"ds",name:"모래바람 사막",lv:32,npc:"사막 안내인: 모래폭풍 너머, 파라오의 저주가 기다린다…",pool:["scorpion","sandGolem","mummy"],
+  maps:[["사막 입구","🏜️"],["전갈 둥지","🦂"],["모래폭풍 평원","🌪️"],["신기루 오아시스","💧"],["파라오의 무덤","🪦"]]},
+ {key:"co",name:"잊혀진 해안",lv:42,npc:"늙은 뱃사공: 세이렌의 노래를 듣지 마라. 듣는 순간 끝이다.",pool:["crab","siren","kraken"],
+  maps:[["난파선 해변","🏖️"],["안개 부두","⚓"],["세이렌 암초","🪸"],["해저 동굴","🌊"],["크라켄의 심연","🐙"]]},
+ {key:"jg",name:"원시 정글",lv:52,npc:"탐험가의 일지: 꽃이 웃는 곳에서 뒤를 조심하라.",pool:["jaguar","manEater","jungleTroll"],
+  maps:[["정글 초입","🌴"],["덩굴 미로","🌿"],["식인 꽃밭","🌺"],["고대 유적","🛕"],["세계수 뿌리","🌳"]]},
+ {key:"sk",name:"천공 섬",lv:62,npc:"바람의 수도승: 추락을 두려워하는 자, 하늘을 걸을 수 없다.",pool:["harpy","griffin","stormSpirit"],
+  maps:[["부유 계단","🪜"],["구름 목장","☁️"],["폭풍의 눈","🌩️"],["그리핀 둥지","🪶"],["하늘 신전","⛩️"]]},
+ {key:"ug",name:"지저 왕국",lv:72,npc:"눈먼 광부: 수정이 빛나는 곳엔 반드시 지키는 자가 있지.",pool:["caveBrute","crystalGolem","deepDrake"],
+  maps:[["무너진 갱도","⛏️"],["발광 버섯 숲","🍄"],["수정 궁전","💎"],["지하 호수","🪨"],["용암 경계","🔥"]]},
+ {key:"mc",name:"기계 도시 폐허",lv:82,npc:"고장난 안내 로봇: 어-서 오세요. 침입자. 제-거. 제-거.",pool:["sentry","steelSpider","warGolem"],
+  maps:[["녹슨 성문","🚪"],["조립 공장","🏭"],["전력로","⚡"],["병기 창고","🔧"],["중앙 코어","💠"]]},
+ {key:"ic",name:"저주받은 빙토",lv:92,npc:"얼어붙은 비석: …여기서부터는 숨결마저 얼어붙는다…",pool:["frozenWraith","iceLich","frostDragon"],
+  maps:[["얼어붙은 관문","🚧"],["눈보라 벌판","❄️"],["빙하 무덤","🧊"],["리치의 첨탑","🗼"],["절대영도의 심장","🥶"]]},
+ {key:"hf",name:"화염 심연",lv:102,npc:"불타는 두루마리: 재가 되기 전에 돌아가라, 필멸자여.",pool:["hellImp","hellKnight","lavaDragon"],
+  maps:[["재의 사막","🌋"],["유황 습지","♨️"],["불의 강","🔥"],["지옥문","😈"],["심장 화구","☀️"]]},
+ {key:"st",name:"별의 잔해",lv:112,npc:"별지기: 죽은 별들 사이에서 공허가 눈을 뜬다.",pool:["starSpirit","voidEater","meteorGolem"],
+  maps:[["별똥별 평원","🌠"],["무중력 협곡","🌌"],["성운 정원","💫"],["별의 무덤","⭐"],["은하수 끝","🌉"]]},
+ {key:"ab",name:"나락 최심부",lv:122,npc:"목소리 없는 속삭임: 이 곳이 심연의 끝… 그리고 시작.",pool:["abyssWatcher","abyssDragon","abyssSpawn"],
+  maps:[["어둠의 계단","🕳️"],["침묵의 회랑","🌑"],["공허의 왕좌","👁️"],["종말의 문","🗝️"],["나락의 바닥","🩸"]]},
+];
+(function(){
+  let prevTail="nest";
+  for(const rg of NEW_REGIONS){
+    rg.maps.forEach((mm,i)=>{
+      const id=rg.key+(i+1);
+      MAPS[id]={name:mm[0],icon:mm[1],lv:rg.lv+i*2,portals:[],mons:i===0?rg.pool.slice(0,2):rg.pool,npc:rg.npc,boss:null,region:rg.name};
+    });
+    for(let i=1;i<=5;i++){
+      const id=rg.key+i;
+      if(i>1)MAPS[id].portals.push(rg.key+(i-1));
+      if(i<5)MAPS[id].portals.push(rg.key+(i+1));
+    }
+    MAPS[rg.key+"1"].portals.unshift(prevTail);
+    MAPS[prevTail].portals.push(rg.key+"1");
+    prevTail=rg.key+"5";
+  }
+})();
 
 /* ===================== 보스 (35종 · 7티어 · 기믹) ===================== */
 const MECH={
@@ -8329,10 +8498,64 @@ const HIDQ=[
   {id:"h3",name:"여관의 단골",cond:"여관에서 10번 휴식했다",check:s=>s.innCount>=10,rw:{gold:2500,rune:{t:"hp",g:4}}},
   {id:"h4",name:"불굴의 영혼",cond:"5번 사망하고도 포기하지 않았다",check:s=>s.deaths>=5,rw:{gold:1000,skp:3}},
 ];
+/* ----- 히든 퀘스트 확장 (총 54종) — 기행·수집·도전 조건으로 발견하는 비밀 보상 ----- */
+const HQROWS=[
+ ["첫 백정","누적 100마리 처치",s=>s.killTotal>=100,{gold:800,stone:3}],
+ ["천의 학살자","누적 1,000마리 처치",s=>s.killTotal>=1000,{gold:8000,stone:12,skp:2}],
+ ["오천의 도살자","누적 5,000마리 처치",s=>s.killTotal>=5000,{gold:80000,stone:30,skp:5}],
+ ["만물의 종결자","누적 20,000마리 처치",s=>s.killTotal>=20000,{gold:2e6,stone:80,skp:10}],
+ ["슬라임의 원한","슬라임만 300마리 처치",s=>(s.kills.slime||0)>=300,{gold:3000,rune:{t:"hp",g:3}}],
+ ["쥐잡이 명인","들쥐 200마리 처치",s=>(s.kills.rat||0)>=200,{gold:2000,stone:5}],
+ ["고블린의 악몽","고블린류 400마리 처치",s=>((s.kills.goblin||0)+(s.kills.gobArcher||0))>=400,{gold:6000,stone:8}],
+ ["늑대 사냥의 왕","늑대류 300마리 처치",s=>((s.kills.wolf||0)+(s.kills.frostWolf||0))>=300,{gold:7000,rune:{t:"atk",g:4}}],
+ ["망자의 심판자","언데드 500마리 처치",s=>(s.tagKills.undead||0)>=500,{gold:20000,rune:{t:"critd",g:5}}],
+ ["용의 재앙","드래곤류 500마리 처치",s=>(s.tagKills.dragon||0)>=500,{gold:50000,rune:{t:"atk",g:5},skp:3}],
+ ["야수의 지배자","야수류 500마리 처치",s=>(s.tagKills.beast||0)>=500,{gold:30000,stone:20}],
+ ["기계 파괴자","기계류 500마리 처치",s=>(s.tagKills.machine||0)>=500,{gold:60000,stone:25}],
+ ["악마 심문관","악마류 500마리 처치",s=>(s.tagKills.demon||0)>=500,{gold:80000,rune:{t:"crit",g:5}}],
+ ["공허를 삼킨 자","공허류 500마리 처치",s=>(s.tagKills.void||0)>=500,{gold:150000,rune:{t:"critd",g:6},skp:5}],
+ ["정령의 친구","정령류 300마리 처치",s=>(s.tagKills.elemental||0)>=300,{gold:40000,rune:{t:"mp",g:5}}],
+ ["부자의 길","골드 5만 보유",s=>s.gold>=50000,{stone:15,dkey:2}],
+ ["백만장자","골드 100만 보유",s=>s.gold>=1e6,{stone:40,rticket:3}],
+ ["억만장자","골드 1억 보유",s=>s.gold>=1e8,{stone:100,skp:8}],
+ ["광부의 집념","강화석 100개 보유",s=>s.stone>=100,{gold:20000,dkey:3}],
+ ["열쇠 수집가","던전 입장권 10장 보유",s=>s.dkey>=10,{gold:5000,rticket:2}],
+ ["강화의 달인","강화 성공 50회",s=>s.enhOk>=50,{gold:30000,stone:25}],
+ ["+10의 경지","장비를 +10까지 강화",s=>{const all=[s.equip.weapon,s.equip.armor,s.equip.acc,...s.inv];return all.some(it=>it&&it.plus>=10);},{gold:50000,stone:30,skp:3}],
+ ["실패는 성공의 어머니","강화 5연속 실패",s=>s.failStreak>=5,{stone:40}],
+ ["룬 연금술사","룬 합성 30회",s=>s.fuseCount>=30,{gold:25000,rune:{t:"def",g:5}}],
+ ["룬 수집광","룬 30개 보유",s=>s.runes.length>=30,{gold:15000,stone:15}],
+ ["전설의 룬장인","전설 등급 룬 5개 보유",s=>s.runes.filter(r=>r.g>=6).length>=5,{gold:200000,skp:6}],
+ ["장비 창고","인벤토리에 장비 20개 보관",s=>s.inv.length>=20,{gold:10000,stone:10}],
+ ["던전 정복자","던전 누적 10회 클리어",s=>Object.values(s.dgClears||{}).reduce((a,b)=>a+b,0)>=10,{gold:12000,dkey:5}],
+ ["던전의 지배자","던전 누적 50회 클리어",s=>Object.values(s.dgClears||{}).reduce((a,b)=>a+b,0)>=50,{gold:100000,dkey:10,skp:4}],
+ ["모든 규칙의 정복자","서로 다른 던전 15종 클리어",s=>Object.keys(s.dgClears||{}).length>=15,{gold:150000,stone:50}],
+ ["보스 헌터","보스 누적 5회 처치",s=>Object.values(s.bossKills||{}).reduce((a,b)=>a+b,0)>=5,{gold:20000,rticket:3}],
+ ["보스 학살자","보스 누적 30회 처치",s=>Object.values(s.bossKills||{}).reduce((a,b)=>a+b,0)>=30,{gold:200000,rticket:8}],
+ ["도감 완성의 길","서로 다른 보스 15종 처치",s=>Object.keys(s.bossKills||{}).length>=15,{gold:120000,skp:5}],
+ ["신을 벤 자","티어 7 보스 3종 처치",s=>Object.keys(s.bossKills||{}).filter(k=>k.startsWith("b7")).length>=3,{gold:1e6,rune:{t:"atk",g:6},skp:10}],
+ ["결투 입문","PvP 첫 승리",s=>s.pvpW>=1,{gold:5000,stone:5}],
+ ["결투의 왕","PvP 15승",s=>s.pvpW>=15,{gold:100000,skp:5}],
+ ["패배는 스승","PvP 10패",s=>s.pvpL>=10,{gold:20000,stone:15}],
+ ["수다쟁이","(광장에서 사람들과 어울린 흔적) PvP 3전 이상",s=>(s.pvpW+s.pvpL)>=3,{gold:8000}],
+ ["기부 천사","월드 퀘스트에 5,000G 이상 기부",s=>s.world.donated>=5000,{stone:25,skp:2}],
+ ["퀘스트 중독자","퀘스트 누적 20회 완료",s=>Object.values(s.questsDone||{}).reduce((a,b)=>a+b,0)>=20,{gold:15000,stone:12}],
+ ["퀘스트의 노예","퀘스트 누적 100회 완료",s=>Object.values(s.questsDone||{}).reduce((a,b)=>a+b,0)>=100,{gold:300000,skp:8}],
+ ["여관 죽돌이","여관 휴식 50회",s=>s.innCount>=50,{gold:30000,rune:{t:"hp",g:5}}],
+ ["잠이 보약","여관 휴식 100회",s=>s.innCount>=100,{gold:100000,skp:4}],
+ ["구르고 또 구르고","사망 15회",s=>s.deaths>=15,{gold:30000,skp:5}],
+ ["사막의 발견자","모래바람 사막 진입",s=>(s.visits.ds1||0)>=1,{gold:5000,dkey:2}],
+ ["바다 내음","잊혀진 해안 진입",s=>(s.visits.co1||0)>=1,{gold:10000,stone:10}],
+ ["하늘 위의 첫걸음","천공 섬 진입",s=>(s.visits.sk1||0)>=1,{gold:30000,rune:{t:"crit",g:4}}],
+ ["기계 도시의 침입자","기계 도시 폐허 진입",s=>(s.visits.mc1||0)>=1,{gold:80000,stone:30}],
+ ["나락을 마주한 자","나락 최심부 진입",s=>(s.visits.ab1||0)>=1,{gold:500000,rune:{t:"atk",g:6},skp:6}],
+ ["세계일주","서로 다른 맵 45곳 방문",s=>Object.keys(s.visits).length>=45,{gold:300000,stone:60,skp:6}],
+];
+HQROWS.forEach((r,i)=>HIDQ.push({id:"hq"+(i+5),name:r[0],cond:r[1],check:r[2],rw:r[3]}));
 
 /* ===================== 저장 ===================== */
 function mkSave(nick,pwh,cls){
-  return {ver:1,nick,pwh,cls,hcls:null,promoReady:false,lv:1,xp:0,sp:0,skp:1,
+  return {ver:1,nick,pwh,cls,hcls:null,promoReady:false,promoAvail:[],lv:1,xp:0,sp:0,skp:1,
     alloc:{hp:0,mp:0,atk:0,def:0,crit:0,critd:0},
     hp:1,mp:1,gold:250,stone:5,dkey:1,rticket:0,
     map:"village",mode:"hunt",lastMon:{},
@@ -8358,6 +8581,9 @@ function hydrate(o){
   m.quests=o.quests||{}; m.questsDone=o.questsDone||{}; m.hiddenClaimed=o.hiddenClaimed||{}; m.hiddenFound=o.hiddenFound||{};
   m.kills=o.kills||{}; m.tagKills=o.tagKills||{}; m.visits=o.visits||{village:1}; m.skills=o.skills||{}; m.lastMon=o.lastMon||{};
   m.dgClears=o.dgClears||{}; m.bossKills=o.bossKills||{}; m.pvpW=o.pvpW||0; m.pvpL=o.pvpL||0;
+  m.promoAvail=Array.isArray(o.promoAvail)?o.promoAvail.filter(h=>HID[h]):[];
+  if(o.promoReady&&!m.hcls&&!m.promoAvail.length&&CLS[m.cls]&&CLS[m.cls].hidden)m.promoAvail=[CLS[m.cls].hidden]; // 구버전 전직 대기 승계
+  if(m.hcls&&!HID[m.hcls])m.hcls=null;
   if(!MAPS[m.map])m.map="village";
   m.combat={mon:null,stun:false,buffs:[],shield:0,pdots:[],pstun:false}; m.dungeon=null; m.boss=null; m.mode="hunt"; m._auto=false;
   return m;
@@ -8406,7 +8632,8 @@ function Game(){
   const toastT=useRef(null);
 
   const say=(txt)=>{ setToast(txt); clearTimeout(toastT.current); toastT.current=setTimeout(()=>setToast(null),1800); };
-  const persist=()=>{ const s=S.current; if(!s)return; try{ localStorage.setItem(KEYP+s.nick,JSON.stringify(s)); }catch(e){} };
+  const lastSaveT=useRef(0);
+  const persist=()=>{ const s=S.current; if(!s)return; try{ localStorage.setItem(KEYP+s.nick,JSON.stringify(s)); lastSaveT.current=Date.now(); }catch(e){} };
   const commit=()=>{ persist(); bump(); };
   const log=(txt,cls)=>{ const s=S.current; s.log.unshift({txt,cls:cls||"",id:s.seq++}); if(s.log.length>50)s.log.length=50; };
 
@@ -8457,8 +8684,8 @@ function Game(){
     const s=S.current;
     const t=MONS[monId]; if(!t)return;
     s.lastMon[s.map]=monId;
-    const keep=s.combat;
-    s.combat={...resetCombat(),mon:mkMon(t),buffs:keep.buffs,shield:keep.shield,pdots:keep.pdots,pstun:keep.pstun};
+    const keep=s.combat||{};
+    s.combat={...resetCombat(),mon:mkMon(t),buffs:keep.buffs||[],shield:keep.shield||0,pdots:keep.pdots||[],pstun:!!keep.pstun};
   };
   const gainXp=(n)=>{
     const s=S.current; s.xp+=n;
@@ -8479,7 +8706,7 @@ function Game(){
     if(R()<0.02){ s.rticket++; log("🎟️ 레이드 입장권 획득!","d"); }
     if(R()<0.07){
       const types=Object.keys(RUNE_T); const ty=types[Math.floor(R()*types.length)];
-      const g=clamp(tier-1+(R()<0.2?1:0),1,5); addRune(ty,g);
+      const g=clamp(tier-1+(R()<0.2?1:0),1,6); addRune(ty,g);
       log(`💠 [${GRADE[g]}] ${RUNE_T[ty].name} 획득!`,"d");
     }
     if(R()<0.035){
@@ -8498,16 +8725,23 @@ function Game(){
   };
   const checkPromo=()=>{
     const s=S.current;
-    if(s.hcls||s.promoReady)return;
-    const hid=CLS[s.cls].hidden, H=HID[hid];
-    if(H.check(s,calc(s))){ s.promoReady=true; log(`🌟 히든 직업 [${H.name}] 전직 조건 달성! 가방 탭에서 전직하세요.`,"g"); }
+    if(s.hcls)return;
+    const st=calc(s);
+    for(const hid of Object.keys(HID)){
+      if(s.promoAvail.includes(hid))continue;
+      const H=HID[hid];
+      if(H.base!=="any"&&H.base!==s.cls)continue;
+      let ok=false; try{ ok=H.check(s,st); }catch(e){}
+      if(ok){ s.promoAvail.push(hid); log(`🌟 히든 직업 [${H.name}] 전직 조건 달성! 가방 탭에서 전직하세요.`,"g"); }
+    }
   };
-  const promote=()=>{
-    const s=S.current; if(!s.promoReady||s.hcls)return;
-    const hid=CLS[s.cls].hidden, H=HID[hid];
+  const promote=(hid)=>{
+    const s=S.current;
+    if(s.hcls||!s.promoAvail.includes(hid))return;
+    const H=HID[hid]; if(!H)return;
     s.hcls=hid; s.promoReady=false; s.skills[H.skill]=1;
     const st=calc(s); s.hp=st.hp; s.mp=st.mp;
-    log(`${H.icon} [${H.name}]로 전직했습니다! 고유 스킬 [${SKILLS[H.skill].name}] 습득!`,"g");
+    log(`${H.icon} [${H.name}]로 전직했습니다! 고유 스킬 [${SKILLS[H.skill].name}] 습득! (전직은 되돌릴 수 없습니다)`,"g");
     commit();
   };
   const death=()=>{
@@ -8586,7 +8820,7 @@ function Game(){
     s.gold+=gg;
     log(`☠️ ${t.name} 처치! +${fmt(gx)}XP +${fmt(gg)}G`);
     gainXp(gx);
-    if(s.mode!=="boss")drops(Math.min(t.tier,5));
+    if(s.mode!=="boss")drops(Math.min(t.tier,6));
     s.world.prog=Math.min(s.world.goal,s.world.prog+2+Math.floor(R()*9));
     if(!s.world.done&&s.world.prog>=s.world.goal){ s.world.done=true; log("🌍 월드 퀘스트 달성! 모든 모험가에게 경험치 +25% 버프!","g"); }
     const st=calc(s);
@@ -8705,8 +8939,8 @@ function Game(){
     let atkM=(1.1+0.15*d.wave)*tierM*(mod==="berserk"?1.4:1);
     let defM=1.2*tierM*(mod==="iron"?1.6:1);
     const t={...base,name:`${base.name} · ${D.n} ${d.wave}층`,hp:Math.round(base.hp*hpM),atk:Math.round(base.atk*atkM),def:Math.round(base.def*defM),xp:Math.round(base.xp*1.5*tierM),gold:Math.round(base.gold*1.4*tierM)};
-    const keep=s.combat;
-    s.combat={...resetCombat(),mon:mkMon(t),buffs:keep.buffs,shield:keep.shield,pdots:keep.pdots,pstun:keep.pstun};
+    const keep=s.combat||{};
+    s.combat={...resetCombat(),mon:mkMon(t),buffs:keep.buffs||[],shield:keep.shield||0,pdots:keep.pdots||[],pstun:!!keep.pstun};
   };
   const enterDungeon=(dgId)=>{
     const s=S.current, D=DG_MAP[dgId];
@@ -8770,9 +9004,9 @@ function Game(){
     if(s.mode!=="hunt"){ say("던전/레이드 중에는 이동할 수 없습니다. 먼저 후퇴하세요."); return; }
     if(!MAPS[s.map].portals.includes(mid))return;
     s.map=mid; s.visits[mid]=(s.visits[mid]||0)+1;
-    s.combat={mon:null,stun:false}; s._auto=false;
+    s.combat=resetCombat(); s._auto=false;
     log(`🌀 포탈 이동 → ${MAPS[mid].icon} ${MAPS[mid].name}`);
-    checkHidden(); commit();
+    checkHidden(); checkPromo(); commit();
   };
 
   /* ---------- 대장간 ---------- */
@@ -8799,7 +9033,7 @@ function Game(){
       if(it.plus>=5&&R()<0.25&&!it.dmg){ it.dmg=true; dmgTxt=" 장비가 손상되었습니다!"; }
       log(`💥 강화 실패… (연속 ${s.failStreak}회)${dmgTxt}`,"r");
     }
-    checkHidden(); commit();
+    checkHidden(); checkPromo(); commit();
   };
   const repair=(uid)=>{
     const s=S.current;
@@ -8817,7 +9051,7 @@ function Game(){
     s.equip[slot]=it; s.inv.splice(idx,1);
     if(old)s.inv.push(old);
     const st=calc(s); s.hp=Math.min(s.hp,st.hp); s.mp=Math.min(s.mp,st.mp);
-    log(`🎽 ${ITEMS[it.t].name} 장착!`); commit();
+    log(`🎽 ${ITEMS[it.t].name} 장착!`); checkPromo(); commit();
   };
   const unequipItem=(slot)=>{
     const s=S.current; const it=s.equip[slot]; if(!it)return;
@@ -8840,7 +9074,7 @@ function Game(){
     if(s.runeEq.includes(uid))return;
     const slot=s.runeEq.findIndex(x=>!x);
     if(slot<0){ say("룬 슬롯이 가득 찼습니다. (4칸)"); return; }
-    s.runeEq[slot]=uid; commit();
+    s.runeEq[slot]=uid; checkPromo(); commit();
   };
   const unequipRune=(slot)=>{ const s=S.current; s.runeEq[slot]=null; commit(); };
   const fuseClick=(uid)=>{
@@ -8855,7 +9089,7 @@ function Game(){
     s.runes=s.runes.filter(x=>x.uid!==a.uid&&x.uid!==b.uid);
     addRune(a.ty,a.g+1); s.fuseCount++;
     log(`✨ 룬 합성 성공! [${GRADE[a.g+1]}] ${RUNE_T[a.ty].name} 탄생!`,"g");
-    fuseSel.current=null; checkHidden(); commit();
+    fuseSel.current=null; checkHidden(); checkPromo(); commit();
   };
   const sellRune=(uid)=>{
     const s=S.current;
@@ -8907,7 +9141,7 @@ function Game(){
     if(q.rw.stone)s.stone+=q.rw.stone;
     log(`✅ 퀘스트 완료: [${q.name}] — ${q.rw.gold?fmt(q.rw.gold)+"G ":""}${q.rw.stone?"강화석"+q.rw.stone+" ":""}${q.rw.xp?fmt(q.rw.xp)+"XP":""}`,"g");
     if(q.rw.xp)gainXp(q.rw.xp);
-    commit();
+    checkHidden(); checkPromo(); commit();
   };
   const claimHidden=(h)=>{
     const s=S.current;
@@ -8916,6 +9150,8 @@ function Game(){
     if(h.rw.gold)s.gold+=h.rw.gold;
     if(h.rw.stone)s.stone+=h.rw.stone;
     if(h.rw.skp)s.skp+=h.rw.skp;
+    if(h.rw.dkey)s.dkey+=h.rw.dkey;
+    if(h.rw.rticket)s.rticket+=h.rw.rticket;
     if(h.rw.rune)addRune(h.rw.rune.t,h.rw.rune.g);
     log(`🎖️ 히든 퀘스트 보상 수령: [${h.name}]!`,"g");
     commit();
@@ -8941,7 +9177,7 @@ function Game(){
     s.gold-=cost; s.innCount++;
     const st=calc(s); s.hp=st.hp; s.mp=st.mp;
     log(`🛏️ 푹 쉬었습니다. HP/MP 전체 회복! (-${fmt(cost)}G)`,"g");
-    checkHidden(); persist(); say("회복 & 자동 저장 완료!"); bump();
+    checkHidden(); checkPromo(); persist(); say("회복 & 자동 저장 완료!"); bump();
   };
 
   /* ---------- 스탯 분배 ---------- */
@@ -8949,7 +9185,7 @@ function Game(){
     const s=S.current;
     if(s.sp<1)return;
     s.sp--; s.alloc[k]++;
-    commit();
+    checkPromo(); commit();
   };
 
   /* ---------- 자동 사냥 ---------- */
@@ -8963,6 +9199,16 @@ function Game(){
       playerTurn(skill,true);
     },1100);
     return ()=>clearInterval(iv);
+  },[]);
+
+  /* ---------- 자동 저장 (20초 주기 + 창 닫기 직전) ---------- */
+  useEffect(()=>{
+    const iv=setInterval(()=>{
+      if(S.current&&scr.current==="game"){ persist(); bump(); }
+    },20000);
+    const onUnload=()=>{ if(S.current)persist(); };
+    window.addEventListener("beforeunload",onUnload);
+    return ()=>{ clearInterval(iv); window.removeEventListener("beforeunload",onUnload); };
   },[]);
 
   /* ================= 광장 (P2P 온라인) ================= */
@@ -9324,8 +9570,8 @@ function Game(){
     return (
       <div className="space-y-3">
         <div className="panel p-4">
-          <div className="text-lg font-black">{map.icon} {map.name}</div>
-          <div className="text-[11px] text-zinc-500">권장 레벨 {map.lv} · 방문 {s.visits[s.map]||1}회</div>
+          <div className="text-lg font-black">{map.icon} {map.name} {map.region&&<span className="text-[10px] text-purple-300 font-normal">— {map.region}</span>}</div>
+          <div className="text-[11px] text-zinc-500">권장 레벨 {map.lv} · 방문 {s.visits[s.map]||1}회 · 전체 맵 {Object.keys(MAPS).length}곳</div>
           <p className="text-xs text-amber-200/80 mt-2 italic">💬 {map.npc}</p>
           <div className="text-[11px] text-zinc-400 mt-2">서식 몬스터: {map.mons.map(m=>MONS[m].icon+" "+MONS[m].name).join(", ")}</div>
           {map.boss&&<div className="text-[11px] text-red-400 mt-1">👹 지역 보스: {BOSSES[map.boss].name}</div>}
@@ -9569,16 +9815,27 @@ function Game(){
   const renderInv=(s,st)=>{
     const statRows=[["hp","❤️ 체력",st.hp],["mp","💧 마력",st.mp],["atk","⚔️ 공격력",st.atk],["def","🛡️ 방어력",st.def],["crit","🎯 치명타",st.crit+"%"],["critd","💥 치명피해",st.critd+"%"]];
     const H=s.hcls?HID[s.hcls]:null;
-    const nextH=!s.hcls?HID[CLS[s.cls].hidden]:null;
     return (
       <div className="space-y-3">
-        {s.promoReady&&(
-          <div className="panel p-4 border-amber-400/60 pop flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black text-amber-300">🌟 히든 전직 가능: {HID[CLS[s.cls].hidden].icon} {HID[CLS[s.cls].hidden].name}</div>
-              <div className="text-[11px] text-zinc-400">{HID[CLS[s.cls].hidden].need}</div>
+        {!s.hcls&&s.promoAvail.length>0&&(
+          <div className="panel p-4 border-amber-400/60 pop">
+            <div className="text-sm font-black text-amber-300 mb-2">🌟 히든 전직 가능 ({s.promoAvail.length}종) — 하나만 선택할 수 있습니다!</div>
+            <div className="grid md:grid-cols-2 gap-2">
+              {s.promoAvail.map(hid=>{
+                const H=HID[hid]; if(!H)return null;
+                const sk=SKILLS[H.skill];
+                return (
+                  <div key={hid} className="panel p-3 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-bold">{H.icon} {H.name}</div>
+                      <div className="text-[10px] text-zinc-500">{H.need}</div>
+                      <div className="text-[10px] text-amber-200/70 mt-0.5">공격×{H.mult.atk} · HP×{H.mult.hp} · 스킬 [{sk.icon}{sk.name}]</div>
+                    </div>
+                    <button onClick={()=>promote(hid)} className="btn px-3 py-2 rounded-lg bg-amber-500 text-black text-xs font-black shrink-0">전직</button>
+                  </div>
+                );
+              })}
             </div>
-            <button onClick={promote} className="btn px-4 py-2 rounded-lg bg-amber-500 text-black text-sm font-black">전직하기</button>
           </div>
         )}
         <div className="grid md:grid-cols-2 gap-3">
@@ -9594,7 +9851,7 @@ function Game(){
             ))}
             <div className="text-[10px] text-zinc-600 mt-1.5">+1당: HP20 · MP10 · 공2 · 방2 · 치명0.4% · 치피2%</div>
             {H&&<div className="text-[11px] text-amber-300 mt-2">{H.icon} 히든 직업 [{H.name}] 보정 적용중</div>}
-            {nextH&&<div className="text-[10px] text-zinc-600 mt-2">🔒 숨겨진 전직처: ??? <span className="text-zinc-700">(특정 조건 달성 시 해금)</span></div>}
+            {!s.hcls&&<div className="text-[10px] text-zinc-600 mt-2">🔒 히든 직업 총 {Object.keys(HID).length}종 — 발견 {s.promoAvail.length}종 <span className="text-zinc-700">(특정 조건 달성 시 해금)</span></div>}
             <div className="text-[11px] text-zinc-500 mt-2 border-t border-zinc-800 pt-2">
               총 처치 {fmt(s.killTotal)} · 사망 {s.deaths} · 강화 성공 {s.enhOk} · 룬 합성 {s.fuseCount}<br/>
               언데드 처치 {s.tagKills.undead||0} · 드래곤 처치 {s.tagKills.dragon||0}
@@ -9814,6 +10071,7 @@ function Game(){
               <span className="text-purple-300">🗝️ {s.dkey}</span>
               <span className="text-red-300">🎟️ {s.rticket}</span>
               {(s.sp>0||s.skp>0)&&<span className="text-emerald-300 pop">P: 스탯{s.sp}/스킬{s.skp}</span>}
+              <span className="text-[9px] text-zinc-500 font-normal" title="모든 행동 시 즉시 저장 + 20초 주기 자동 저장">💾 {lastSaveT.current?new Date(lastSaveT.current).toLocaleTimeString()+" 자동저장":"자동저장 대기"}</span>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2 mt-2 text-[10px]">
@@ -9855,7 +10113,28 @@ function Game(){
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
+/* 렌더 오류 방어: 오류 발생 시 검은 화면 대신 복구 안내 표시 (데이터는 localStorage에 안전) */
+class ErrorBoundary extends React.Component{
+  constructor(p){ super(p); this.state={err:null}; }
+  static getDerivedStateFromError(e){ return {err:e}; }
+  componentDidCatch(e,info){ console.error("render error",e,info); }
+  render(){
+    if(this.state.err){
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="panel p-8 max-w-sm text-center">
+            <div className="text-4xl mb-2">⚠️</div>
+            <div className="font-black text-red-300 mb-2">일시적인 오류가 발생했습니다</div>
+            <p className="text-xs text-zinc-400 mb-4">저장 데이터는 안전합니다. 아래 버튼으로 게임을 다시 불러오세요.</p>
+            <button onClick={()=>location.reload()} className="btn px-6 py-2.5 rounded-lg bg-red-700 text-white text-sm font-bold">🔄 다시 불러오기</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Game/></ErrorBoundary>);
 </script>
 </body>
 </html>
@@ -9864,7 +10143,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<Game/>);
 
 def abyss_rpg_page():
     st.title("🩸 나락의 심연 — 하드코어 RPG")
-    st.caption("초장기 파밍 RPG! 계정 저장 · 직업당 스킬 10종+히든 전직 · 던전 30종(수식어 규칙) · 보스 35종(기믹 공략) · 신화 장비 · 장비 강화/룬 합성 · 🌐 온라인 광장(실시간 접속자·채팅·1:1 PvP 결투)")
+    st.caption("초장기 파밍 RPG! 자동저장 · 맵 56곳(10개 지역) · 몬스터 47종 · 히든 직업 56종 · 히든 퀘스트 54종 · 던전 30종 · 보스 35종 · 신화 장비 · 🌐 온라인 광장(접속자·채팅·1:1 PvP 결투)")
     components.html(ABYSS_RPG_HTML, height=920, scrolling=True)
 
 
