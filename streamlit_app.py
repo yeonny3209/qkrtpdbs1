@@ -8741,8 +8741,24 @@ function Game(){
     const H=HID[hid]; if(!H)return;
     s.hcls=hid; s.promoReady=false; s.skills[H.skill]=1;
     const st=calc(s); s.hp=st.hp; s.mp=st.mp;
-    log(`${H.icon} [${H.name}]로 전직했습니다! 고유 스킬 [${SKILLS[H.skill].name}] 습득! (전직은 되돌릴 수 없습니다)`,"g");
+    log(`${H.icon} [${H.name}]로 전직했습니다! 고유 스킬 [${SKILLS[H.skill].name}] 습득!`,"g");
     commit();
+  };
+  const giveUpHidden=()=>{
+    const s=S.current;
+    if(!s.hcls)return;
+    const H=HID[s.hcls];
+    const cost=Math.round(1500*s.lv);
+    if(s.gold<cost){ say(`골드가 부족합니다. (필요 ${fmt(cost)}G)`); return; }
+    if(!window.confirm(`[${H.icon} ${H.name}] 전직을 포기할까요?\n\n비용: ${fmt(cost)}G\n히든 스킬 [${SKILLS[H.skill].name}]을 잃습니다.\n\n이미 조건을 만족한 다른 히든 직업이 있다면 즉시 재전직할 수 있습니다.`))return;
+    s.gold-=cost;
+    delete s.skills[H.skill];
+    if(s.autoSkill===H.skill)s.autoSkill=null;
+    const oldName=H.name;
+    s.hcls=null;
+    const st=calc(s); s.hp=Math.min(s.hp,st.hp); s.mp=Math.min(s.mp,st.mp);
+    log(`💔 [${oldName}] 전직을 포기했습니다. (-${fmt(cost)}G) 가방 탭에서 다른 히든 직업으로 전직할 수 있습니다.`,"r");
+    checkPromo(); commit();
   };
   const death=()=>{
     const s=S.current;
@@ -9850,7 +9866,12 @@ function Game(){
               </div>
             ))}
             <div className="text-[10px] text-zinc-600 mt-1.5">+1당: HP20 · MP10 · 공2 · 방2 · 치명0.4% · 치피2%</div>
-            {H&&<div className="text-[11px] text-amber-300 mt-2">{H.icon} 히든 직업 [{H.name}] 보정 적용중</div>}
+            {H&&(
+              <div className="flex items-center justify-between gap-2 mt-2">
+                <div className="text-[11px] text-amber-300">{H.icon} 히든 직업 [{H.name}] 보정 적용중</div>
+                <button onClick={giveUpHidden} className="btn px-2 py-1 rounded-md bg-red-900/60 text-[10px] text-red-300 shrink-0">전직 포기 ({fmt(Math.round(1500*s.lv))}G)</button>
+              </div>
+            )}
             {!s.hcls&&<div className="text-[10px] text-zinc-600 mt-2">🔒 히든 직업 총 {Object.keys(HID).length}종 — 발견 {s.promoAvail.length}종 <span className="text-zinc-700">(특정 조건 달성 시 해금)</span></div>}
             <div className="text-[11px] text-zinc-500 mt-2 border-t border-zinc-800 pt-2">
               총 처치 {fmt(s.killTotal)} · 사망 {s.deaths} · 강화 성공 {s.enhOk} · 룬 합성 {s.fuseCount}<br/>
