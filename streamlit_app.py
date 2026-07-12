@@ -8054,6 +8054,31 @@ ABYSS_RPG_HTML = r'''<!DOCTYPE html>
   .shake{animation:shake .32s;}
   @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}50%{transform:translateX(5px)}75%{transform:translateX(-3px)}}
   .chip{display:inline-flex;align-items:center;gap:3px;padding:1px 8px;border-radius:9999px;font-size:10px;font-weight:700;}
+  /* ===== 전설 스킬 컷씬 ===== */
+  .cine{position:fixed;inset:0;z-index:90;overflow:hidden;pointer-events:none;}
+  .cine-dim{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(10,6,16,.55) 0%,rgba(0,0,0,.93) 75%);animation:cineDim 2.6s ease forwards;}
+  @keyframes cineDim{0%{opacity:0}8%{opacity:1}82%{opacity:1}100%{opacity:0}}
+  .cine-bar{position:absolute;left:0;right:0;height:12vh;background:#000;z-index:5;}
+  .cine-bar.t{top:0;animation:cineBT 2.6s cubic-bezier(.2,.9,.3,1) forwards;}
+  .cine-bar.b{bottom:0;animation:cineBB 2.6s cubic-bezier(.2,.9,.3,1) forwards;}
+  @keyframes cineBT{0%{transform:translateY(-100%)}7%{transform:translateY(0)}86%{transform:translateY(0)}100%{transform:translateY(-100%)}}
+  @keyframes cineBB{0%{transform:translateY(100%)}7%{transform:translateY(0)}86%{transform:translateY(0)}100%{transform:translateY(100%)}}
+  .cine-flash{position:absolute;inset:0;background:#fff;opacity:0;animation:cineFl 2.6s linear forwards;z-index:2;}
+  @keyframes cineFl{0%,9%{opacity:0}11%{opacity:.95}18%{opacity:0}54%{opacity:0}56%{opacity:.45}62%{opacity:0}100%{opacity:0}}
+  .cine-rays{position:absolute;left:50%;top:44%;width:200vmax;height:200vmax;transform:translate(-50%,-50%);background:repeating-conic-gradient(from 0deg,transparent 0deg 9deg,var(--cc) 9deg 10deg,transparent 10deg 18deg);opacity:0;animation:cineRay 2.6s ease forwards;filter:blur(1px);}
+  @keyframes cineRay{0%,10%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.4)}20%{opacity:.16}70%{opacity:.12;transform:translate(-50%,-50%) rotate(28deg) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) rotate(40deg) scale(1.1)}}
+  .cine-ring{position:absolute;left:50%;top:44%;width:20vmin;height:20vmin;border:3px solid var(--cc);border-radius:50%;transform:translate(-50%,-50%);opacity:0;animation:cineRing 1.1s ease-out .28s forwards;box-shadow:0 0 40px var(--cc);z-index:3;}
+  @keyframes cineRing{0%{opacity:1;transform:translate(-50%,-50%) scale(.2)}100%{opacity:0;transform:translate(-50%,-50%) scale(6)}}
+  .cine-icon{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font-size:16vmin;z-index:4;opacity:0;animation:cineIc 2.6s cubic-bezier(.16,1,.3,1) forwards;filter:drop-shadow(0 0 6vmin var(--cc));}
+  @keyframes cineIc{0%{opacity:0;transform:translate(-50%,-50%) scale(7) rotate(-14deg)}10%{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(0)}13%{transform:translate(-48%,-52%) scale(1.12)}16%{transform:translate(-52%,-49%) scale(1.04)}19%{transform:translate(-50%,-50%) scale(1.08)}72%{opacity:1;transform:translate(-50%,-50%) scale(1.12)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.3)}}
+  .cine-name{position:absolute;left:0;right:0;top:63%;text-align:center;z-index:4;font-size:6.2vmin;font-weight:900;letter-spacing:.35em;padding-left:.35em;background:linear-gradient(92deg,#fff 0%,var(--cc) 45%,#fff 60%,var(--cc) 100%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;opacity:0;animation:cineNm 2.6s ease forwards;filter:drop-shadow(0 0 18px var(--cc));}
+  @keyframes cineNm{0%,14%{opacity:0;transform:translateY(24px) scale(.92);letter-spacing:.8em}24%{opacity:1;transform:translateY(0) scale(1);letter-spacing:.35em}72%{opacity:1;background-position:200% 0}100%{opacity:0;transform:translateY(-10px)}}
+  .cine-sub{position:absolute;left:0;right:0;top:74%;text-align:center;z-index:4;font-size:1.7vmin;letter-spacing:1.1em;padding-left:1.1em;color:rgba(255,255,255,.55);opacity:0;animation:cineSb 2.6s ease forwards;font-weight:700;}
+  @keyframes cineSb{0%,22%{opacity:0}32%{opacity:1}74%{opacity:1}100%{opacity:0}}
+  .cine-p{position:absolute;left:50%;top:44%;border-radius:50%;background:var(--cc);z-index:3;opacity:0;animation:cineP 1.5s ease-out forwards;box-shadow:0 0 12px var(--cc);}
+  @keyframes cineP{0%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(.15)}}
+  .cine-sweep{position:absolute;inset:-20%;background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.14) 50%,transparent 58%);transform:translateX(-120%);animation:cineSw 2.6s ease forwards;z-index:2;}
+  @keyframes cineSw{0%,26%{transform:translateX(-120%)}44%{transform:translateX(120%)}100%{transform:translateX(120%)}}
   input{outline:none;}
   ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#4a3a30;border-radius:8px}::-webkit-scrollbar-track{background:#17131a}
 </style>
@@ -8064,7 +8089,11 @@ ABYSS_RPG_HTML = r'''<!DOCTYPE html>
 const { useState, useRef, useEffect, useReducer } = React;
 const R=Math.random;
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
-const fmt=n=>{n=Math.floor(n); if(n>=1e18)return (n/1e18).toFixed(2)+"Qi"; if(n>=1e15)return (n/1e15).toFixed(2)+"Q"; if(n>=1e12)return (n/1e12).toFixed(2)+"T"; if(n>=1e9)return (n/1e9).toFixed(2)+"B"; if(n>=1e6)return (n/1e6).toFixed(2)+"M"; if(n>=1e4)return (n/1e3).toFixed(1)+"K"; return n.toLocaleString();};
+const FMT_U=["","K","M","B","T","Q","Qi","Sx","Sp","Oc","No","Dc","UDc","DDc","TDc","QaDc","QiDc","SxDc","SpDc","OcDc","NoDc","Vg"];
+const fmt=n=>{ n=Math.floor(n); if(!isFinite(n))return "∞"; if(n<1e4)return n.toLocaleString();
+  let u=0, v=n; while(v>=1000&&u<FMT_U.length-1){ v/=1000; u++; }
+  if(v>=1000)return n.toExponential(2);
+  return (v>=100?v.toFixed(1):v.toFixed(2))+FMT_U[u]; };
 const hashPw=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);};
 const KEYP="ynd_rpg2_sav_";
 const needXp=lv=>Math.floor(60*Math.pow(1.5,lv-1));
@@ -8074,11 +8103,22 @@ function ensureTrystero(cb){
   window.addEventListener("trystero-ready",h);
 }
 
-/* ===================== 직업 ===================== */
+/* ===================== 직업 (13종) =====================
+   grp: 히든 직업 전직 계열(warrior/mage/thief) — 신규 직업도 계열에 따라 같은 히든 트리 사용 */
 const CLS={
-  warrior:{name:"전사",icon:"⚔️",desc:"높은 체력과 방어력의 근접 전선. 안정적인 성장.",base:{hp:160,mp:30,atk:13,def:9,crit:5,critd:150},grow:{hp:24,mp:4,atk:3.1,def:2.3,crit:.1,critd:1},hidden:"dragonKnight"},
-  mage:{name:"마법사",icon:"🔮",desc:"압도적 마법 화력. 유리몸이지만 최고의 폭딜.",base:{hp:105,mp:85,atk:16,def:4,crit:8,critd:160},grow:{hp:13,mp:13,atk:3.7,def:1.2,crit:.2,critd:2},hidden:"darkMage"},
-  thief:{name:"도적",icon:"🥷",desc:"치명타 특화. 급소를 노리는 한 방의 미학.",base:{hp:120,mp:45,atk:14,def:5,crit:15,critd:185},grow:{hp:16,mp:6,atk:3.3,def:1.5,crit:.45,critd:3},hidden:"assassin"},
+  warrior:{name:"전사",icon:"⚔️",grp:"warrior",desc:"높은 체력과 방어력의 근접 전선. 안정적인 성장.",base:{hp:160,mp:30,atk:13,def:9,crit:5,critd:150},grow:{hp:24,mp:4,atk:3.1,def:2.3,crit:.1,critd:1},hidden:"dragonKnight"},
+  mage:{name:"마법사",icon:"🔮",grp:"mage",desc:"압도적 마법 화력. 유리몸이지만 최고의 폭딜.",base:{hp:105,mp:85,atk:16,def:4,crit:8,critd:160},grow:{hp:13,mp:13,atk:3.7,def:1.2,crit:.2,critd:2},hidden:"darkMage"},
+  thief:{name:"도적",icon:"🥷",grp:"thief",desc:"치명타 특화. 급소를 노리는 한 방의 미학.",base:{hp:120,mp:45,atk:14,def:5,crit:15,critd:185},grow:{hp:16,mp:6,atk:3.3,def:1.5,crit:.45,critd:3},hidden:"assassin"},
+  knight:{name:"수호기사",icon:"🛡️",grp:"warrior",desc:"철벽의 방어와 굳건한 심장. 파티의 방패.",base:{hp:200,mp:25,atk:10,def:14,crit:3,critd:140},grow:{hp:30,mp:3,atk:2.6,def:3.0,crit:.08,critd:.8}},
+  monk:{name:"무도가",icon:"🥊",grp:"warrior",desc:"맨주먹 연타의 달인. 폭풍 같은 몰아치기.",base:{hp:150,mp:40,atk:12,def:7,crit:9,critd:155},grow:{hp:20,mp:5,atk:3.0,def:1.9,crit:.25,critd:1.5}},
+  lancer:{name:"창술사",icon:"🔱",grp:"warrior",desc:"긴 사거리의 일점 관통. 묵직한 정확함.",base:{hp:165,mp:35,atk:14,def:8,crit:6,critd:160},grow:{hp:22,mp:4,atk:3.4,def:2.0,crit:.15,critd:1.2}},
+  priest:{name:"사제",icon:"✨",grp:"mage",desc:"신성 마법과 자가 회복. 쓰러지지 않는 성전.",base:{hp:130,mp:90,atk:12,def:6,crit:5,critd:145},grow:{hp:17,mp:12,atk:3.0,def:1.6,crit:.12,critd:.9}},
+  warlock:{name:"주술사",icon:"🧿",grp:"mage",desc:"저주와 지속 피해로 서서히 갉아먹는다.",base:{hp:115,mp:80,atk:15,def:5,crit:7,critd:155},grow:{hp:14,mp:11,atk:3.5,def:1.3,crit:.18,critd:1.8}},
+  bard:{name:"음유시인",icon:"🎻",grp:"mage",desc:"전장의 선율. 버프와 교란의 명수.",base:{hp:125,mp:70,atk:13,def:6,crit:8,critd:150},grow:{hp:16,mp:9,atk:3.2,def:1.5,crit:.2,critd:1.4}},
+  summoner:{name:"소환사",icon:"🪄",grp:"mage",desc:"정령과 계약해 싸우는 소환의 대가.",base:{hp:120,mp:95,atk:14,def:5,crit:6,critd:150},grow:{hp:15,mp:13,atk:3.4,def:1.4,crit:.15,critd:1.3}},
+  archer:{name:"궁수",icon:"🏹",grp:"thief",desc:"원거리 정밀 사격. 치명적 일격의 미학.",base:{hp:125,mp:50,atk:15,def:5,crit:12,critd:170},grow:{hp:17,mp:6,atk:3.4,def:1.4,crit:.35,critd:2.2}},
+  gunner:{name:"총사",icon:"🔫",grp:"thief",desc:"화약과 연사. 폭발적인 순간 화력.",base:{hp:120,mp:55,atk:16,def:4,crit:10,critd:165},grow:{hp:16,mp:7,atk:3.6,def:1.2,crit:.3,critd:2.0}},
+  reaper:{name:"사신",icon:"🌒",grp:"thief",desc:"영혼을 거두는 낫. 처형의 화신.",base:{hp:135,mp:60,atk:15,def:6,crit:11,critd:175},grow:{hp:18,mp:7,atk:3.5,def:1.5,crit:.32,critd:2.5}},
 };
 const HID={
   dragonKnight:{name:"용기사",icon:"🐲",base:"warrior",need:"Lv20 도달 + 드래곤류 50마리 처치",check:(s,st)=>s.lv>=20&&(s.tagKills.dragon||0)>=50,mult:{atk:1.35,hp:1.3,def:1.2,mp:1.1,critF:0,critdF:20},skill:"dragonBreath"},
@@ -8215,6 +8255,80 @@ for(const [id,base,name,icon,t,need,check,sn,si,fk] of HROWS){
   HID[id]={name,icon,base,need,check,mult:{atk:+(1.15+0.09*t).toFixed(2),hp:+(1.1+0.06*t).toFixed(2),def:+(1.05+0.05*t).toFixed(2),mp:+(1.05+0.07*t).toFixed(2),critF:2*t-2,critdF:10*t},skill:skid};
 }
 
+/* ===================== 스킬 계열 시스템 (직업당 10계열 × 50랭크 = 500스킬) =====================
+   각 계열은 아키타입(연격/기절/도트/흡혈/버프/처형...)을 가지며, 랭크업마다 위력이 성장한다.
+   저장은 s.skills[계열id]=랭크 로 콤팩트하게, 전투는 현재 랭크의 개별 스킬 엔트리를 사용. */
+const ARCH=[
+ {k:"strike",mult:1.9,d:"고배율 단일 강타"},
+ {k:"swift",mult:.95,hits:2,d:"2연격"},
+ {k:"barrage",mult:.8,hits:3,d:"3연격"},
+ {k:"crush",mult:1.5,fx:{stun:1},d:"적 1턴 기절"},
+ {k:"venom",mult:1.35,fx:{dot:{k:"poison",pct:.5,t:3}},d:"중독 (3턴)"},
+ {k:"burn",mult:1.35,fx:{dot:{k:"burn",pct:.5,t:3}},d:"화상 (3턴)"},
+ {k:"leech",mult:1.6,fx:{heal:.35},d:"피해의 35% 흡혈"},
+ {k:"guard",mult:0,fx:{shield:.3,selfHeal:.15},d:"보호막 + HP 15% 회복"},
+ {k:"rally",mult:0,fx:{atkB:{v:.35,t:3}},d:"공격력 +35% (3턴)"},
+ {k:"reap",mult:1.7,fx:{exec:{below:.3,mult:2}},d:"적 HP 30% 미만 시 2배"},
+];
+const FAM_ICONS=["💢","⚡","🌪️","💥","🐍","🔥","🩸","🛡️","📣","☠️"];
+const FAM_NAMES={
+ warrior:["강격","질풍참","난무참","분쇄격","독아검","작열검","혈검","수호 태세","전의 고양","참수"],
+ mage:["비전 화살","쌍둥이 마탄","마력 연사","빙쇄","부식의 안개","겁화구","흡성 마법","마력 장막","비전 증폭","멸절"],
+ thief:["급습","쌍검무","삼연섬","마비침","독무","화염병 투척","흡혈흔","연막 수비","살기 개방","급소 절단"],
+ knight:["방패 강타","연속 베기","삼단 찌르기","방패 분쇄","녹슨 칼날","성화 낙인","헌신의 흡수","성역 선포","기사도","단죄"],
+ monk:["정권 지르기","연환 장타","폭풍 연타","붕권","사혈지","염화장","기력 흡수","철포삼","기공 개방","일격필살"],
+ lancer:["관통 찌르기","이단 창격","연속 투창","대지 찍기","독창","화염창","창끝 흡혈","창벽 방어","투지 고양","심장 꿰뚫기"],
+ priest:["성스러운 빛","이중 성타","연속 기도","심판의 망치","부패 정화","성화","생명 흡수","축복의 방패","신념 강화","엑소시즘"],
+ warlock:["저주 화살","이중 저주","영혼 연타","속박의 저주","맹독 저주","지옥 불꽃","생명력 착취","어둠의 계약","금단 강화","영혼 수확"],
+ bard:["불협화음","이중주","삼중주","충격파 연주","독설의 노래","열정의 세레나데","흡수의 선율","방어의 왈츠","용기의 찬가","종막의 악장"],
+ summoner:["정령 타격","쌍정령 습격","정령 난무","골렘 강타","독정령 소환","화염정령 소환","정령 흡수","수호 정령","계약 강화","정령왕의 일격"],
+ archer:["정조준 사격","더블 샷","트리플 샷","충격 화살","독화살","불화살","흡혈 화살","회피 기동","매의 눈","헤드샷"],
+ gunner:["속사","더블 탭","풀 버스트","섬광탄","독탄","소이탄","흡혈탄","엄폐 사격","조준 보정","처형탄"],
+ reaper:["낫질","이연 낫질","영혼 삼분","공포의 낫","부패의 낫","지옥 낫","흡혼 낫","죽음의 장막","사신 개방","영혼 심판"],
+};
+const FAMS={};
+for(const cid of Object.keys(CLS)){
+  FAM_NAMES[cid].forEach((nm,i)=>{
+    const famId="f_"+cid+"_"+i, A=ARCH[i];
+    FAMS[famId]={id:famId,cid,idx:i,name:nm,icon:FAM_ICONS[i],arch:A,maxR:50};
+    for(let r=1;r<=50;r++){
+      const mu=A.mult>0?+(A.mult*(1+0.09*(r-1))).toFixed(2):0;
+      SKILLS[famId+"_"+r]={name:nm+" "+r+"식",icon:FAM_ICONS[i],cls:cid,fam:famId,rank:r,
+        lv:1+i*2+(r-1)*3, mp:Math.round(8+i+r*1.2), mult:mu, hits:A.hits||1,
+        fx:A.fx?JSON.parse(JSON.stringify(A.fx)):{},
+        desc:(mu>0?Math.round(mu*100)+"% 피해"+(A.hits?" × "+A.hits+"연격":""):"보조 기술")+" · "+A.d};
+    }
+  });
+}
+
+/* ===================== 전설 스킬 (직업당 5종 · 사용 시 컷씬 발동) ===================== */
+const LEG_ROWS={
+ warrior:[["운명 절단","🗡️"],["천붕지열","⛰️"],["전신 강림","🔱"],["라그나로크 제로","🌋"],["별을 가르는 자","🌠"]],
+ mage:[["시공 붕괴","🌀"],["초신성","💥"],["마나 특이점","🕳️"],["아카식 레코드","📜"],["빅뱅","🌌"]],
+ thief:[["그림자 처형식","🌑"],["천 개의 칼날","🗡️"],["절대 암살","☠️"],["시간 도둑","⏳"],["운명 강탈","🎭"]],
+ knight:[["불멸의 성벽","🏰"],["신성 심판","⚖️"],["수호신 강림","👼"],["최후의 보루","🛡️"],["여명의 맹세","🌅"]],
+ monk:[["백보신권","👊"],["나한신장","🙏"],["천수관음","🕉️"],["파천황","💫"],["무극의 경지","☯️"]],
+ lancer:[["용살창","🐉"],["신창 궁니르","⚡"],["천공 낙하","☄️"],["신창 무쌍","🌪️"],["별의 창","🌟"]],
+ priest:[["신의 분노","⚡"],["대천사 강림","👼"],["최후의 심판","⚖️"],["성역 해방","✨"],["창세의 빛","🌅"]],
+ warlock:[["종말의 저주","💀"],["악마왕 소환","👹"],["영혼 대붕괴","🌑"],["금단의 의식","🩸"],["나락 개방","🕳️"]],
+ bard:[["진혼곡","🎼"],["광란의 광시곡","🎻"],["세계수의 노래","🌳"],["신들의 합창","🎶"],["종언의 교향곡","🎹"]],
+ summoner:[["정령왕 이프리트","🔥"],["빙제 강림","❄️"],["뇌신 소환","⚡"],["대지모신의 분노","🌍"],["시원의 정령","💠"]],
+ archer:[["유성우 사격","🌠"],["신궁의 경지","🎯"],["태양 관통","☀️"],["별자리 사격","✨"],["세계를 꿰뚫는 살","🌌"]],
+ gunner:[["탄막 지옥","💣"],["레일건","⚡"],["융단 포화","🔥"],["절대 영점 사격","🎯"],["최종 병기","☢️"]],
+ reaper:[["영혼 수확제","💀"],["사신 강림","🌒"],["명계 개방","⚰️"],["윤회 절단","🌀"],["종말의 낫","🕳️"]],
+};
+const LEG_LV=[50,100,200,350,500], LEG_MULT=[8,16,32,64,128], LEG_MP=[80,160,320,640,1280];
+const LEG_FX=[{gcrit:1,critdB:100},{stun:1,dot:{k:"burn",pct:1,t:3}},{heal:.5,selfHeal:.2},{exec:{below:.5,mult:2.5}},{gcrit:1,critdB:200}];
+const LEG_FXD=["확정 치명타 + 치피 +100%","기절 + 강력한 화상(3턴)","피해 50% 흡혈 + HP 20% 회복","적 HP 50% 미만 시 2.5배 처형","확정 치명타 + 치피 +200%"];
+for(const cid of Object.keys(LEG_ROWS)){
+  LEG_ROWS[cid].forEach((row,i)=>{
+    SKILLS["leg_"+cid+"_"+i]={name:row[0],icon:row[1],cls:cid,leg:i+1,lv:LEG_LV[i],mp:LEG_MP[i],mult:LEG_MULT[i],hits:1,
+      fx:JSON.parse(JSON.stringify(LEG_FX[i])),cine:true,
+      desc:`[전설 ${i+1}] ${LEG_MULT[i]*100}% 궁극기 · ${LEG_FXD[i]}`};
+  });
+}
+const CINE_COL={warrior:"#f87171",mage:"#818cf8",thief:"#a3e635",knight:"#fbbf24",monk:"#fb923c",lancer:"#38bdf8",priest:"#fde68a",warlock:"#c084fc",bard:"#f472b6",summoner:"#34d399",archer:"#4ade80",gunner:"#fb7185",reaper:"#a78bfa"};
+
 /* ===================== 몬스터 ===================== */
 const MONS={
   slime:{id:"slime",name:"슬라임",icon:"🟢",hp:22,atk:4,def:1,xp:9,gold:6,tier:1},
@@ -8332,6 +8446,103 @@ const NEW_REGIONS=[
     prevTail=rg.key+"5";
   }
 })();
+
+/* ===================== 월드 2 · 3 (레벨 게이트 세계) =====================
+   월드 2: Lv150 입장 · 균열 저편 15맵 / 월드 3: Lv500 입장 · 신들의 영역 15맵 */
+mkM2("riftHunter","균열 사냥꾼","🩻",155,0.9,1.2,["void"]);
+mkM2("twistGiant","뒤틀린 거인","🗿",160,1.4,1.0,["beast"]);
+mkM2("chronoWraith","시간 망령","⏳",165,0.95,1.25,["undead"]);
+mkM2("voidStalker","공허 추적자","🐆",205,1.0,1.3,["void","beast"]);
+mkM2("warpKnight","왜곡된 기사","🛡️",210,1.3,1.15,["demon"]);
+mkM2("chronoGolem","크로노 골렘","⚙️",215,1.5,1.05,["machine","elemental"]);
+mkM2("riftDragon","균열 드래곤","🐉",255,1.35,1.25,["dragon","void"]);
+mkM2("infWatcher","무한의 감시자","👁️",260,1.1,1.35,["void"]);
+mkM2("timeAvatar","시간의 화신","🌀",265,1.2,1.3,["elemental"]);
+mkM2("fallenGod","타락한 신장","😇",510,1.2,1.25,["demon"]);
+mkM2("godShard","신의 파편","💎",520,1.0,1.35,["elemental"]);
+mkM2("primeShadow","태초의 그림자","🌑",530,1.3,1.2,["void"]);
+mkM2("genesisDragon","창세의 용","🐲",610,1.45,1.3,["dragon"]);
+mkM2("godslayerW","신살 망령","☠️",620,1.1,1.4,["undead","void"]);
+mkM2("worldEater","세계 포식자","🌌",630,1.5,1.3,["void","beast"]);
+mkM2("infMachine","무한 기계신","🤖",710,1.55,1.25,["machine"]);
+mkM2("fateWeaver","운명의 직조자","🕸️",720,1.15,1.45,["elemental"]);
+mkM2("primalDark","태초의 어둠","🕳️",730,1.4,1.4,["void","demon"]);
+
+const W2_REGIONS=[
+ {key:"r2a",name:"균열 평원",lv:150,step:10,npc:"",pool:["riftHunter","twistGiant","chronoWraith"],
+  maps:[["균열 관문","🌀"],["부서진 하늘 아래","🌩️"],["떠도는 섬","🏝️"],["왜곡의 골짜기","🌫️"],["시간이 멈춘 마을","🕰️"]]},
+ {key:"r2b",name:"뒤틀린 왕국",lv:200,step:10,npc:"",pool:["voidStalker","warpKnight","chronoGolem"],
+  maps:[["거꾸로 선 성문","🏰"],["뒤틀린 왕좌","👑"],["무너진 대성당","⛪"],["기괴한 정원","🥀"],["왕의 무덤","⚰️"]]},
+ {key:"r2c",name:"시간의 폐허",lv:250,step:10,npc:"",pool:["riftDragon","infWatcher","timeAvatar"],
+  maps:[["모래시계 사막","⌛"],["역행의 강","🏞️"],["멈춘 번개","⚡"],["영원의 도서관","📚"],["차원의 심장","💠"]]},
+];
+const W3_REGIONS=[
+ {key:"r3a",name:"신들의 무덤",lv:500,step:20,npc:"",pool:["fallenGod","godShard","primeShadow"],
+  maps:[["신역의 문","⛩️"],["거신의 유해","🦴"],["신성 잃은 제단","🕯️"],["황혼의 옥좌","🌇"],["침묵하는 신전","🛕"]]},
+ {key:"r3b",name:"무한 회랑",lv:600,step:20,npc:"",pool:["genesisDragon","godslayerW","worldEater"],
+  maps:[["끝없는 계단","🪜"],["뒤집힌 탑","🗼"],["무한의 거울","🪞"],["별들의 회랑","🌌"],["운명의 교차점","✖️"]]},
+ {key:"r3c",name:"태초의 심연",lv:700,step:20,npc:"",pool:["infMachine","fateWeaver","primalDark"],
+  maps:[["창세의 잔해","🌋"],["무(無)의 해안","🌊"],["시원의 어둠","🌑"],["마지막 별빛","🌟"],["태초, 그 자체","⚫"]]},
+];
+function wireRegions(regions,firstTail,w){
+  let prevTail=firstTail;
+  for(const rg of regions){
+    rg.maps.forEach((mm,i)=>{
+      const id=rg.key+(i+1);
+      MAPS[id]={name:mm[0],icon:mm[1],lv:rg.lv+i*rg.step,portals:[],mons:i===0?rg.pool.slice(0,2):rg.pool,npc:rg.npc,boss:null,region:rg.name,w};
+    });
+    for(let i=1;i<=5;i++){ const id=rg.key+i;
+      if(i>1)MAPS[id].portals.push(rg.key+(i-1));
+      if(i<5)MAPS[id].portals.push(rg.key+(i+1)); }
+    if(prevTail){ MAPS[rg.key+"1"].portals.unshift(prevTail); MAPS[prevTail].portals.push(rg.key+"1"); }
+    prevTail=rg.key+"5";
+  }
+}
+wireRegions(W2_REGIONS,null,2);
+wireRegions(W3_REGIONS,null,3);
+const WORLDS=[
+ {w:1,name:"제1세계 · 필멸의 대륙",icon:"🌍",lv:1,start:"village",desc:"모험이 시작되는 땅. 초보자 마을부터 나락 최심부까지 56개 지역."},
+ {w:2,name:"제2세계 · 균열의 저편",icon:"🌌",lv:150,start:"r2a1",desc:"차원 균열 너머의 뒤틀린 세계. 시간과 공간이 무너진 15개 지역."},
+ {w:3,name:"제3세계 · 신들의 영역",icon:"👑",lv:500,start:"r3a1",desc:"신조차 잠든 태초의 영역. 필멸자가 닿는 마지막 15개 지역."},
+];
+
+/* ===================== NPC (모든 맵 2~3명 · 대화 시스템) ===================== */
+const NPC_ARCH=[
+ ["안내인","🧭",["{m}에 온 것을 환영하네, 모험가.","여기서 무리하면 목숨을 잃어. 권장 레벨은 지키게.","포탈은 언제나 열려 있네. 위험하면 돌아가게."]],
+ ["상인","💰",["싸게 드릴게! ...농담이야, 제값은 받아야지.","{m} 특산품? 그런 건 없어. 몬스터뿐이지.","입장권은 던전·보스 탭에서 살 수 있다네."]],
+ ["떠돌이 음유시인","🎻",["{m}의 전설을 노래로 만들고 있어. 아직 1절뿐이지만.","히든 직업이 56종이 넘는다더군. 조건은... 노래에 안 나와.","영웅이 되면 자네 노래도 만들어 주지."]],
+ ["수상한 노인","🧙",["...{m}의 깊은 곳엔 비밀이 잠들어 있지.","기행을 저지르는 자에게 숨겨진 길이 열린다네.","전설 스킬의 컷씬을 본 적 있나? 하늘이 갈라지지."]],
+ ["지친 병사","💂",["여긴 {m}... 경계 근무 중이다.","레이드 보스는 혼자 가지 마라. 광장에서 파티를 모아라.","장비 강화는 +5부터 손상될 수 있다. 조심해라."]],
+ ["연금술사","⚗️",["{m}의 재료로 뭔가 만들 수 있을 것 같은데...","같은 룬 두 개를 합치면 등급이 오른다는 건 알지?","실패는 성공의 어머니... 강화창 앞에서 늘 되뇌지."]],
+ ["방랑 사냥꾼","🏹",["{m}의 사냥감은 내 구역이야. ...농담, 같이 잡자고.","몬스터 태그를 노려봐. 히든 전직 조건과 이어져 있어.","야수든 드래곤이든, 오래 쫓다 보면 길이 보이지."]],
+ ["떠돌이 수도사","🙏",["{m}에도 자비가... 아니, 몬스터뿐이군.","죽음을 두려워 말게. 잃는 건 골드 5%뿐이니.","여관에서 쉬면 몸도 기록도 온전해진다네."]],
+ ["호기심 많은 아이","🧒",["와! 모험가다! {m}까지 어떻게 왔어요?","나도 크면 전설 스킬 쓸 거예요! 컷씬 완전 멋져요!","엄마가 그러는데 파티 레이드 보스는 진짜 엄청 세대요."]],
+ ["정체불명의 유령","👻",["...{m}에서 스러진 자다... 나처럼 되지 마라...","...혼자서는... 레이드를 이길 수 없다...","...제3세계의 신들은... 아직 잠들어 있을 뿐..."]],
+];
+const NPC_NAMES=["로안","셀린","바트","무명","그레타","일리아","돌프","한나","키요","모스","레브","윤","아릭","페트라","솔","브람"];
+const NPCS={};
+(function(){
+  const hashStr=t=>{ let h=0; for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))|0; return Math.abs(h); };
+  for(const [mid,m] of Object.entries(MAPS)){
+    const h=hashStr(mid), n=2+(h%2), list=[];
+    for(let k=0;k<n;k++){
+      const a=NPC_ARCH[(h+k*3)%NPC_ARCH.length];
+      const nm=NPC_NAMES[(h+k*7+m.name.length)%NPC_NAMES.length];
+      list.push({name:a[0]+" "+nm,icon:a[1],lines:a[2].map(L=>L.replace("{m}",m.name))});
+    }
+    NPCS[mid]=list;
+  }
+})();
+
+/* ===================== 파티 레이드 보스 (P2P 협동 · 초고난도) ===================== */
+const RAIDS=[
+ {id:"rd1",name:"세계수를 삼킨 자, 이몰그",icon:"🌳",lv:30,rounds:30,d:"뿌리째 삼켜진 세계수의 원혼. 파티의 첫 시험대."},
+ {id:"rd2",name:"강철의 재앙, 아크메카",icon:"🤖",lv:80,rounds:30,d:"버려진 기계 도시가 낳은 최후의 병기."},
+ {id:"rd3",name:"심연의 폭군, 아자토스",icon:"👁️",lv:130,rounds:32,d:"나락 그 아래에서 올라온 눈뜬 악몽."},
+ {id:"rd4",name:"차원을 삼키는 자, 볼가로스",icon:"🌌",lv:220,rounds:34,d:"제2세계의 균열을 만든 장본인."},
+ {id:"rd5",name:"태초의 어둠, 니힐",icon:"🕳️",lv:550,rounds:36,d:"창세 이전부터 존재한 무(無). 최후의 레이드."},
+].map(r=>({...r,hp:Math.round(2.6*r.lv*r.lv*2.5),atk:Math.round(3.2*r.lv*0.7),def:Math.round(0.9*r.lv*1.2)}));
+const RAID_MAP={}; RAIDS.forEach(r=>RAID_MAP[r.id]=r);
 
 /* ===================== 보스 (35종 · 7티어 · 기믹) ===================== */
 const MECH={
@@ -8461,11 +8672,25 @@ const ITEMS={
   c4:{slot:"acc",name:"용안 펜던트",icon:"🔱",tier:4,crit:9,critd:60,atk:15},
   c5:{slot:"acc",name:"이그니스의 심장",icon:"❤️‍🔥",tier:5,crit:14,critd:100,atk:25,hp:200},
   c6:{slot:"acc",name:"어비스의 눈",icon:"🧿",tier:6,crit:20,critd:160,atk:45,hp:380},
+  sh1:{slot:"shoes",name:"짚신",icon:"🩴",tier:1,def:2,hp:15,crit:1},
+  sh2:{slot:"shoes",name:"가죽 장화",icon:"👢",tier:2,def:6,hp:40,crit:2},
+  sh3:{slot:"shoes",name:"강철 각반",icon:"🥾",tier:3,def:13,hp:90,crit:4},
+  sh4:{slot:"shoes",name:"미스릴 부츠",icon:"👟",tier:4,def:24,hp:190,crit:6},
+  sh5:{slot:"shoes",name:"용린 각화",icon:"🐾",tier:5,def:45,hp:390,crit:9},
+  sh6:{slot:"shoes",name:"허공답보의 신","icon":"☁️",tier:6,def:82,hp:740,crit:14},
+  af1:{slot:"artifact",name:"이 빠진 토템",icon:"🪵",tier:1,atk:4,mp:15},
+  af2:{slot:"artifact",name:"수정 구슬",icon:"🔮",tier:2,atk:10,mp:40},
+  af3:{slot:"artifact",name:"고대 룬석",icon:"🪨",tier:3,atk:20,mp:90,critd:15},
+  af4:{slot:"artifact",name:"현자의 돌",icon:"💠",tier:4,atk:38,mp:180,critd:30},
+  af5:{slot:"artifact",name:"용왕의 여의주",icon:"🔥",tier:5,atk:70,mp:360,critd:55,hp:150},
+  af6:{slot:"artifact",name:"태초의 성배",icon:"🏆",tier:6,atk:128,mp:680,critd:90,hp:300},
 };
-const TIER_POOL={1:["w1","a1","c1"],2:["w2","a2","c2"],3:["w3","a3","c3"],4:["w4","a4","c4"],5:["w5","a5","c5"],6:["w6","a6","c6"]};
+const TIER_POOL={1:["w1","a1","c1","sh1","af1"],2:["w2","a2","c2","sh2","af2"],3:["w3","a3","c3","sh3","af3"],
+  4:["w4","a4","c4","sh4","af4"],5:["w5","a5","c5","sh5","af5"],6:["w6","a6","c6","sh6","af6"]};
 const TIER_NAME=["","일반","고급","희귀","영웅","전설","신화"];
 const TIER_COL=["","#9ca3af","#4ade80","#60a5fa","#c084fc","#fb923c","#f43f5e"];
-const SLOT_NAME={weapon:"무기",armor:"방어구",acc:"장신구"};
+const SLOT_NAME={weapon:"무기",armor:"갑옷",shoes:"신발",acc:"장신구",artifact:"아티팩트"};
+const SLOTS=["weapon","armor","shoes","acc","artifact"];
 
 /* ===================== 룬 ===================== */
 const RUNE_T={
@@ -8559,9 +8784,9 @@ function mkSave(nick,pwh,cls){
     alloc:{hp:0,mp:0,atk:0,def:0,crit:0,critd:0},
     hp:1,mp:1,gold:250,stone:5,dkey:1,rticket:0,
     map:"village",mode:"hunt",lastMon:{},
-    equip:{weapon:{uid:"i0",t:"w1",plus:0,dmg:false},armor:null,acc:null},
+    equip:{weapon:{uid:"i0",t:"w1",plus:0,dmg:false},armor:null,acc:null,shoes:null,artifact:null},
     inv:[],runes:[],runeEq:[null,null,null,null],
-    skills:{},autoSkill:null,_auto:false,
+    skills:{},autoSkill:null,_auto:false,loadout:[],
     kills:{},tagKills:{},killTotal:0,
     visits:{village:1},deaths:0,innCount:0,failStreak:0,enhOk:0,fuseCount:0,
     quests:{},questsDone:{},hiddenClaimed:{},hiddenFound:{},
@@ -8582,6 +8807,12 @@ function hydrate(o){
   m.kills=o.kills||{}; m.tagKills=o.tagKills||{}; m.visits=o.visits||{village:1}; m.skills=o.skills||{}; m.lastMon=o.lastMon||{};
   m.dgClears=o.dgClears||{}; m.bossKills=o.bossKills||{}; m.pvpW=o.pvpW||0; m.pvpL=o.pvpL||0;
   m.promoAvail=Array.isArray(o.promoAvail)?o.promoAvail.filter(h=>HID[h]):[];
+  /* 스킬 슬롯: 구세이브는 배운 스킬(레거시/히든) 상위 6개로 자동 구성 */
+  m.loadout=Array.isArray(o.loadout)?o.loadout.filter(e=>FAMS[e]||SKILLS[e]):[];
+  if(!m.loadout.length&&m.skills){
+    m.loadout=Object.keys(m.skills).filter(id=>m.skills[id]>0&&(FAMS[id]||SKILLS[id])).slice(0,6);
+  }
+  if(!CLS[m.cls])m.cls="warrior";
   if(o.promoReady&&!m.hcls&&!m.promoAvail.length&&CLS[m.cls]&&CLS[m.cls].hidden)m.promoAvail=[CLS[m.cls].hidden]; // 구버전 전직 대기 승계
   if(m.hcls&&!HID[m.hcls])m.hcls=null;
   if(!MAPS[m.map])m.map="village";
@@ -8595,7 +8826,7 @@ function calc(s){
   let hp=c.base.hp+c.grow.hp*L, mp=c.base.mp+c.grow.mp*L, atk=c.base.atk+c.grow.atk*L,
       def=c.base.def+c.grow.def*L, crit=c.base.crit+c.grow.crit*L, critd=c.base.critd+c.grow.critd*L;
   hp+=s.alloc.hp*20; mp+=s.alloc.mp*10; atk+=s.alloc.atk*2; def+=s.alloc.def*2; crit+=s.alloc.crit*0.4; critd+=s.alloc.critd*2;
-  for(const slot of ["weapon","armor","acc"]){
+  for(const slot of SLOTS){
     const it=s.equip[slot]; if(!it)continue;
     const t=ITEMS[it.t]; if(!t)continue;
     const m=(1+0.12*it.plus)*(it.dmg?0.5:1);
@@ -8628,6 +8859,15 @@ function Game(){
   const [,bump]=useReducer(x=>x+1,0);
   const [nick,setNick]=useState(""),[pw,setPw]=useState(""),[err,setErr]=useState("");
   const [toast,setToast]=useState(null);
+  const [cine,setCine]=useState(null);          // 전설 스킬 컷씬
+  const cineT=useRef(null);
+  const playCine=(sk)=>{ clearTimeout(cineT.current);
+    setCine({icon:sk.icon,name:sk.name,col:CINE_COL[sk.cls]||"#f59e0b",key:Date.now()});
+    cineT.current=setTimeout(()=>setCine(null),2600); };
+  /* 로드아웃 항목 → 실제 스킬 id (계열은 현재 랭크로 해석) */
+  const resolveEntry=(s,e)=>{ if(FAMS[e]){ const r=s.skills[e]||0; return r>0?e+"_"+Math.min(r,50):null; } return (s.skills[e]||0)>0?e:null; };
+  const loadoutSkills=(s)=>s.loadout.map(e=>resolveEntry(s,e)).filter(id=>id&&SKILLS[id]);
+  const skillLearned=(s,sk,skillId)=>sk&&sk.fam?(((s.skills[sk.fam]||0)>=sk.rank)?1:0):(s.skills[skillId]||0);
   const pend=useRef(null);           // 생성 대기 {nick,pwh}
   const toastT=useRef(null);
 
@@ -8691,9 +8931,9 @@ function Game(){
     const s=S.current; s.xp+=n;
     let need=needXp(s.lv);
     while(s.xp>=need){
-      s.xp-=need; s.lv++; s.sp+=5; s.skp+=1;
+      s.xp-=need; s.lv++; s.sp+=5; s.skp+=2;
       const st=calc(s); s.hp=st.hp; s.mp=st.mp;
-      log(`🎉 레벨 업! Lv.${s.lv} 달성 (+스탯 5, +스킬 1)`,"g");
+      log(`🎉 레벨 업! Lv.${s.lv} 달성 (+스탯 5, +스킬 2)`,"g");
       need=needXp(s.lv);
     }
   };
@@ -8730,7 +8970,7 @@ function Game(){
     for(const hid of Object.keys(HID)){
       if(s.promoAvail.includes(hid))continue;
       const H=HID[hid];
-      if(H.base!=="any"&&H.base!==s.cls)continue;
+      if(H.base!=="any"&&H.base!==CLS[s.cls].grp)continue;
       let ok=false; try{ ok=H.check(s,st); }catch(e){}
       if(ok){ s.promoAvail.push(hid); log(`🌟 히든 직업 [${H.name}] 전직 조건 달성! 가방 탭에서 전직하세요.`,"g"); }
     }
@@ -8862,10 +9102,11 @@ function Game(){
     const dmod=s.mode==="dungeon"&&s.dungeon?DG_MAP[s.dungeon.id].mod:null;
     let mult=1, sfx={}, usedSkill=null, hits=1;
     if(skillId){
-      const sk=SKILLS[skillId], slv=s.skills[skillId]||0;
-      if(!slv){ if(!isAuto)say("아직 습득하지 않은 스킬입니다."); }
+      const sk=SKILLS[skillId], slv=skillLearned(s,sk,skillId);
+      if(!sk||!slv){ if(!isAuto)say("아직 습득하지 않은 스킬입니다."); }
       else if(s.mp<sk.mp){ if(!isAuto){ say("MP가 부족합니다!"); return; } }
-      else { s.mp-=sk.mp; mult=sk.mult*(1+0.12*(slv-1)); sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1; }
+      else { s.mp-=sk.mp; mult=sk.mult*(1+0.12*(slv-1)); sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1;
+        if(sk.cine)playCine(sk); }
     }
     /* --- 공격 페이즈 (보조 스킬 mult 0 제외) --- */
     let total=0;
@@ -9024,10 +9265,20 @@ function Game(){
     log(`🌀 포탈 이동 → ${MAPS[mid].icon} ${MAPS[mid].name}`);
     checkHidden(); checkPromo(); commit();
   };
+  const travelWorld=(w)=>{
+    const s=S.current, W=WORLDS.find(x=>x.w===w);
+    if(!W)return;
+    if(s.mode!=="hunt"){ say("던전/레이드 중에는 이동할 수 없습니다."); return; }
+    if(s.lv<W.lv){ say(`레벨 ${W.lv}부터 입장할 수 있습니다.`); return; }
+    s.map=W.start; s.visits[W.start]=(s.visits[W.start]||0)+1;
+    s.combat=resetCombat(); s._auto=false;
+    log(`${W.icon} 차원 관문 → [${W.name}] ${MAPS[W.start].name}에 도착했습니다!`,"g");
+    checkHidden(); checkPromo(); commit();
+  };
 
   /* ---------- 대장간 ---------- */
   const allItems=()=>{ const s=S.current; const out=[];
-    for(const slot of ["weapon","armor","acc"]){ if(s.equip[slot])out.push({inst:s.equip[slot],eq:slot}); }
+    for(const slot of SLOTS){ if(s.equip[slot])out.push({inst:s.equip[slot],eq:slot}); }
     for(const it of s.inv)out.push({inst:it,eq:null});
     return out; };
   const enhance=(uid)=>{
@@ -9129,6 +9380,40 @@ function Game(){
     log(cur===0?`📜 [${sk.name}] 습득!`:`📜 [${sk.name}] Lv.${cur+1} 강화!`,"g");
     commit();
   };
+  const learnFam=(famId)=>{                                 // 계열 랭크업 (1SP)
+    const s=S.current, F=FAMS[famId];
+    if(!F||F.cid!==s.cls)return;
+    const cur=s.skills[famId]||0;
+    if(cur>=F.maxR){ say("최대 랭크(50식)입니다."); return; }
+    const nxt=SKILLS[famId+"_"+(cur+1)];
+    if(s.lv<nxt.lv){ say(`레벨 ${nxt.lv}부터 랭크업 가능합니다.`); return; }
+    if(s.skp<1){ say("스킬 포인트가 부족합니다."); return; }
+    s.skp--; s.skills[famId]=cur+1;
+    log(cur===0?`📜 [${F.name} 1식] 습득!`:`📜 [${F.name}] ${cur+1}식으로 랭크업!`,"g");
+    if(cur===0&&s.loadout.length<6&&!s.loadout.includes(famId))s.loadout.push(famId);
+    commit();
+  };
+  const learnLeg=(id)=>{                                    // 전설 스킬 (5SP)
+    const s=S.current, sk=SKILLS[id];
+    if(!sk||!sk.leg||sk.cls!==s.cls)return;
+    if(s.skills[id]){ say("이미 습득한 전설 스킬입니다."); return; }
+    if(s.lv<sk.lv){ say(`레벨 ${sk.lv}부터 각성할 수 있습니다.`); return; }
+    if(s.skp<5){ say("스킬 포인트 5가 필요합니다."); return; }
+    s.skp-=5; s.skills[id]=1;
+    log(`🌟 전설 스킬 [${sk.name}] 각성! 사용 시 컷씬이 발동합니다!`,"g");
+    if(s.loadout.length<6&&!s.loadout.includes(id))s.loadout.push(id);
+    commit();
+  };
+  const toggleLoadout=(entry)=>{                            // 스킬 슬롯 (6칸)
+    const s=S.current;
+    const i=s.loadout.indexOf(entry);
+    if(i>=0){ s.loadout.splice(i,1); if(s.autoSkill===entry)s.autoSkill=null; }
+    else{
+      if(s.loadout.length>=6){ say("스킬 슬롯이 가득 찼습니다. (6칸)"); return; }
+      s.loadout.push(entry);
+    }
+    commit();
+  };
 
   /* ---------- 퀘스트 ---------- */
   const qSnap=(q)=>{ const s=S.current;
@@ -9211,7 +9496,10 @@ function Game(){
       if(!s||scr.current!=="game"||!s._auto)return;
       if(s.hp<=0){ s._auto=false; bump(); return; }
       let skill=null;
-      if(s.autoSkill&&s.skills[s.autoSkill]&&s.mp>=SKILLS[s.autoSkill].mp)skill=s.autoSkill;
+      if(s.autoSkill){
+        const rid=resolveEntry(s,s.autoSkill);
+        if(rid&&SKILLS[rid]&&!SKILLS[rid].cine&&s.mp>=SKILLS[rid].mp)skill=rid;
+      }
       playerTurn(skill,true);
     },1100);
     return ()=>clearInterval(iv);
@@ -9228,7 +9516,7 @@ function Game(){
   },[]);
 
   /* ================= 광장 (P2P 온라인) ================= */
-  const plaza=useRef({room:null,acts:null,peers:{},chat:[],duel:null,pending:null,joining:false});
+  const plaza=useRef({room:null,acts:null,peers:{},chat:[],duel:null,pending:null,joining:false,raid:null,parties:{}});
   const [chatIn,setChatIn]=useState("");
 
   const pSnap=()=>{ const s=S.current, st=calc(s);
@@ -9243,7 +9531,7 @@ function Game(){
       if(!S.current){ P.joining=false; return; }
       const room=t.joinRoom({appId:"yunny-abyss-rpg-v1"},"ynd-abyss-plaza-1");
       const acts={};
-      for(const a of ["hello","chat","dreq","dacc","dact","dsync","dend"])acts[a]=room.makeAction(a);
+      for(const a of ["hello","chat","dreq","dacc","dact","dsync","dend","rad","rjoin","rstate","ract","rend"])acts[a]=room.makeAction(a);
       P.room=room; P.acts=acts;
       const meNick=()=>S.current&&S.current.nick;
       acts.hello.onMessage=d=>{ if(!d||!d.nick||d.nick===meNick())return;
@@ -9264,6 +9552,11 @@ function Game(){
           bump();
         } };
       acts.dend.onMessage=d=>{ if(!d||d.to!==meNick())return; finishDuel(d.winner); };
+      acts.rad.onMessage=d=>{ if(!d||!d.rid||d.host===meNick())return; P.parties[d.rid]={...d,ts:Date.now()}; bump(); };
+      acts.rjoin.onMessage=d=>{ if(!d||d.to!==meNick())return; hostAddMember(d); };
+      acts.rstate.onMessage=d=>{ if(!d||!d.rid)return; memberOnState(d); };
+      acts.ract.onMessage=d=>{ if(!d||d.to!==meNick())return; hostOnAct(d); };
+      acts.rend.onMessage=d=>{ if(!d||!d.rid)return; onRaidEnd(d); };
       sendHello();
       P.joining=false; bump();
     });
@@ -9271,8 +9564,9 @@ function Game(){
   const leavePlaza=()=>{
     const P=plaza.current;
     if(P.duel&&!P.duel.over&&P.acts){ try{ P.acts.dend.send({from:S.current.nick,to:P.duel.opp.nick,winner:P.duel.opp.nick}); }catch(e){} }
+    if(P.raid&&P.raid.role==="host"&&P.acts){ try{ P.acts.rend.send({rid:P.raid.rid,result:"abort"}); }catch(e){} }
     if(P.room){ try{ P.room.leave(); }catch(e){} }
-    plaza.current={room:null,acts:null,peers:{},chat:[],duel:null,pending:null,joining:false};
+    plaza.current={room:null,acts:null,peers:{},chat:[],duel:null,pending:null,joining:false,raid:null,parties:{}};
     bump();
   };
   /* 하트비트: 8초마다 존재 알림 + 오래된 피어 정리 */
@@ -9283,6 +9577,7 @@ function Game(){
       sendHello();
       const now=Date.now();
       for(const k of Object.keys(P.peers)){ if(now-P.peers[k].ts>25000)delete P.peers[k]; }
+      for(const k of Object.keys(P.parties)){ if(now-P.parties[k].ts>12000)delete P.parties[k]; }
       bump();
     },8000);
     return ()=>clearInterval(iv);
@@ -9328,10 +9623,11 @@ function Game(){
     const s=S.current, st=calc(s);
     let mult=1,sfx={},usedSkill=null,hits=1;
     if(skillId){
-      const sk=SKILLS[skillId], slv=s.skills[skillId]||0;
-      if(!slv)return;
+      const sk=SKILLS[skillId], slv=skillLearned(s,sk,skillId);
+      if(!sk||!slv)return;
       if(du.myMp<sk.mp){ say("MP가 부족합니다!"); return; }
       du.myMp-=sk.mp; mult=sk.mult*(1+0.12*(slv-1)); sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1;
+      if(sk.cine)playCine(sk);
     }
     let total=0,anyCrit=false;
     if(!usedSkill||usedSkill.mult>0){
@@ -9421,6 +9717,231 @@ function Game(){
     P.acts.chat.send(msg); setChatIn(""); bump();
   };
 
+  /* ================= 파티 레이드 (호스트 권위 · 최대 4인) ================= */
+  const rlog=(t,c)=>{ const rd=plaza.current.raid; if(!rd)return; rd.log.unshift({t,c:c||"",id:"rl"+Date.now()+Math.floor(R()*1e6)}); if(rd.log.length>40)rd.log.length=40; };
+  const openRaid=(bossId)=>{
+    const P=plaza.current, s=S.current, B=RAID_MAP[bossId];
+    if(!P.room||P.raid||P.duel)return;
+    if(s.lv<B.lv){ say(`레벨 ${B.lv}부터 도전할 수 있습니다.`); return; }
+    if(s.rticket<1){ say("레이드 입장권이 필요합니다! (시작 시 1장 소모)"); return; }
+    const st=calc(s);
+    P.raid={role:"host",rid:"r"+Date.now().toString(36)+Math.floor(R()*999),bossId,phase:"lobby",round:0,
+      members:{[s.nick]:{nick:s.nick,icon:s.hcls?HID[s.hcls].icon:CLS[s.cls].icon,hp:st.hp,maxHp:st.hp,dead:false,dmg:0,total:0,acted:false,miss:0}},
+      bossHp:0,bossMax:0,bossAtkRaw:0,enraged:false,roundStart:0,lastAd:0,lastBc:0,log:[],myMp:st.mp};
+    rlog(`${B.icon} [${B.name}] 파티 모집 시작! 광장의 모험가들이 참가할 수 있습니다.`,"g");
+    bump();
+  };
+  const joinRaidParty=(ad)=>{
+    const P=plaza.current, s=S.current, B=RAID_MAP[ad.bossId];
+    if(!P.room||P.raid||P.duel||!B)return;
+    if(s.lv<B.lv){ say(`레벨 ${B.lv}부터 도전할 수 있습니다.`); return; }
+    if(s.rticket<1){ say("레이드 입장권이 필요합니다! (시작 시 1장 소모)"); return; }
+    const st=calc(s);
+    P.raid={role:"member",rid:ad.rid,host:ad.host,bossId:ad.bossId,phase:"lobby",round:0,members:[],
+      bossHp:0,bossMax:0,bossAtkRaw:0,enraged:false,myHp:st.hp,myMaxHp:st.hp,myDead:false,myActed:false,myMp:st.mp,
+      lastState:Date.now(),lastRound:0,ticketPaid:false,log:[]};
+    P.acts.rjoin.send({to:ad.host,from:s.nick,rid:ad.rid,icon:s.hcls?HID[s.hcls].icon:CLS[s.cls].icon,hp:st.hp,maxHp:st.hp});
+    rlog(`${B.icon} [${B.name}] 파티에 참가 신청!`,"g");
+    bump();
+  };
+  const broadcastRaid=()=>{
+    const P=plaza.current, rd=P.raid;
+    if(!rd||rd.role!=="host")return;
+    rd.lastBc=Date.now();
+    P.acts.rstate.send({rid:rd.rid,host:S.current.nick,bossId:rd.bossId,phase:rd.phase,round:rd.round,
+      bossHp:rd.bossHp,bossMax:rd.bossMax,bossAtkRaw:rd.bossAtkRaw,enraged:rd.enraged,
+      members:Object.values(rd.members).map(m=>({nick:m.nick,icon:m.icon,hp:m.hp,maxHp:m.maxHp,dead:m.dead,dmg:m.dmg,total:m.total})),
+      log:rd.log.slice(0,6).map(l=>({t:l.t,c:l.c,id:l.id})),ts:Date.now()});
+  };
+  const hostAddMember=(d)=>{
+    const P=plaza.current, rd=P.raid;
+    if(!rd||rd.role!=="host"||rd.rid!==d.rid||rd.phase!=="lobby")return;
+    if(Object.keys(rd.members).length>=4||rd.members[d.from])return;
+    rd.members[d.from]={nick:d.from,icon:d.icon||"🧝",hp:d.hp,maxHp:d.maxHp,dead:false,dmg:0,total:0,acted:false,miss:0};
+    rlog(`👋 ${d.from}이(가) 파티에 합류! (${Object.keys(rd.members).length}/4)`,"g");
+    broadcastRaid(); bump();
+  };
+  const startRaid=()=>{
+    const P=plaza.current, rd=P.raid, s=S.current;
+    if(!rd||rd.role!=="host"||rd.phase!=="lobby")return;
+    const B=RAID_MAP[rd.bossId], n=Object.keys(rd.members).length;
+    s.rticket--; commit();
+    rd.phase="fight"; rd.round=1; rd.roundStart=Date.now();
+    rd.bossMax=Math.round(B.hp*n); rd.bossHp=rd.bossMax; rd.bossAtkRaw=0;
+    rlog(`⚔️ 레이드 시작! [${B.name}] HP ${fmt(rd.bossMax)} · ${B.rounds}라운드 제한 · ${n}인 파티`,"r");
+    broadcastRaid(); bump();
+  };
+  const memberOnState=(d)=>{
+    const P=plaza.current, rd=P.raid, s=S.current;
+    if(!rd||rd.role!=="member"||rd.rid!==d.rid)return;
+    rd.lastState=Date.now();
+    const wasLobby=rd.phase==="lobby";
+    if(d.phase==="win"&&!rd.rewarded){ rd.rewarded=true; rlog("🏆 토벌 성공!!","g"); grantRaidReward(rd.bossId); }
+    rd.phase=d.phase; rd.bossHp=d.bossHp; rd.bossMax=d.bossMax; rd.enraged=d.enraged; rd.members=d.members||[];
+    if(d.log)d.log.forEach(l=>{ if(!rd.log.some(x=>x.id===l.id))rd.log.push(l); });
+    rd.log.sort((a,b)=>(b.id>a.id?1:-1)); if(rd.log.length>40)rd.log.length=40;
+    if(wasLobby&&d.phase==="fight"&&!rd.ticketPaid){ rd.ticketPaid=true; s.rticket=Math.max(0,s.rticket-1); commit(); }
+    if(d.phase==="fight"&&d.round>rd.lastRound){
+      rd.lastRound=d.round; rd.round=d.round; rd.myActed=false;
+      if(d.bossAtkRaw>0&&!rd.myDead){
+        const st=calc(s);
+        const dmg=Math.max(1,Math.round(d.bossAtkRaw-st.def*0.55));
+        rd.myHp-=dmg;
+        rlog(`🩸 보스의 광역 공격! -${fmt(dmg)}`,"r");
+        if(rd.myHp<=0){ rd.myHp=0; rd.myDead=true; rlog("💀 당신은 쓰러졌습니다…","r"); }
+      }
+      const st2=calc(s);
+      rd.myMp=Math.min(st2.mp,rd.myMp+Math.round(st2.mp*0.06));
+    }
+    bump();
+  };
+  const raidAct=(skillId)=>{
+    const P=plaza.current, rd=P.raid, s=S.current;
+    if(!rd||rd.phase!=="fight")return;
+    const B=RAID_MAP[rd.bossId], st=calc(s);
+    const isHost=rd.role==="host";
+    const meObj=isHost?rd.members[s.nick]:null;
+    const meDead=isHost?meObj.dead:rd.myDead;
+    const meActed=isHost?meObj.acted:rd.myActed;
+    if(meDead||meActed)return;
+    let mult=1,sfx={},usedSkill=null,hits=1;
+    if(skillId){
+      const sk=SKILLS[skillId], slv=skillLearned(s,sk,skillId);
+      if(!sk||!slv)return;
+      if(rd.myMp<sk.mp){ say("MP가 부족합니다!"); return; }
+      rd.myMp-=sk.mp; mult=sk.mult*(1+0.12*(slv-1)); sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1;
+      if(sk.cine)playCine(sk);
+    }
+    let total=0,anyCrit=false;
+    if(!usedSkill||usedSkill.mult>0){
+      const critCh=sfx.gcrit?100:st.crit+(sfx.critB||0);
+      for(let i=0;i<hits;i++){
+        let m=mult;
+        if(sfx.exec&&rd.bossHp<=rd.bossMax*sfx.exec.below)m=mult*sfx.exec.mult;
+        const isCrit=R()*100<critCh; if(isCrit)anyCrit=true;
+        let dmg=Math.max(1,Math.round((st.atk*m-B.def)*(0.9+R()*0.2)));
+        if(isCrit)dmg=Math.round(dmg*(st.critd+(sfx.critdB||0))/100);
+        total+=dmg;
+      }
+    }
+    let myHp=isHost?meObj.hp:rd.myHp;
+    const myMax=isHost?meObj.maxHp:rd.myMaxHp;
+    if(usedSkill){
+      if(sfx.heal&&total>0)myHp=Math.min(myMax,myHp+Math.round(total*sfx.heal));
+      if(sfx.selfHeal)myHp=Math.min(myMax,myHp+Math.round(myMax*sfx.selfHeal));
+    }
+    rd.myMp=Math.min(st.mp,rd.myMp+Math.round(st.mp*0.04));
+    if(isHost){
+      meObj.dmg=total; meObj.total+=total; meObj.acted=true; meObj.hp=myHp; meObj.miss=0;
+      rlog(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${anyCrit?"치명타! ":""}${s.nick} → 보스에게 ${fmt(total)}`,anyCrit?"c":"");
+    }else{
+      rd.myHp=myHp; rd.myActed=true;
+      P.acts.ract.send({to:rd.host,from:s.nick,rid:rd.rid,round:rd.round,dmg:total,hp:myHp,maxHp:myMax,dead:rd.myDead,
+        name:usedSkill?usedSkill.name:"기본 공격",icon:usedSkill?usedSkill.icon:"⚔️",crit:anyCrit});
+      rlog(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${anyCrit?"치명타! ":""}보스에게 ${fmt(total)} (전송)`,anyCrit?"c":"");
+    }
+    bump();
+  };
+  const hostOnAct=(d)=>{
+    const P=plaza.current, rd=P.raid;
+    if(!rd||rd.role!=="host"||rd.rid!==d.rid)return;
+    const m=rd.members[d.from];
+    if(!m||rd.phase!=="fight"||d.round!==rd.round||m.acted)return;
+    m.acted=true; m.dmg=d.dmg; m.total+=d.dmg; m.hp=d.hp; m.maxHp=d.maxHp||m.maxHp; m.dead=d.dead||d.hp<=0; m.miss=0;
+    rlog(`${d.icon} [${d.name}] ${d.crit?"치명타! ":""}${d.from} → 보스에게 ${fmt(d.dmg)}`,d.crit?"c":"");
+    bump();
+  };
+  const hostResolve=()=>{
+    const P=plaza.current, rd=P.raid, s=S.current;
+    if(!rd||rd.role!=="host"||rd.phase!=="fight")return;
+    const B=RAID_MAP[rd.bossId];
+    for(const m of Object.values(rd.members)){
+      if(!m.dead&&!m.acted){ m.miss=(m.miss||0)+1; m.dmg=0;
+        if(m.miss>=2){ m.dead=true; rlog(`📡 ${m.nick}의 응답이 없어 이탈 처리되었습니다.`,"r"); } }
+    }
+    const sum=Object.values(rd.members).reduce((a,m)=>a+(m.dead?0:m.dmg),0);
+    rd.bossHp=Math.max(0,rd.bossHp-sum);
+    if(sum>0)rlog(`💥 파티 총 피해 ${fmt(sum)} — 보스 HP ${fmt(rd.bossHp)}`,"d");
+    if(rd.bossHp<=0){
+      rd.phase="win"; rd.bossAtkRaw=0;
+      rlog(`🏆 [${B.name}] 토벌 성공!!`,"g");
+      broadcastRaid();
+      P.acts.rend.send({rid:rd.rid,result:"win"});
+      grantRaidReward(rd.bossId);
+      bump(); return;
+    }
+    if(!rd.enraged&&rd.bossHp<=rd.bossMax*0.5){ rd.enraged=true; rlog(`😡 [${B.name}]이(가) 격노했다! 공격력 +70%!`,"r"); }
+    if(rd.round>=B.rounds){
+      rd.phase="fail"; rlog("⏳ 라운드 제한 초과… 토벌 실패.","r");
+      broadcastRaid();
+      P.acts.rend.send({rid:rd.rid,result:"fail"});
+      bump(); return;
+    }
+    rd.bossAtkRaw=Math.round(B.atk*(rd.enraged?1.7:1)*(0.9+R()*0.2));
+    const st=calc(s), me=rd.members[s.nick];
+    if(me&&!me.dead){
+      const dmg=Math.max(1,Math.round(rd.bossAtkRaw-st.def*0.55));
+      me.hp-=dmg;
+      rlog(`🩸 보스의 광역 공격! -${fmt(dmg)}`,"r");
+      if(me.hp<=0){ me.hp=0; me.dead=true; rlog("💀 당신은 쓰러졌습니다…","r"); }
+    }
+    if(Object.values(rd.members).every(m=>m.dead)){
+      rd.phase="fail"; rlog("💀 파티가 전멸했다…","r");
+      broadcastRaid();
+      P.acts.rend.send({rid:rd.rid,result:"fail"});
+      bump(); return;
+    }
+    rd.round++; rd.roundStart=Date.now();
+    for(const m of Object.values(rd.members))m.acted=false;
+    broadcastRaid(); bump();
+  };
+  const onRaidEnd=(d)=>{
+    const P=plaza.current, rd=P.raid;
+    if(!rd||rd.role!=="member"||rd.rid!==d.rid)return;
+    if(d.result==="win"){ rd.phase="win"; if(!rd.rewarded){ rd.rewarded=true; rlog("🏆 토벌 성공!!","g"); grantRaidReward(rd.bossId); } }
+    else if(d.result==="fail"&&rd.phase!=="fail"){ rd.phase="fail"; rlog("💀 토벌 실패…","r"); }
+    else if(d.result==="abort"){ rd.phase="fail"; rlog("📡 호스트가 파티를 해산했습니다.","r"); }
+    bump();
+  };
+  const grantRaidReward=(bossId)=>{
+    const s=S.current, B=RAID_MAP[bossId];
+    const xp=Math.round(needXp(B.lv)/5), gold=Math.round(Math.pow(B.lv,2.6)*20);
+    s.gold+=gold; s.stone+=50; s.rticket+=1;
+    const pool=TIER_POOL[6]; const tid=pool[Math.floor(R()*pool.length)]; addItem(tid);
+    const types=Object.keys(RUNE_T); addRune(types[Math.floor(R()*types.length)],6);
+    log(`🏆 [레이드] ${B.name} 토벌! +${fmt(xp)}XP +${fmt(gold)}G, [신화] ${ITEMS[tid].name}, 전설 룬, 강화석 50, 🎟️ 반환!`,"g");
+    gainXp(xp);
+    checkHidden(); checkPromo(); commit();
+  };
+  const leaveRaid=()=>{
+    const P=plaza.current, rd=P.raid;
+    if(!rd)return;
+    if(rd.role==="host"&&rd.phase!=="win"&&rd.phase!=="fail"){ try{ P.acts.rend.send({rid:rd.rid,result:"abort"}); }catch(e){} }
+    P.raid=null; bump();
+  };
+  /* 레이드 틱: 호스트 라운드 해결/광고 재송신, 멤버 호스트 응답 감시 */
+  useEffect(()=>{
+    const iv=setInterval(()=>{
+      const P=plaza.current, rd=P.raid;
+      if(!P.room||!rd)return;
+      const now=Date.now();
+      if(rd.role==="host"){
+        if(rd.phase==="lobby"&&now-rd.lastAd>4000){ rd.lastAd=now;
+          P.acts.rad.send({rid:rd.rid,host:S.current.nick,bossId:rd.bossId,n:Object.keys(rd.members).length,open:true}); }
+        if(rd.phase==="fight"){
+          const alive=Object.values(rd.members).filter(m=>!m.dead);
+          if(alive.length&&alive.every(m=>m.acted))hostResolve();
+          else if(now-rd.roundStart>25000)hostResolve();
+          else if(now-rd.lastBc>5000)broadcastRaid();
+        }
+      } else if(rd.phase==="fight"&&now-rd.lastState>30000){
+        rd.phase="fail"; rlog("📡 호스트의 응답이 없습니다… 레이드 중단.","r");
+      }
+      bump();
+    },1000);
+    return ()=>clearInterval(iv);
+  },[]);
+
   /* ================= UI 헬퍼 ================= */
   const Bar=(cur,max,col,h)=>(
     <div className="w-full rounded-full overflow-hidden" style={{background:"rgba(0,0,0,.5)",height:h||10}}>
@@ -9477,20 +9998,19 @@ function Game(){
   /* ================= 화면: 직업 선택 ================= */
   const renderCreate=()=>(
     <div className="min-h-screen flex items-center justify-center p-4 fadein" style={{background:"radial-gradient(ellipse at 50% 30%, #1c1420 0%, #0b0a0d 70%)"}}>
-      <div className="w-full max-w-2xl text-center">
+      <div className="w-full max-w-5xl text-center">
         <h1 className="text-xl font-black text-amber-300 mb-1">운명을 선택하라, {pend.current&&pend.current.nick}</h1>
-        <p className="text-xs text-zinc-500 mb-5">직업은 되돌릴 수 없다. 각 직업엔 숨겨진 전직의 길이 있다는 소문이…</p>
-        <div className="grid md:grid-cols-3 gap-3">
+        <p className="text-xs text-zinc-500 mb-4">13개의 길 — 각 직업은 500개의 스킬 계열과 5개의 전설 스킬, 그리고 숨겨진 전직의 길을 품고 있다.</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
           {Object.entries(CLS).map(([cid,c])=>(
-            <button key={cid} onClick={()=>pickClass(cid)} className="btn panel p-5 text-left hover:border-red-500/40">
-              <div className="text-4xl mb-2 text-center">{c.icon}</div>
-              <div className="font-black text-center text-red-300 mb-2">{c.name}</div>
-              <p className="text-[11px] text-zinc-400 leading-relaxed mb-3 text-center">{c.desc}</p>
-              <div className="text-[11px] text-zinc-300 space-y-0.5">
-                <div>❤️ HP {c.base.hp} &nbsp; 💧 MP {c.base.mp}</div>
-                <div>⚔️ 공격 {c.base.atk} &nbsp; 🛡️ 방어 {c.base.def}</div>
-                <div>🎯 치명 {c.base.crit}% &nbsp; 💥 치피 {c.base.critd}%</div>
+            <button key={cid} onClick={()=>pickClass(cid)} className="btn panel p-3 text-left hover:border-red-500/40">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-2xl">{c.icon}</span>
+                <span className="font-black text-red-300 text-sm">{c.name}</span>
+                <span className="text-[8px] text-zinc-600 ml-auto">{c.grp==="warrior"?"전사계":c.grp==="mage"?"마법계":"암살계"}</span>
               </div>
+              <p className="text-[10px] text-zinc-400 leading-snug mb-1.5 min-h-[26px]">{c.desc}</p>
+              <div className="text-[9px] text-zinc-500">❤️{c.base.hp} 💧{c.base.mp} ⚔️{c.base.atk} 🛡️{c.base.def} 🎯{c.base.crit}% 💥{c.base.critd}%</div>
             </button>
           ))}
         </div>
@@ -9502,7 +10022,7 @@ function Game(){
   /* ================= 탭 콘텐츠 ================= */
   const renderHunt=(s,st)=>{
     const map=MAPS[s.map], mon=s.combat.mon, c=s.combat;
-    const learned=Object.keys(s.skills).filter(id=>s.skills[id]>0);
+    const learned=loadoutSkills(s);
     const hasStatus=c.buffs.length>0||c.shield>0||c.pdots.length>0||c.pstun;
     return (
       <div className="space-y-3">
@@ -9512,7 +10032,7 @@ function Game(){
           {s.mode==="boss"&&<span className="text-xs font-bold text-red-400 pop">👹 보스전 · 남은 턴 {s.boss.turns}</span>}
           <label className="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer">
             <input type="checkbox" checked={s._auto} onChange={()=>{s._auto=!s._auto;bump();}}/>
-            자동 사냥 {s.autoSkill&&s.skills[s.autoSkill]?`(${SKILLS[s.autoSkill].name})`:"(기본 공격)"}
+            자동 사냥 {(()=>{const rid=s.autoSkill?resolveEntry(s,s.autoSkill):null;return rid&&SKILLS[rid]?`(${SKILLS[rid].name})`:"(기본 공격)";})()}
           </label>
         </div>
         {hasStatus&&(
@@ -9581,16 +10101,48 @@ function Game(){
     );
   };
 
+  const npcLine=useRef({});
   const renderPortal=(s)=>{
     const map=MAPS[s.map];
+    const myW=map.w||1;
     return (
       <div className="space-y-3">
         <div className="panel p-4">
-          <div className="text-lg font-black">{map.icon} {map.name} {map.region&&<span className="text-[10px] text-purple-300 font-normal">— {map.region}</span>}</div>
-          <div className="text-[11px] text-zinc-500">권장 레벨 {map.lv} · 방문 {s.visits[s.map]||1}회 · 전체 맵 {Object.keys(MAPS).length}곳</div>
-          <p className="text-xs text-amber-200/80 mt-2 italic">💬 {map.npc}</p>
+          <div className="text-lg font-black">{map.icon} {map.name} {map.region&&<span className="text-[10px] text-purple-300 font-normal">— {map.region}</span>} <span className="text-[10px] text-cyan-300 font-normal">· {WORLDS.find(x=>x.w===myW).name}</span></div>
+          <div className="text-[11px] text-zinc-500">권장 레벨 {fmt(map.lv)} · 방문 {s.visits[s.map]||1}회 · 전체 맵 {Object.keys(MAPS).length}곳</div>
           <div className="text-[11px] text-zinc-400 mt-2">서식 몬스터: {map.mons.map(m=>MONS[m].icon+" "+MONS[m].name).join(", ")}</div>
           {map.boss&&<div className="text-[11px] text-red-400 mt-1">👹 지역 보스: {BOSSES[map.boss].name}</div>}
+        </div>
+        <div className="panel p-3">
+          <div className="text-xs font-bold text-emerald-300 mb-2">🧑‍🤝‍🧑 이 지역의 NPC — 말을 걸어보세요</div>
+          <div className="space-y-1.5">
+            {(NPCS[s.map]||[]).map((np,i)=>{
+              const key=s.map+"_"+i, li=npcLine.current[key]||0;
+              return (
+                <div key={key} className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2">
+                  <button onClick={()=>{npcLine.current[key]=(li+1)%np.lines.length;bump();}} className="btn px-2 py-1 rounded-md bg-emerald-900/60 text-[11px] font-bold shrink-0">{np.icon} {np.name}</button>
+                  <div className="text-[11px] text-amber-100/80 italic pt-1">"{np.lines[li]}"</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="text-[9px] text-zinc-600 mt-1.5">이름을 클릭하면 다음 대사를 들을 수 있습니다.</div>
+        </div>
+        <div className="panel p-3">
+          <div className="text-xs font-bold text-cyan-300 mb-2">🌐 차원 관문 — 세 개의 세계</div>
+          <div className="grid md:grid-cols-3 gap-2">
+            {WORLDS.map(W=>{
+              const here=myW===W.w, locked=s.lv<W.lv;
+              return (
+                <div key={W.w} className={"panel p-3 "+(here?"border-cyan-400/50":locked?"opacity-55":"")}>
+                  <div className="text-sm font-black">{W.icon} {W.name} {here&&<span className="text-[9px] text-cyan-300">(현재)</span>}</div>
+                  <div className="text-[10px] text-zinc-500 mt-0.5 min-h-[28px]">{W.desc}</div>
+                  <button onClick={()=>travelWorld(W.w)} disabled={here||locked||s.mode!=="hunt"}
+                    className="btn w-full mt-1.5 py-1.5 rounded-lg bg-cyan-900 text-[11px] font-bold">{locked?`🔒 Lv.${W.lv} 필요`:here?"현재 위치":"이동"}</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
         <div className="text-xs text-zinc-400 font-bold">🌀 연결된 포탈</div>
         <div className="grid md:grid-cols-3 gap-2">
@@ -9599,7 +10151,7 @@ function Game(){
             return <button key={mid} onClick={()=>usePortal(mid)} className="btn panel p-4 text-left">
               <div className="text-2xl">{m.icon}</div>
               <div className="font-bold text-sm mt-1">{m.name}</div>
-              <div className="text-[10px] text-zinc-500">권장 Lv.{m.lv} {s.lv<m.lv?"⚠️ 위험":""}</div>
+              <div className="text-[10px] text-zinc-500">권장 Lv.{fmt(m.lv)} {s.lv<m.lv?"⚠️ 위험":""}</div>
             </button>;
           })}
         </div>
@@ -9737,14 +10289,75 @@ function Game(){
   );
 
   const renderSkill=(s)=>{
-    const avail=Object.entries(SKILLS).filter(([id,sk])=>sk.cls===s.cls||sk.cls===s.hcls);
+    const legacy=Object.entries(SKILLS).filter(([id,sk])=>(sk.cls===s.cls||sk.cls===s.hcls)&&!sk.fam&&!sk.leg);
+    const fams=Object.values(FAMS).filter(F=>F.cid===s.cls);
+    const legs=Object.entries(SKILLS).filter(([id,sk])=>sk.leg&&sk.cls===s.cls);
     return (
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <div className="text-xs text-zinc-400">📜 스킬 포인트로 습득·강화 (레벨업마다 +1). 스킬 레벨당 위력 +12%</div>
+      <div className="space-y-3">
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <div className="text-xs text-zinc-400">📜 {CLS[s.cls].name} 스킬 {fams.length*50+legs.length+legacy.length}종 — 계열 랭크업 1SP · 전설 각성 5SP · 랭크가 오를수록 강력해집니다</div>
           <div className="text-sm font-bold text-amber-300">보유 SP: {s.skp}</div>
         </div>
-        {avail.map(([id,sk])=>{
+        <div className="panel p-3">
+          <div className="text-xs font-bold text-cyan-300 mb-2">🎯 스킬 슬롯 ({s.loadout.length}/6) — 전투에서 사용할 스킬 (클릭하여 해제)</div>
+          <div className="flex flex-wrap gap-1.5">
+            {s.loadout.map(e=>{
+              const rid=resolveEntry(s,e), sk=rid?SKILLS[rid]:null;
+              if(!sk)return null;
+              return <button key={e} onClick={()=>toggleLoadout(e)} className="btn px-2.5 py-1.5 rounded-lg bg-indigo-900/70 text-[11px] font-bold">{sk.icon} {sk.name} ✕</button>;
+            })}
+            {s.loadout.length===0&&<span className="text-[11px] text-zinc-600">아래 스킬 목록에서 [장착]을 눌러 슬롯을 채우세요.</span>}
+          </div>
+        </div>
+        <div className="text-xs font-bold text-amber-300">🌟 전설 스킬 — 사용 시 전용 컷씬 발동</div>
+        <div className="grid md:grid-cols-2 gap-2">
+          {legs.map(([id,sk])=>{
+            const owned=!!s.skills[id], locked=s.lv<sk.lv;
+            return (
+              <div key={id} className={"panel p-3 "+(owned?"border-amber-400/50":locked?"opacity-55":"")}>
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <div className="text-sm font-black" style={{color:owned?"#fcd34d":"#e4e0d8"}}>{sk.icon} {sk.name}</div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">{sk.desc} · MP {fmt(sk.mp)}</div>
+                  </div>
+                  {owned?
+                    <button onClick={()=>toggleLoadout(id)} className={"btn px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 "+(s.loadout.includes(id)?"bg-indigo-700":"bg-zinc-700")}>{s.loadout.includes(id)?"장착중":"장착"}</button>
+                   :<button onClick={()=>learnLeg(id)} disabled={locked||s.skp<5} className="btn px-2.5 py-1.5 rounded-lg bg-amber-700 text-[11px] font-bold shrink-0">{locked?`🔒 Lv.${sk.lv}`:"각성 (5SP)"}</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="text-xs font-bold text-purple-300">📚 스킬 계열 — 10계열 × 50랭크 = 500스킬</div>
+        <div className="grid md:grid-cols-2 gap-2">
+          {fams.map(F=>{
+            const cur=s.skills[F.id]||0;
+            const curSk=cur>0?SKILLS[F.id+"_"+cur]:null;
+            const nxt=cur<F.maxR?SKILLS[F.id+"_"+(cur+1)]:null;
+            const locked=!!nxt&&s.lv<nxt.lv;
+            return (
+              <div key={F.id} className="panel p-3">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold">{F.icon} {F.name} {cur>0&&<span className="text-amber-300">{cur}식</span>} <span className="text-[9px] text-zinc-500">({cur}/50)</span></div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">{curSk?curSk.desc+" · MP "+curSk.mp:F.arch.d}</div>
+                    {nxt&&<div className="text-[9px] text-zinc-600 mt-0.5">다음 랭크: {nxt.mult>0?Math.round(nxt.mult*100)+"% 피해":"보조 강화"} · MP {nxt.mp} · Lv.{nxt.lv} 필요</div>}
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <button onClick={()=>learnFam(F.id)} disabled={cur>=F.maxR||locked||s.skp<1}
+                      className="btn px-2.5 py-1 rounded-lg bg-purple-800 text-[11px] font-bold">{cur>=F.maxR?"MAX":cur===0?"습득 (1SP)":"랭크업 (1SP)"}</button>
+                    {cur>0&&<button onClick={()=>toggleLoadout(F.id)} className={"btn px-2.5 py-1 rounded-lg text-[10px] "+(s.loadout.includes(F.id)?"bg-indigo-700 font-bold":"bg-zinc-700")}>{s.loadout.includes(F.id)?"장착중":"장착"}</button>}
+                    {cur>0&&curSk&&curSk.mult>0&&<button onClick={()=>{s.autoSkill=s.autoSkill===F.id?null:F.id;commit();}}
+                      className={"btn px-2.5 py-1 rounded-lg text-[10px] "+(s.autoSkill===F.id?"bg-emerald-700 font-bold":"bg-zinc-800")}>{s.autoSkill===F.id?"자동✓":"자동"}</button>}
+                  </div>
+                </div>
+                <div className="mt-1.5">{Bar(cur,50,"linear-gradient(90deg,#8b5cf6,#6d28d9)",5)}</div>
+              </div>
+            );
+          })}
+        </div>
+        {legacy.length>0&&<div className="text-xs font-bold text-zinc-300">🗝️ 고유·히든 스킬</div>}
+        {legacy.map(([id,sk])=>{
           const cur=s.skills[id]||0;
           const locked=s.lv<sk.lv;
           return (
@@ -9754,8 +10367,9 @@ function Game(){
                 <div className="text-[11px] text-zinc-500">{sk.desc} · MP {sk.mp}{cur>0&&sk.mult>0?` · 현재 배율 ${Math.round(sk.mult*(1+0.12*(cur-1))*100)}%`:""}</div>
               </div>
               <div className="flex gap-1.5 items-center">
+                {cur>0&&<button onClick={()=>toggleLoadout(id)} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.loadout.includes(id)?"bg-indigo-700 font-bold":"bg-zinc-700")}>{s.loadout.includes(id)?"장착중":"장착"}</button>}
                 {cur>0&&sk.mult>0&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}}
-                  className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-zinc-700")}>{s.autoSkill===id?"자동 사용중":"자동 지정"}</button>}
+                  className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-zinc-700")}>{s.autoSkill===id?"자동✓":"자동"}</button>}
                 <button onClick={()=>learnSkill(id)} disabled={locked||cur>=10||s.skp<1}
                   className="btn px-3 py-1.5 rounded-lg bg-indigo-800 text-xs font-bold">{cur===0?"습득 (1P)":cur>=10?"MAX":"강화 (1P)"}</button>
               </div>
@@ -9880,7 +10494,7 @@ function Game(){
           </div>
           <div className="panel p-4">
             <div className="text-xs font-bold text-zinc-300 mb-2">🎽 장착 장비</div>
-            {["weapon","armor","acc"].map(slot=>(
+            {SLOTS.map(slot=>(
               <div key={slot} className="flex items-center justify-between py-1 border-b border-zinc-800/60 last:border-0">
                 <span className="text-[11px] text-zinc-500 w-14">{SLOT_NAME[slot]}</span>
                 {s.equip[slot]?(
@@ -9936,7 +10550,7 @@ function Game(){
   /* ================= 화면: 광장 & 결투 ================= */
   const renderDuel=(s,st)=>{
     const P=plaza.current, du=P.duel;
-    const learned=Object.keys(s.skills).filter(id=>s.skills[id]>0);
+    const learned=loadoutSkills(s);
     const canTimeout=!du.myTurn&&!du.over&&Date.now()-du.lastAct>30000;
     const meIcon=s.hcls?HID[s.hcls].icon:CLS[s.cls].icon;
     return (
@@ -9992,9 +10606,93 @@ function Game(){
     );
   };
 
+  const renderRaid=(s,st)=>{
+    const P=plaza.current, rd=P.raid, B=RAID_MAP[rd.bossId];
+    const isHost=rd.role==="host";
+    const mems=isHost?Object.values(rd.members):rd.members;
+    const myHp=isHost?(rd.members[s.nick]?rd.members[s.nick].hp:0):rd.myHp;
+    const myMax=isHost?(rd.members[s.nick]?rd.members[s.nick].maxHp:1):rd.myMaxHp;
+    const myDead=isHost?(rd.members[s.nick]?rd.members[s.nick].dead:false):rd.myDead;
+    const myActed=isHost?(rd.members[s.nick]?rd.members[s.nick].acted:false):rd.myActed;
+    const learned=loadoutSkills(s);
+    const leftSec=rd.phase==="fight"&&isHost?Math.max(0,25-Math.floor((Date.now()-rd.roundStart)/1000)):null;
+    return (
+      <div className="space-y-3">
+        <div className="text-center text-sm font-black text-red-300 pop">
+          {B.icon} {B.name} — {rd.phase==="lobby"?"파티 모집 중":rd.phase==="fight"?`라운드 ${rd.round}/${B.rounds}`:rd.phase==="win"?"토벌 성공!":"토벌 실패"}
+        </div>
+        {rd.phase!=="lobby"&&(
+          <div className="panel p-4">
+            <div className="flex justify-between items-center text-sm font-bold">
+              <span>{B.icon} {B.name} {rd.enraged&&<span className="chip pop" style={{background:"rgba(239,68,68,.2)",color:"#fca5a5"}}>😡 격노</span>}</span>
+              <span className="text-zinc-400">{fmt(Math.max(0,rd.bossHp))}/{fmt(rd.bossMax)}</span>
+            </div>
+            <div className="mt-1.5">{Bar(rd.bossHp,rd.bossMax,"linear-gradient(90deg,#dc2626,#7f1d1d)",14)}</div>
+            {leftSec!==null&&<div className="text-[10px] text-zinc-500 mt-1">라운드 자동 진행까지 {leftSec}초 (전원 행동 시 즉시)</div>}
+          </div>
+        )}
+        <div className="grid md:grid-cols-2 gap-2">
+          {mems.map(m=>(
+            <div key={m.nick} className={"panel p-3 "+(m.dead?"opacity-50":"")}>
+              <div className="flex justify-between text-xs font-bold">
+                <span>{m.icon} {m.nick} {m.nick===s.nick&&<span className="text-[9px] text-cyan-400">(나)</span>} {m.dead&&"💀"}</span>
+                <span className="text-zinc-500">{fmt(Math.max(0,Math.round(m.hp)))}/{fmt(m.maxHp)}</span>
+              </div>
+              <div className="mt-1">{Bar(m.hp,m.maxHp,"linear-gradient(90deg,#16a34a,#166534)",8)}</div>
+              {rd.phase==="fight"&&<div className="text-[9px] text-zinc-500 mt-1">이번 라운드 {fmt(m.dmg||0)} · 누적 {fmt(m.total||0)}{m.acted?" ✓":""}</div>}
+            </div>
+          ))}
+        </div>
+        {rd.phase==="lobby"&&(
+          <div className="panel p-4 text-center space-y-2">
+            <div className="text-xs text-zinc-400">{B.d}</div>
+            <div className="text-[11px] text-zinc-500">HP {fmt(B.hp)} × 인원수 · 공격 {fmt(B.atk)} · {B.rounds}라운드 제한 · 참가비 🎟️1</div>
+            {isHost?(
+              <div className="flex gap-2 justify-center">
+                <button onClick={startRaid} className="btn px-6 py-2.5 rounded-lg bg-red-800 text-sm font-bold">⚔️ 레이드 시작 ({mems.length}인)</button>
+                <button onClick={leaveRaid} className="btn px-4 py-2.5 rounded-lg bg-zinc-700 text-sm">해산</button>
+              </div>
+            ):(
+              <div>
+                <div className="text-xs text-amber-300 mb-2">호스트가 시작하길 기다리는 중…</div>
+                <button onClick={leaveRaid} className="btn px-4 py-2 rounded-lg bg-zinc-700 text-xs">파티 나가기</button>
+              </div>
+            )}
+          </div>
+        )}
+        {rd.phase==="fight"&&(
+          <div className="panel p-3">
+            <div className="flex flex-wrap gap-2">
+              <button onClick={()=>raidAct(null)} disabled={myDead||myActed} className="btn px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-bold">⚔️ 공격</button>
+              {learned.map(id=>{
+                const sk=SKILLS[id];
+                return <button key={id} onClick={()=>raidAct(id)} disabled={myDead||myActed||rd.myMp<sk.mp}
+                  className="btn px-3 py-2 rounded-lg bg-indigo-800 text-white text-xs font-bold">{sk.icon} {sk.name} <span className="text-indigo-300">MP{fmt(sk.mp)}</span></button>;
+              })}
+            </div>
+            <div className="text-[10px] text-zinc-500 mt-2">내 MP {fmt(Math.max(0,Math.round(rd.myMp)))} · {myDead?"쓰러져서 행동 불가":myActed?"행동 완료 — 다른 파티원 대기 중":"이번 라운드 행동을 선택하세요"}</div>
+          </div>
+        )}
+        {(rd.phase==="win"||rd.phase==="fail")&&(
+          <div className="panel p-4 text-center pop">
+            <div className="text-4xl mb-1">{rd.phase==="win"?"🏆":"💀"}</div>
+            <div className="text-sm font-bold mb-2">{rd.phase==="win"?"토벌 성공! 보상이 지급되었습니다.":"토벌 실패… 재도전해 보세요."}</div>
+            <button onClick={leaveRaid} className="btn px-5 py-2 rounded-lg bg-cyan-800 text-sm font-bold">광장으로 돌아가기</button>
+          </div>
+        )}
+        <div className="panel p-3 h-40 overflow-y-auto text-[12px] leading-relaxed">
+          {rd.log.map(l=>(
+            <div key={l.id} className={l.c==="r"?"text-red-400":l.c==="g"?"text-emerald-300":l.c==="c"?"text-yellow-300 font-bold":l.c==="d"?"text-amber-300":"text-zinc-300"}>{l.t}</div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderPlaza=(s,st)=>{
     const P=plaza.current;
     if(P.duel)return renderDuel(s,st);
+    if(P.raid)return renderRaid(s,st);
     return (
       <div className="space-y-3">
         {!P.room?(
@@ -10016,6 +10714,35 @@ function Game(){
                 </div>
               </div>
             )}
+            <div className="panel p-3">
+              <div className="text-xs font-bold text-red-300 mb-2">👹 파티 레이드 — 최대 4인 협동 (입장권 🎟️1 · 승리 시 신화 장비 + 전설 룬 + 대량 경험치)</div>
+              {Object.values(P.parties).length>0&&(
+                <div className="space-y-1.5 mb-2">
+                  {Object.values(P.parties).map(ad=>{
+                    const B=RAID_MAP[ad.bossId]; if(!B)return null;
+                    return (
+                      <div key={ad.rid} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 pop">
+                        <span className="text-xs"><b>{ad.host}</b>의 파티 — {B.icon} {B.name} <span className="text-zinc-500">({ad.n}/4 · Lv.{B.lv}+)</span></span>
+                        <button onClick={()=>joinRaidParty(ad)} className="btn px-3 py-1 rounded-lg bg-red-800 text-[11px] font-bold">참가</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {RAIDS.map(B=>{
+                  const locked=s.lv<B.lv;
+                  return (
+                    <div key={B.id} className={"panel p-2.5 "+(locked?"opacity-55":"")}>
+                      <div className="text-xs font-bold">{B.icon} {B.name}</div>
+                      <div className="text-[9px] text-zinc-500 mt-0.5">HP {fmt(B.hp)}×인원 · Lv.{B.lv}+ · {B.rounds}라운드</div>
+                      <button onClick={()=>openRaid(B.id)} disabled={locked}
+                        className="btn w-full mt-1.5 py-1 rounded-lg bg-red-900 text-[10px] font-bold">{locked?`🔒 Lv.${B.lv}`:"파티 모집"}</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <div className="grid md:grid-cols-2 gap-3">
               <div className="panel p-3">
                 <div className="flex justify-between items-center mb-2">
@@ -10126,10 +10853,33 @@ function Game(){
 
   return (
     <div>
+      {cine&&<CineFx c={cine}/>}
       {toast&&<div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-black/85 border border-amber-400/40 text-amber-200 text-xs font-bold pop">{toast}</div>}
       {scr.current==="login"&&renderLogin()}
       {scr.current==="create"&&renderCreate()}
       {scr.current==="game"&&S.current&&renderGame()}
+    </div>
+  );
+}
+
+/* ===== 전설 스킬 컷씬 오버레이 — 레터박스·광선·충격파·입자 연출 ===== */
+function CineFx({c}){
+  return (
+    <div className="cine" style={{"--cc":c.col}} key={c.key}>
+      <div className="cine-dim"/>
+      <div className="cine-rays"/>
+      <div className="cine-sweep"/>
+      <div className="cine-flash"/>
+      <div className="cine-bar t"/><div className="cine-bar b"/>
+      <div className="cine-ring"/>
+      <div className="cine-ring" style={{animationDelay:".55s"}}/>
+      {Array.from({length:22}).map((_,i)=>{
+        const a=(i/22)*Math.PI*2, d=26+(i%5)*7;
+        return <span key={i} className="cine-p" style={{width:5+(i%4)*4,height:5+(i%4)*4,animationDelay:(0.26+i*0.02)+"s","--dx":Math.cos(a)*d+"vmin","--dy":Math.sin(a)*d+"vmin"}}/>;
+      })}
+      <div className="cine-icon">{c.icon}</div>
+      <div className="cine-name">{c.name}</div>
+      <div className="cine-sub">LEGENDARY ARTS</div>
     </div>
   );
 }
@@ -10164,7 +10914,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Game
 
 def abyss_rpg_page():
     st.title("🩸 나락의 심연 — 하드코어 RPG")
-    st.caption("초장기 파밍 RPG! 자동저장 · 맵 56곳(10개 지역) · 몬스터 47종 · 히든 직업 56종 · 히든 퀘스트 54종 · 던전 30종 · 보스 35종 · 신화 장비 · 🌐 온라인 광장(접속자·채팅·1:1 PvP 결투)")
+    st.caption("초장기 파밍 RPG! 기본 직업 13종 · 직업당 스킬 500+전설 5(컷씬) · 3개 월드 86맵(Lv150/500 게이트) · 장비 5부위 · 히든 직업 56종 · 던전 30·보스 35 · 🌐 온라인 광장(채팅·PvP·최대 4인 파티 레이드) · 자동저장")
     components.html(ABYSS_RPG_HTML, height=920, scrolling=True)
 
 
