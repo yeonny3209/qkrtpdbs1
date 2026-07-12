@@ -8079,6 +8079,58 @@ ABYSS_RPG_HTML = r'''<!DOCTYPE html>
   @keyframes cineP{0%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(.15)}}
   .cine-sweep{position:absolute;inset:-20%;background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.14) 50%,transparent 58%);transform:translateX(-120%);animation:cineSw 2.6s ease forwards;z-index:2;}
   @keyframes cineSw{0%,26%{transform:translateX(-120%)}44%{transform:translateX(120%)}100%{transform:translateX(120%)}}
+  /* ===== 히든 스킬 울트라 컷씬 (4.4초 · 전설의 상위 연출) ===== */
+  .ucine{position:fixed;inset:0;z-index:95;overflow:hidden;pointer-events:none;animation:uShake 4.4s linear forwards;}
+  @keyframes uShake{0%,17%{transform:translate(0,0)}18%{transform:translate(-9px,6px)}19%{transform:translate(8px,-7px)}20%{transform:translate(-6px,-5px)}21%{transform:translate(5px,4px)}22%{transform:translate(0,0)}54%{transform:translate(0,0)}55%{transform:translate(-5px,4px)}56%{transform:translate(4px,-4px)}57%{transform:translate(0,0)}100%{transform:translate(0,0)}}
+  .u-dim{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(8,4,14,.6) 0%,rgba(0,0,0,.97) 72%);animation:uDim 4.4s ease forwards;}
+  @keyframes uDim{0%{opacity:0}6%{opacity:1}88%{opacity:1}100%{opacity:0}}
+  .u-bar{position:absolute;left:0;right:0;height:14vh;background:#000;z-index:6;border-bottom:1px solid var(--cc);}
+  .u-bar.t{top:0;animation:uBT 4.4s cubic-bezier(.2,.9,.3,1) forwards;}
+  .u-bar.b{bottom:0;border-bottom:none;border-top:1px solid var(--cc);animation:uBB 4.4s cubic-bezier(.2,.9,.3,1) forwards;}
+  @keyframes uBT{0%{transform:translateY(-100%)}5%{transform:translateY(0)}90%{transform:translateY(0)}100%{transform:translateY(-100%)}}
+  @keyframes uBB{0%{transform:translateY(100%)}5%{transform:translateY(0)}90%{transform:translateY(0)}100%{transform:translateY(100%)}}
+  .u-circle{position:absolute;left:50%;top:42%;width:64vmin;height:64vmin;border:2px dashed var(--cc);border-radius:50%;opacity:0;animation:uCir 4.4s linear forwards;box-shadow:0 0 30px var(--cc),inset 0 0 30px rgba(255,255,255,.06);}
+  .u-circle.c2{width:46vmin;height:46vmin;border-style:dotted;animation:uCir2 4.4s linear forwards;}
+  @keyframes uCir{0%,4%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(1.6)}12%{opacity:.8;transform:translate(-50%,-50%) rotate(40deg) scale(1)}80%{opacity:.5;transform:translate(-50%,-50%) rotate(300deg) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) rotate(360deg) scale(1.15)}}
+  @keyframes uCir2{0%,4%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.4)}12%{opacity:.9;transform:translate(-50%,-50%) rotate(-50deg) scale(1)}80%{opacity:.55;transform:translate(-50%,-50%) rotate(-320deg) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) rotate(-380deg) scale(.85)}}
+  .u-pillar{position:absolute;bottom:0;top:0;width:7vmin;background:linear-gradient(180deg,transparent,var(--cc) 45%,transparent);opacity:0;filter:blur(6px);animation:uPil 4.4s ease forwards;}
+  @keyframes uPil{0%,8%{opacity:0;transform:translateY(60%) scaleY(.3)}16%{opacity:.5;transform:translateY(0) scaleY(1)}78%{opacity:.28}100%{opacity:0;transform:translateY(-30%)}}
+  .u-rays{position:absolute;left:50%;top:42%;width:220vmax;height:220vmax;transform:translate(-50%,-50%);background:repeating-conic-gradient(from 0deg,transparent 0deg 6deg,var(--cc) 6deg 7deg,transparent 7deg 13deg);opacity:0;animation:uRay 4.4s ease forwards;filter:blur(1px);}
+  @keyframes uRay{0%,7%{opacity:0;transform:translate(-50%,-50%) rotate(0) scale(.35)}16%{opacity:.2}82%{opacity:.14;transform:translate(-50%,-50%) rotate(55deg) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) rotate(70deg) scale(1.1)}}
+  .u-ring{position:absolute;left:50%;top:42%;width:22vmin;height:22vmin;border:4px solid var(--cc);border-radius:50%;transform:translate(-50%,-50%);opacity:0;animation:uRing 1.15s ease-out forwards;box-shadow:0 0 50px var(--cc);z-index:4;}
+  @keyframes uRing{0%{opacity:1;transform:translate(-50%,-50%) scale(.15)}100%{opacity:0;transform:translate(-50%,-50%) scale(7)}}
+  .u-icon{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:21vmin;z-index:5;opacity:0;animation:uIc 4.4s cubic-bezier(.16,1,.3,1) forwards;filter:drop-shadow(0 0 8vmin var(--cc)) drop-shadow(0 0 2vmin #fff);}
+  @keyframes uIc{0%,6%{opacity:0;transform:translate(-50%,-50%) scale(9) rotate(-20deg)}16%{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(0)}19%{transform:translate(-47%,-53%) scale(1.16)}22%{transform:translate(-53%,-48%) scale(1.05)}25%{transform:translate(-50%,-50%) scale(1.1)}52%{transform:translate(-50%,-50%) scale(1.1)}56%{transform:translate(-50%,-50%) scale(1.22)}60%{transform:translate(-50%,-50%) scale(1.12)}84%{opacity:1;transform:translate(-50%,-50%) scale(1.16)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.45)}}
+  .u-echo{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:21vmin;z-index:4;opacity:0;animation:uEcho 1.4s ease-out forwards;filter:blur(2px);}
+  @keyframes uEcho{0%,38%{opacity:0;transform:translate(-50%,-50%) scale(1)}48%{opacity:.4}100%{opacity:0;transform:translate(-50%,-50%) scale(2.1)}}
+  .u-cname{position:absolute;left:0;right:0;top:60.5%;text-align:center;z-index:6;font-size:2.2vmin;letter-spacing:.9em;padding-left:.9em;color:var(--cc);opacity:0;animation:uCn 4.4s ease forwards;font-weight:800;text-shadow:0 0 14px var(--cc);}
+  @keyframes uCn{0%,20%{opacity:0;transform:translateY(10px)}28%{opacity:.95;transform:translateY(0)}84%{opacity:.95}100%{opacity:0}}
+  .u-name{position:absolute;left:0;right:0;top:64%;text-align:center;z-index:6;font-size:8vmin;font-weight:900;}
+  .u-ch{display:inline-block;opacity:0;background:linear-gradient(180deg,#fff 15%,var(--cc) 70%,#fff);-webkit-background-clip:text;background-clip:text;color:transparent;animation:uCh 3.2s ease forwards;filter:drop-shadow(0 0 20px var(--cc));letter-spacing:.12em;}
+  @keyframes uCh{0%{opacity:0;transform:translateY(34px) rotate(8deg) scale(1.6)}14%{opacity:1;transform:translateY(0) rotate(0) scale(1)}86%{opacity:1}100%{opacity:0;transform:translateY(-12px)}}
+  .u-sub{position:absolute;left:0;right:0;top:77%;text-align:center;z-index:6;font-size:1.9vmin;letter-spacing:1.4em;padding-left:1.4em;color:rgba(255,255,255,.6);opacity:0;animation:uSb 4.4s ease forwards;font-weight:700;}
+  @keyframes uSb{0%,30%{opacity:0}40%{opacity:1}84%{opacity:1}100%{opacity:0}}
+  .u-p{position:absolute;left:50%;top:42%;border-radius:50%;background:var(--cc);z-index:4;opacity:0;box-shadow:0 0 14px var(--cc);}
+  .u-p.out{animation:uPo 1.9s ease-out forwards;}
+  @keyframes uPo{0%{opacity:1;transform:translate(-50%,-50%) scale(1.1)}100%{opacity:0;transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(.1)}}
+  .u-p.inn{animation:uPi 1.1s ease-in forwards;}
+  @keyframes uPi{0%{opacity:0;transform:translate(calc(-50% + var(--dx)),calc(-50% + var(--dy))) scale(.2)}25%{opacity:.9}100%{opacity:0;transform:translate(-50%,-50%) scale(1.2)}}
+  .u-flash{position:absolute;inset:0;background:#fff;opacity:0;animation:uFl 4.4s linear forwards;z-index:3;}
+  @keyframes uFl{0%,14%{opacity:0}16%{opacity:1}24%{opacity:0}53%{opacity:0}55%{opacity:.7}61%{opacity:0}86%{opacity:0}90%{opacity:.9}100%{opacity:0}}
+  .u-sweep{position:absolute;inset:-20%;background:linear-gradient(100deg,transparent 40%,rgba(255,255,255,.2) 50%,transparent 60%);transform:translateX(-130%);animation:uSw 4.4s ease forwards;z-index:3;}
+  @keyframes uSw{0%,30%{transform:translateX(-130%)}52%{transform:translateX(130%)}100%{transform:translateX(130%)}}
+  /* ===== 전투 공격 모션 ===== */
+  .atk-layer{position:absolute;inset:-14px;pointer-events:none;z-index:20;}
+  .fx-slash{position:absolute;left:-25%;top:46%;width:150%;height:5px;border-radius:6px;background:linear-gradient(90deg,transparent,#fff,#ffe28a,transparent);box-shadow:0 0 12px #ffd76a;opacity:0;animation:fxSlash .34s ease-out forwards;}
+  @keyframes fxSlash{0%{opacity:0;transform:rotate(-28deg) translateX(-45%) scaleX(.25)}22%{opacity:1}100%{opacity:0;transform:rotate(-28deg) translateX(45%) scaleX(1.15)}}
+  .fx-impact{position:absolute;left:50%;top:50%;width:16px;height:16px;border:3px solid #ffd76a;border-radius:50%;transform:translate(-50%,-50%);opacity:0;animation:fxImpact .42s ease-out forwards;}
+  @keyframes fxImpact{0%{opacity:1;transform:translate(-50%,-50%) scale(.3)}100%{opacity:0;transform:translate(-50%,-50%) scale(3.4)}}
+  .fx-burst{position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;background:radial-gradient(circle,rgba(255,225,130,.95),rgba(255,120,60,.4) 55%,transparent 72%);transform:translate(-50%,-50%);opacity:0;animation:fxBurst .48s ease-out forwards;}
+  @keyframes fxBurst{0%{opacity:1;transform:translate(-50%,-50%) scale(.2)}100%{opacity:0;transform:translate(-50%,-50%) scale(2.6)}}
+  .lunge{animation:lunge .42s ease;}
+  @keyframes lunge{0%{transform:translateX(0)}38%{transform:translateX(-15px) scale(1.1)}100%{transform:translateX(0)}}
+  .hurt-flash{position:fixed;inset:0;pointer-events:none;z-index:45;background:radial-gradient(ellipse at center,transparent 52%,rgba(220,38,38,.4));animation:hurtF .5s ease-out forwards;}
+  @keyframes hurtF{0%{opacity:1}100%{opacity:0}}
   input{outline:none;}
   ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#4a3a30;border-radius:8px}::-webkit-scrollbar-track{background:#17131a}
 </style>
@@ -8165,12 +8217,12 @@ const SKILLS={
   assassinate:{name:"암살",icon:"🌑",cls:"thief",lv:32,mp:36,mult:3.5,fx:{gcrit:1},desc:"350% 확정 치명타"},
   deathBlow:{name:"절명",icon:"☠️",cls:"thief",lv:36,mp:44,mult:3.0,fx:{exec:{below:.25,mult:3}},desc:"300% 피해, 적 HP 25% 미만 시 900%"},
   /* --- 히든 직업 (각 2) --- */
-  dragonBreath:{name:"용의 숨결",icon:"🐲",cls:"dragonKnight",lv:20,mp:36,mult:4.4,desc:"[히든] 440% 용염 피해"},
-  dragonHeart:{name:"드래곤 하트",icon:"❤️‍🔥",cls:"dragonKnight",lv:30,mp:42,mult:0,fx:{selfHeal:.5,atkB:{v:.5,t:3}},desc:"[히든] HP 50% 회복 + 공격력 +50% (3턴)"},
-  soulDrain:{name:"영혼 흡수",icon:"💀",cls:"darkMage",lv:20,mp:32,mult:3.4,fx:{heal:.35},desc:"[히든] 340% 피해 + 35% 흡혈"},
-  deathSentence:{name:"죽음의 선고",icon:"⚱️",cls:"darkMage",lv:30,mp:48,mult:6.0,desc:"[히든] 600% 죽음의 선고"},
-  silentKill:{name:"침묵의 암살",icon:"🌑",cls:"assassin",lv:20,mp:30,mult:3.2,fx:{gcrit:1,critdB:80},desc:"[히든] 320% 확정 치명타 + 치피 +80%"},
-  shadowClones:{name:"그림자 분신",icon:"👥",cls:"assassin",lv:30,mp:46,mult:.9,hits:4,fx:{gcrit:1},desc:"[히든] 90% × 4연격, 전부 확정 치명타"},
+  dragonBreath:{name:"용의 숨결",icon:"🐲",cls:"dragonKnight",lv:20,mp:36,mult:4.4,cine:"ultra",desc:"[히든] 440% 용염 피해"},
+  dragonHeart:{name:"드래곤 하트",icon:"❤️‍🔥",cls:"dragonKnight",lv:30,mp:42,mult:0,cine:"ultra",fx:{selfHeal:.5,atkB:{v:.5,t:3}},desc:"[히든] HP 50% 회복 + 공격력 +50% (3턴)"},
+  soulDrain:{name:"영혼 흡수",icon:"💀",cls:"darkMage",lv:20,mp:32,mult:3.4,cine:"ultra",fx:{heal:.35},desc:"[히든] 340% 피해 + 35% 흡혈"},
+  deathSentence:{name:"죽음의 선고",icon:"⚱️",cls:"darkMage",lv:30,mp:48,mult:6.0,cine:"ultra",desc:"[히든] 600% 죽음의 선고"},
+  silentKill:{name:"침묵의 암살",icon:"🌑",cls:"assassin",lv:20,mp:30,mult:3.2,cine:"ultra",fx:{gcrit:1,critdB:80},desc:"[히든] 320% 확정 치명타 + 치피 +80%"},
+  shadowClones:{name:"그림자 분신",icon:"👥",cls:"assassin",lv:30,mp:46,mult:.9,hits:4,cine:"ultra",fx:{gcrit:1},desc:"[히든] 90% × 4연격, 전부 확정 치명타"},
 };
 
 /* ===================== 히든 직업 확장 (총 53종) =====================
@@ -8247,10 +8299,14 @@ const HROWS=[
  ["legendH","any","살아있는 전설","🏆",5,"누적 10,000마리 처치",(s,st)=>s.killTotal>=10000,"전설의 일격","✨","critd"],
  ["collector","any","수집왕","📦",2,"장비 15개 + 룬 20개 보유",(s,st)=>s.inv.length>=15&&s.runes.length>=20,"수집품 투척","🎁","hits3"],
 ];
+const HID_CINE_COL={dragonKnight:"#fb7185",darkMage:"#a78bfa",assassin:"#94a3b8"};
+const HPAL=["#f87171","#fb923c","#facc15","#4ade80","#22d3ee","#818cf8","#c084fc","#f472b6","#a3e635","#2dd4bf"];
+let _hidx=0;
 for(const [id,base,name,icon,t,need,check,sn,si,fk] of HROWS){
   const f=HFX[fk], skid="hs_"+id;
+  HID_CINE_COL[id]=HPAL[_hidx++%HPAL.length];
   let mu=+(2.6+0.55*t).toFixed(2); if(f.hits)mu=+(mu*0.5).toFixed(2);
-  SKILLS[skid]={name:sn,icon:si,cls:id,lv:20,mp:28+4*t,mult:mu,hits:f.hits||1,fx:f.fx||{},
+  SKILLS[skid]={name:sn,icon:si,cls:id,lv:20,mp:28+4*t,mult:mu,hits:f.hits||1,fx:f.fx||{},cine:"ultra",
     desc:`[히든] ${Math.round(mu*100)}%${f.hits?" × "+f.hits+"연격":""} 피해 · ${f.d}`};
   HID[id]={name,icon,base,need,check,mult:{atk:+(1.15+0.09*t).toFixed(2),hp:+(1.1+0.06*t).toFixed(2),def:+(1.05+0.05*t).toFixed(2),mp:+(1.05+0.07*t).toFixed(2),critF:2*t-2,critdF:10*t},skill:skid};
 }
@@ -8855,6 +8911,9 @@ function Game(){
   const fx=useRef([]);               // 데미지 플로트 [{id,txt,col,x,born}]
   const fxSeq=useRef(1);
   const shakeK=useRef(0);            // 몬스터 피격 흔들림 키
+  const atkFx=useRef(null);          // 공격 모션 {kind,n,key}
+  const monLunge=useRef(0);          // 몬스터 돌진 모션 키
+  const hurtK=useRef(0);             // 플레이어 피격 비네트 키
   const dgSel=useRef(null);          // 선택한 던전 id (UI)
   const [,bump]=useReducer(x=>x+1,0);
   const [nick,setNick]=useState(""),[pw,setPw]=useState(""),[err,setErr]=useState("");
@@ -8862,8 +8921,11 @@ function Game(){
   const [cine,setCine]=useState(null);          // 전설 스킬 컷씬
   const cineT=useRef(null);
   const playCine=(sk)=>{ clearTimeout(cineT.current);
-    setCine({icon:sk.icon,name:sk.name,col:CINE_COL[sk.cls]||"#f59e0b",key:Date.now()});
-    cineT.current=setTimeout(()=>setCine(null),2600); };
+    const ultra=sk.cine==="ultra";
+    setCine({icon:sk.icon,name:sk.name,key:Date.now(),ultra,
+      col:ultra?(HID_CINE_COL[sk.cls]||"#e879f9"):(CINE_COL[sk.cls]||"#f59e0b"),
+      cname:ultra&&HID[sk.cls]?HID[sk.cls].name:null});
+    cineT.current=setTimeout(()=>setCine(null),ultra?4400:2600); };
   /* 로드아웃 항목 → 실제 스킬 id (계열은 현재 랭크로 해석) */
   const resolveEntry=(s,e)=>{ if(FAMS[e]){ const r=s.skills[e]||0; return r>0?e+"_"+Math.min(r,50):null; } return (s.skills[e]||0)>0?e:null; };
   const loadoutSkills=(s)=>s.loadout.map(e=>resolveEntry(s,e)).filter(id=>id&&SKILLS[id]);
@@ -9046,6 +9108,7 @@ function Game(){
       if(dodge>0&&R()<dodge){ log(`💨 ${mon.tpl.name}의 공격을 회피!`,"g"); continue; }
       const raw=Math.max(1,Math.round((atkEff-defEff)*(0.85+R()*0.3)));
       const dealt=hurtPlayer(raw);
+      monLunge.current=Date.now(); hurtK.current=Date.now();
       log(`🩸 ${mon.tpl.name}의 공격! -${fmt(raw)}`,"r");
       if(dealt>0&&mech.includes("lifesteal")){ const h=Math.round(dealt*0.3); mon.hp=Math.min(mon.maxHp,mon.hp+h); }
       if(mech.includes("burn")&&R()<0.35){ c.pdots=c.pdots.filter(d=>d.k!=="burn"); c.pdots.push({k:"burn",dmg:Math.round(atkEff*0.5),t:3}); log("🔥 화상에 걸렸다! (3턴)","r"); }
@@ -9131,6 +9194,7 @@ function Game(){
       }
       if(c.pstun)c.pstun=false;
       shakeK.current++;
+      atkFx.current={kind:usedSkill?(hits>1?"multi":"burst"):"slash",n:Math.min(hits,3),key:Date.now()+R()};
       log(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${anyCrit?"치명타! ":""}${hits>1?hits+"연격! ":""}${mon.tpl.name}에게 ${fmt(total)} 피해`,anyCrit?"c":"");
       if(dmod==="thorn"&&total>0&&s.hp>0){ const th=Math.max(1,Math.round(total*0.12)); hurtPlayer(th); log(`🌵 가시 반사 -${fmt(th)}`,"r"); }
       if(sfx.heal&&total>0){ s.hp=Math.min(st.hp,s.hp+Math.round(total*sfx.heal)); }
@@ -10047,7 +10111,19 @@ function Game(){
           <div className="panel p-4">
             <div className="flex items-center gap-4">
               <div className="relative" style={{width:56}}>
-                <div key={shakeK.current} className={"text-5xl "+(shakeK.current>0?"shake":"")}>{mon.tpl.icon}</div>
+                <div key={"lg"+monLunge.current} className={monLunge.current>0?"lunge":""}>
+                  <div key={"sk"+shakeK.current} className={"text-5xl "+(shakeK.current>0?"shake":"")}>{mon.tpl.icon}</div>
+                </div>
+                {atkFx.current&&(
+                  <div key={"af"+atkFx.current.key} className="atk-layer">
+                    {atkFx.current.kind==="slash"&&<div className="fx-slash"/>}
+                    {atkFx.current.kind==="multi"&&Array.from({length:atkFx.current.n}).map((_,i)=>(
+                      <div key={i} className="fx-slash" style={{animationDelay:(i*0.11)+"s",transform:"rotate("+(-28+i*26)+"deg)"}}/>
+                    ))}
+                    {atkFx.current.kind==="burst"&&<div className="fx-burst"/>}
+                    <div className="fx-impact"/>
+                  </div>
+                )}
                 {fx.current.map(f=>(
                   <span key={f.id} className="dfloat text-sm" style={{color:f.col,left:(f.x-16)+"px",top:"-8px"}}>{f.txt}</span>
                 ))}
@@ -10854,6 +10930,7 @@ function Game(){
   return (
     <div>
       {cine&&<CineFx c={cine}/>}
+      {hurtK.current>0&&scr.current==="game"&&<div key={"hf"+hurtK.current} className="hurt-flash"/>}
       {toast&&<div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-black/85 border border-amber-400/40 text-amber-200 text-xs font-bold pop">{toast}</div>}
       {scr.current==="login"&&renderLogin()}
       {scr.current==="create"&&renderCreate()}
@@ -10864,6 +10941,37 @@ function Game(){
 
 /* ===== 전설 스킬 컷씬 오버레이 — 레터박스·광선·충격파·입자 연출 ===== */
 function CineFx({c}){
+  if(c.ultra){
+    return (
+      <div className="ucine" style={{"--cc":c.col}} key={c.key}>
+        <div className="u-dim"/>
+        <div className="u-rays"/>
+        <div className="u-sweep"/>
+        <div className="u-flash"/>
+        <div className="u-bar t"/><div className="u-bar b"/>
+        {[14,32,50,68,86].map((x,i)=><div key={"pl"+i} className="u-pillar" style={{left:x+"%",animationDelay:(i*0.08)+"s"}}/>)}
+        <div className="u-circle"/>
+        <div className="u-circle c2"/>
+        <div className="u-ring" style={{animationDelay:".62s"}}/>
+        <div className="u-ring" style={{animationDelay:".92s"}}/>
+        <div className="u-ring" style={{animationDelay:"2.3s"}}/>
+        {Array.from({length:12}).map((_,i)=>{
+          const a=(i/12)*Math.PI*2, d=40+(i%3)*8;
+          return <span key={"pi"+i} className="u-p inn" style={{width:6,height:6,animationDelay:(i*0.015)+"s","--dx":Math.cos(a)*d+"vmin","--dy":Math.sin(a)*d+"vmin"}}/>;
+        })}
+        {Array.from({length:36}).map((_,i)=>{
+          const a=(i/36)*Math.PI*2, d=30+(i%6)*8;
+          return <span key={"po"+i} className="u-p out" style={{width:5+(i%4)*5,height:5+(i%4)*5,animationDelay:(0.68+i*0.014)+"s","--dx":Math.cos(a)*d+"vmin","--dy":Math.sin(a)*d+"vmin"}}/>;
+        })}
+        <span className="u-echo">{c.icon}</span>
+        <span className="u-echo" style={{animationDelay:".5s"}}>{c.icon}</span>
+        <div className="u-icon">{c.icon}</div>
+        {c.cname&&<div className="u-cname">— {c.cname} 비전(祕傳) —</div>}
+        <div className="u-name">{c.name.split("").map((ch,i)=><span key={i} className="u-ch" style={{animationDelay:(0.95+i*0.075)+"s"}}>{ch===" "?"\u00A0":ch}</span>)}</div>
+        <div className="u-sub">HIDDEN ARTS</div>
+      </div>
+    );
+  }
   return (
     <div className="cine" style={{"--cc":c.col}} key={c.key}>
       <div className="cine-dim"/>
@@ -10914,7 +11022,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Game
 
 def abyss_rpg_page():
     st.title("🩸 나락의 심연 — 하드코어 RPG")
-    st.caption("초장기 파밍 RPG! 기본 직업 13종 · 직업당 스킬 500+전설 5(컷씬) · 3개 월드 86맵(Lv150/500 게이트) · 장비 5부위 · 히든 직업 56종 · 던전 30·보스 35 · 🌐 온라인 광장(채팅·PvP·최대 4인 파티 레이드) · 자동저장")
+    st.caption("초장기 파밍 RPG! 기본 직업 13종 · 직업당 스킬 500+전설 5(컷씬)+히든 비전 컷씬·공격 모션 · 3개 월드 86맵(Lv150/500 게이트) · 장비 5부위 · 히든 직업 56종 · 던전 30·보스 35 · 🌐 온라인 광장(채팅·PvP·최대 4인 파티 레이드) · 자동저장")
     components.html(ABYSS_RPG_HTML, height=920, scrolling=True)
 
 
