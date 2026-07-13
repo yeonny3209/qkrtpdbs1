@@ -11095,6 +11095,7 @@ const FMT_U=["","K","M","B","T","Q"];
 const fmt=n=>{ n=Math.floor(n); if(!isFinite(n))return "∞"; if(n<1e4)return n.toLocaleString();
   let u=0,v=n; while(v>=1000&&u<FMT_U.length-1){v/=1000;u++;}
   return (v>=100?v.toFixed(1):v.toFixed(2))+FMT_U[u]; };
+const hashPw=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);};
 const KEY="ynd_mmo_sav_v1";
 const needXp=lv=>Math.floor(50*Math.pow(1.42,lv-1));
 
