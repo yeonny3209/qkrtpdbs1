@@ -11070,16 +11070,25 @@ MMO_HTML = r'''<!DOCTYPE html>
   @keyframes fxImpact{0%{opacity:1;transform:translate(-50%,-50%) scale(.3)}100%{opacity:0;transform:translate(-50%,-50%) scale(3.4)}}
   .fx-burst{position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;background:radial-gradient(circle,rgba(140,200,255,.95),rgba(70,110,255,.4) 55%,transparent 72%);transform:translate(-50%,-50%);opacity:0;animation:fxBurst .48s ease-out forwards;}
   @keyframes fxBurst{0%{opacity:1;transform:translate(-50%,-50%) scale(.2)}100%{opacity:0;transform:translate(-50%,-50%) scale(2.6)}}
-  /* 마법 연산 팝업 */
   .calc-pop{animation:calcIn .22s cubic-bezier(.2,1.5,.4,1);}
   @keyframes calcIn{from{transform:scale(.6) rotate(-3deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
   .calc-timer{height:6px;border-radius:9999px;background:linear-gradient(90deg,#38bdf8,#818cf8);transform-origin:left;animation:calcT linear forwards;}
   @keyframes calcT{from{transform:scaleX(1)}to{transform:scaleX(0)}}
-  /* 월드퀘 배너 */
-  .wq-banner{animation:wqIn .5s cubic-bezier(.2,1.3,.4,1);background:linear-gradient(92deg,rgba(220,38,38,.25),rgba(120,40,200,.25));border:1px solid rgba(255,120,120,.4);}
-  @keyframes wqIn{from{transform:translateY(-18px);opacity:0}to{transform:translateY(0);opacity:1}}
-  /* 투명 용 */
-  .ghost-mon{opacity:.16;filter:blur(1px);}
+  /* ═══ 고립 던전: 붉은 글리치 · 절망 연출 ═══ */
+  body.iso-mode{background:#170608;}
+  body.iso-mode #root{animation:isoShake 2.8s infinite;filter:saturate(1.35) contrast(1.06);}
+  @keyframes isoShake{0%,88%,100%{transform:translate(0,0)}89%{transform:translate(-3px,2px)}91%{transform:translate(3px,-2px)}93%{transform:translate(-2px,-1px)}95%{transform:translate(2px,1px)}}
+  .iso-vignette{position:fixed;inset:0;pointer-events:none;z-index:40;background:radial-gradient(ellipse at center,transparent 42%,rgba(150,10,20,.5) 100%);mix-blend-mode:multiply;}
+  .iso-scan{position:fixed;inset:0;pointer-events:none;z-index:41;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,0,30,.03) 3px 4px);}
+  .iso-title{animation:isoGlitch 1.6s infinite;color:#ff4d5e;text-shadow:2px 0 #7c3aed,-2px 0 #06b6d4;}
+  @keyframes isoGlitch{0%,84%,100%{transform:translate(0);opacity:1}86%{transform:translate(-3px,1px) skewX(8deg);opacity:.8}88%{transform:translate(3px,-1px) skewX(-6deg)}90%{transform:translate(-1px,2px)}92%{transform:translate(0)}}
+  /* ═══ 달의 무게감: 화면이 무거워지는 억까 패널티 ═══ */
+  body.heavy *{transition:all .55s ease-in-out !important;}
+  body.heavy .btn:hover{transform:none;}
+  body.heavy #root{filter:saturate(.72) brightness(.92);}
+  body.heavy{cursor:wait;}
+  .heavy-banner{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:60;background:rgba(30,20,60,.9);border:1px solid rgba(150,120,255,.5);color:#c4b5fd;font-size:11px;font-weight:700;padding:6px 14px;border-radius:9999px;animation:heavyPulse 2.4s infinite;}
+  @keyframes heavyPulse{0%,100%{opacity:.75}50%{opacity:1}}
   input{outline:none;}
   ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2c3c58;border-radius:8px}::-webkit-scrollbar-track{background:#0c1018}
 </style>
@@ -11091,251 +11100,228 @@ const { useState, useRef, useEffect, useReducer } = React;
 const R=Math.random;
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const pick=a=>a[Math.floor(R()*a.length)];
-const FMT_U=["","K","M","B","T","Q"];
 const fmt=n=>{ n=Math.floor(n); if(!isFinite(n))return "∞"; if(n<1e4)return n.toLocaleString();
-  let u=0,v=n; while(v>=1000&&u<FMT_U.length-1){v/=1000;u++;}
-  return (v>=100?v.toFixed(1):v.toFixed(2))+FMT_U[u]; };
+  const U=["","K","M","B","T"]; let u=0,v=n; while(v>=1000&&u<4){v/=1000;u++;} return (v>=100?v.toFixed(1):v.toFixed(2))+U[u]; };
 const hashPw=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);};
-const KEY="ynd_mmo_sav_v1";
+const KEY="ynd_hj_sav_v1";
 const needXp=lv=>Math.floor(50*Math.pow(1.42,lv-1));
 
-/* ═══════════════ 직업 ═══════════════ */
+/* ═══════════════════ 직업 (정상 5 · 히든 5 · 예능 4) ═══════════════════ */
 const CLS={
-  sword:{name:"검사",icon:"⚔️",desc:"밸런스형 근접 딜러. 검기 한 줄이면 충분하다.",base:{hp:150,mp:35,atk:14,def:8,crit:7},grow:{hp:22,mp:4,atk:3.2,def:2.0,crit:.15}},
-  mage:{name:"마법사",icon:"🔮",desc:"마법 연산(암산!)으로 화력이 결정되는 두뇌파 딜러.",base:{hp:100,mp:90,atk:16,def:4,crit:6},grow:{hp:13,mp:12,atk:3.8,def:1.2,crit:.15},calc:true},
-  archer:{name:"궁수",icon:"🏹",desc:"원거리 정밀 사격. 치명타의 미학.",base:{hp:115,mp:50,atk:15,def:5,crit:13},grow:{hp:16,mp:6,atk:3.4,def:1.4,crit:.4}},
-  rogue:{name:"도적",icon:"🗡️",desc:"빠른 연격과 급소 노리기. 한탕주의.",base:{hp:120,mp:45,atk:14,def:5,crit:11},grow:{hp:17,mp:5,atk:3.3,def:1.5,crit:.35}},
-  paladin:{name:"성기사",icon:"🛡️",desc:"버티고, 회복하고, 심판한다.",base:{hp:185,mp:55,atk:11,def:12,crit:4},grow:{hp:28,mp:6,atk:2.7,def:2.8,crit:.1}},
-  monk:{name:"무도가",icon:"🥊",desc:"맨주먹 연타. 기(氣)를 모아 폭발시킨다.",base:{hp:145,mp:40,atk:13,def:7,crit:9},grow:{hp:21,mp:5,atk:3.1,def:1.8,crit:.25}},
+  /* 정상 직업 */
+  sword:{name:"검사",icon:"⚔️",grp:"정상",desc:"기본에 충실한 근접 딜러. 가로베기와 세로베기의 장인.",base:{hp:150,mp:35,atk:14,def:8,crit:7},grow:{hp:22,mp:4,atk:3.2,def:2.0,crit:.15}},
+  mage:{name:"마법사",icon:"🔮",grp:"정상",calc:true,desc:"마법 시전 = 수학 문제. 암산이 곧 화력인 두뇌파.",base:{hp:100,mp:90,atk:16,def:4,crit:6},grow:{hp:13,mp:12,atk:3.8,def:1.2,crit:.15}},
+  archer:{name:"궁수",icon:"🏹",grp:"정상",desc:"원거리 정밀 사격. 치명타의 미학.",base:{hp:115,mp:50,atk:15,def:5,crit:13},grow:{hp:16,mp:6,atk:3.4,def:1.4,crit:.4}},
+  rogue:{name:"도적",icon:"🗡️",grp:"정상",desc:"빠른 연격과 급소 노리기. 한탕주의.",base:{hp:120,mp:45,atk:14,def:5,crit:11},grow:{hp:17,mp:5,atk:3.3,def:1.5,crit:.35}},
+  cleric:{name:"성직자",icon:"✨",grp:"정상",desc:"회복과 신성 마법. '스몰 힐'은 언데드에게… 끔찍한 무기다.",base:{hp:140,mp:80,atk:11,def:8,crit:5},grow:{hp:19,mp:10,atk:2.8,def:2.0,crit:.12}},
+  /* 히든 직업 */
+  magicSword:{name:"마검사",icon:"🌀",grp:"히든",calc:true,desc:"[히든] 검과 마법을 동시에. 연산 실력이 검기를 완성한다.",base:{hp:135,mp:65,atk:16,def:7,crit:9},grow:{hp:19,mp:8,atk:3.6,def:1.8,crit:.25}},
+  vampire:{name:"뱀파이어",icon:"🧛",grp:"히든",desc:"[히든] 밤에는 최강, 낮에는 스탯 반토막. 공격마다 흡혈.",base:{hp:140,mp:55,atk:16,def:6,crit:10},grow:{hp:20,mp:6,atk:3.7,def:1.6,crit:.3}},
+  bloodMage:{name:"혈술사",icon:"🩸",grp:"히든",desc:"[히든] 마나 대신 자기 HP로 스킬을 쓴다. 강력하지만 아프다. 진짜로.",base:{hp:180,mp:10,atk:17,def:6,crit:8},grow:{hp:26,mp:1,atk:3.9,def:1.5,crit:.2}},
+  dimSniper:{name:"차원의 저격수",icon:"🔭",grp:"히든",desc:"[히든] 차원 너머에서 쏜다. 치명타율이 비정상적으로 높다.",base:{hp:95,mp:60,atk:18,def:3,crit:25},grow:{hp:12,mp:7,atk:3.8,def:1.0,crit:.6}},
+  moonPriest:{name:"달의 사제",icon:"🌙",grp:"히든",desc:"[히든] 디버프 특화 귀족. 단, '달의 무게감'은 시전자의 화면까지 무겁게 만든다…",base:{hp:125,mp:95,atk:12,def:6,crit:6},grow:{hp:16,mp:12,atk:2.9,def:1.5,crit:.15}},
+  /* 예능 직업 */
+  ultraNewbie:{name:"초초보자",icon:"🐣",grp:"예능",fuse:true,desc:"[예능] 영원한 초보. 하지만 유일하게 스킬 2개를 '융합'할 수 있다!",base:{hp:130,mp:60,atk:12,def:6,crit:8},grow:{hp:18,mp:7,atk:3.0,def:1.6,crit:.25}},
+  blackboard:{name:"칠판",icon:"🟩",grp:"예능",desc:"[예능] 직업이… 칠판이다. 분필을 던지고 출석부로 내려친다. 의외로 단단함.",base:{hp:170,mp:30,atk:10,def:14,crit:4},grow:{hp:24,mp:3,atk:2.6,def:3.0,crit:.1}},
+  herbalist:{name:"약초꾼",icon:"🌿",grp:"예능",desc:"[예능] 싸움은 못하지만 골드·드랍 운이 좋고 스스로를 잘 치료한다.",base:{hp:135,mp:70,atk:9,def:7,crit:6},grow:{hp:18,mp:9,atk:2.4,def:1.7,crit:.2}},
+  brawler:{name:"무도가",icon:"🥊",grp:"예능",desc:"[예능] 맨주먹의 화력은 최강. 단, 때릴 때마다 자기 팔이 부러질 수 있다(15%).",base:{hp:160,mp:30,atk:19,def:7,crit:12},grow:{hp:23,mp:3,atk:4.2,def:1.8,crit:.35}},
 };
-/* 히든 직업 — 조건 달성 시 전직 */
-const HID={
-  swordEmperor:{name:"검제(劍帝)",icon:"🌌",base:"sword",need:"결투 10승",check:s=>s.duelW>=10,mult:{atk:1.5,hp:1.3,def:1.2},skill:"voidSlash"},
-  archMage:{name:"대현자",icon:"📐",base:"mage",need:"마법 연산 15회 연속 정답",need2:15,check:s=>s.calcStreakBest>=15,mult:{atk:1.6,hp:1.15,def:1.1},skill:"primeNova"},
-  ghostArrow:{name:"유령 궁사",icon:"👻",base:"archer",need:"치명타 500회",check:s=>s.critCount>=500,mult:{atk:1.45,hp:1.2,def:1.15},skill:"phantomVolley"},
-  shadowKing:{name:"그림자 왕",icon:"🌑",base:"rogue",need:"현상금 사냥 10회 (PK범 처치)",check:s=>s.bountyHunted>=10,mult:{atk:1.5,hp:1.2,def:1.15},skill:"kingsShadow"},
-  saintGuard:{name:"수호성인",icon:"😇",base:"paladin",need:"월드 퀘스트 5회 클리어",check:s=>s.wqClears>=5,mult:{atk:1.35,hp:1.5,def:1.35},skill:"sanctuary"},
-  fistGod:{name:"권신(拳神)",icon:"🔥",base:"monk",need:"맨손(무기 없이) 누적 300마리 처치",check:s=>s.bareKills>=300,mult:{atk:1.55,hp:1.3,def:1.2},skill:"godFist"},
-};
-/* ═══════════════ 스킬 ═══════════════ */
+/* ═══════════════════ 고정 스킬 ═══════════════════ */
 const SKILLS={
-  slash:{name:"검기 베기",icon:"🌊",cls:"sword",lv:1,mp:8,mult:1.8,desc:"검기를 날려 180% 피해"},
-  ironSkin:{name:"철벽 태세",icon:"🛡️",cls:"sword",lv:6,mp:14,mult:0,fx:{shield:.3},desc:"최대 HP 30% 보호막"},
-  crossCut:{name:"십자 베기",icon:"✂️",cls:"sword",lv:12,mp:20,mult:1.1,hits:2,desc:"110% × 2연격"},
-  magicMissile:{name:"마력탄",icon:"✨",cls:"mage",lv:1,mp:10,mult:2.0,calc:1,desc:"[연산] 200% — 정답 시 2배!"},
-  fireLance:{name:"화염창",icon:"🔥",cls:"mage",lv:8,mp:18,mult:2.6,calc:2,desc:"[연산] 260% — 정답 시 2배!"},
-  meteor:{name:"메테오",icon:"☄️",cls:"mage",lv:16,mp:34,mult:3.6,calc:3,desc:"[연산] 360% — 정답 시 2배!"},
-  aimShot:{name:"정조준",icon:"🎯",cls:"archer",lv:1,mp:8,mult:1.7,fx:{critB:30},desc:"170% 피해, 치명 +30%"},
+  hSlash:{name:"가로베기",icon:"➡️",cls:"sword",lv:1,mp:6,mult:1.5,desc:"기초 검술 1식. 가로로 벤다."},
+  vSlash:{name:"세로베기",icon:"⬇️",cls:"sword",lv:1,mp:6,mult:1.5,desc:"기초 검술 2식. 세로로 벤다."},
+  powerStrike:{name:"강타",icon:"💢",cls:"sword",lv:5,mp:12,mult:2.2,desc:"묵직한 일격. 220%"},
+  shieldSk:{name:"쉴드",icon:"🛡️",cls:"sword",lv:7,mp:12,mult:0,fx:{shield:.3},desc:"최대 HP 30% 보호막"},
+  whirlwind:{name:"휠윈드",icon:"🌪️",cls:"sword",lv:10,mp:18,mult:.9,hits:3,desc:"90% × 3회전"},
+  guardBreak:{name:"가드 브레이커",icon:"🔨",cls:"sword",lv:12,mp:16,mult:1.6,fx:{defDown:.3},desc:"160% + 적 방어 -30%"},
+  fireball:{name:"파이어볼",icon:"🔥",cls:"mage",lv:1,mp:10,mult:2.2,calc:1,desc:"[연산] 220% — 수학 문제를 풀어야 시전!"},
+  iceBolt:{name:"아이스볼트",icon:"❄️",cls:"mage",lv:6,mp:16,mult:2.0,calc:2,fx:{stun:1},desc:"[연산] 200% + 빙결"},
+  meteor:{name:"메테오",icon:"☄️",cls:"mage",lv:14,mp:32,mult:3.8,calc:3,desc:"[연산] 380% 운석 낙하"},
+  aimShot:{name:"정조준",icon:"🎯",cls:"archer",lv:1,mp:8,mult:1.7,fx:{critB:30},desc:"170%, 치명 +30%"},
   multiShot:{name:"갈래살",icon:"🌂",cls:"archer",lv:8,mp:16,mult:.9,hits:3,desc:"90% × 3연사"},
-  snipe:{name:"저격",icon:"🔭",cls:"archer",lv:14,mp:26,mult:3.0,fx:{gcrit:1},desc:"300% 확정 치명타"},
-  stab:{name:"급소 찌르기",icon:"🎯",cls:"rogue",lv:1,mp:8,mult:1.6,fx:{critB:25},desc:"160% 피해, 치명 +25%"},
-  poison:{name:"독바르기",icon:"🧪",cls:"rogue",lv:7,mp:15,mult:1.4,fx:{dot:.5},desc:"140% + 중독(3턴)"},
-  shadowRush:{name:"그림자 질주",icon:"💨",cls:"rogue",lv:14,mp:24,mult:.85,hits:3,desc:"85% × 3연격"},
-  smite:{name:"심판",icon:"⚡",cls:"paladin",lv:1,mp:10,mult:1.7,desc:"170% 신성 피해"},
-  heal:{name:"성스러운 빛",icon:"✨",cls:"paladin",lv:6,mp:16,mult:0,fx:{selfHeal:.3},desc:"최대 HP 30% 회복"},
-  judgement:{name:"대심판",icon:"🌅",cls:"paladin",lv:14,mp:28,mult:2.6,fx:{stun:1},desc:"260% + 기절"},
-  jab:{name:"연환권",icon:"👊",cls:"monk",lv:1,mp:8,mult:.95,hits:2,desc:"95% × 2연타"},
-  chi:{name:"기 모으기",icon:"🌀",cls:"monk",lv:7,mp:14,mult:0,fx:{atkB:.4},desc:"공격력 +40% (3턴)"},
-  burstFist:{name:"폭렬권",icon:"💥",cls:"monk",lv:14,mp:24,mult:2.8,desc:"기를 담은 280% 일격"},
-  /* 히든 */
-  voidSlash:{name:"허공 가르기",icon:"🌌",cls:"swordEmperor",lv:20,mp:36,mult:4.5,fx:{gcrit:1},desc:"[히든] 450% 확정 치명 — 공간째 벤다"},
-  primeNova:{name:"소수 폭발",icon:"📐",cls:"archMage",lv:20,mp:40,mult:5.0,calc:4,desc:"[히든·연산] 500% — 정답 시 2배!"},
-  phantomVolley:{name:"유령 화살비",icon:"👻",cls:"ghostArrow",lv:20,mp:36,mult:1.1,hits:5,fx:{gcrit:1},desc:"[히든] 110% × 5연사 전부 치명"},
-  kingsShadow:{name:"왕의 그림자",icon:"🌑",cls:"shadowKing",lv:20,mp:38,mult:4.2,fx:{dot:.8},desc:"[히든] 420% + 강한 중독"},
-  sanctuary:{name:"성역 선포",icon:"😇",cls:"saintGuard",lv:20,mp:40,mult:2.5,fx:{selfHeal:.4,shield:.3},desc:"[히든] 250% + HP 40% 회복 + 보호막"},
-  godFist:{name:"신권(神拳)",icon:"🔥",cls:"fistGod",lv:20,mp:38,mult:1.3,hits:4,desc:"[히든] 130% × 4연타"},
+  stab:{name:"급소 찌르기",icon:"🎯",cls:"rogue",lv:1,mp:8,mult:1.6,fx:{critB:25},desc:"160%, 치명 +25%"},
+  poisonBlade:{name:"독바르기",icon:"🧪",cls:"rogue",lv:7,mp:14,mult:1.4,fx:{dot:.5},desc:"140% + 중독"},
+  smallHeal:{name:"스몰 힐",icon:"💚",cls:"cleric",lv:1,mp:10,mult:0,fx:{selfHeal:.15,undeadNuke:1},desc:"HP 15% 회복. ※언데드에게 시전 시 즉사기(!)"},
+  holyBolt:{name:"신성탄",icon:"🌟",cls:"cleric",lv:5,mp:12,mult:1.8,desc:"180% 신성 피해"},
+  grandHeal:{name:"그랜드 힐",icon:"💖",cls:"cleric",lv:12,mp:26,mult:0,fx:{selfHeal:.5,undeadNuke:1},desc:"HP 50% 회복. 역시 언데드에겐 재앙."},
+  magicSlash:{name:"마력 검기",icon:"🌀",cls:"magicSword",lv:1,mp:12,mult:2.0,calc:1,desc:"[연산] 200% 마검 일섬"},
+  bloodDrain:{name:"흡혈",icon:"🧛",cls:"vampire",lv:1,mp:10,mult:1.8,fx:{heal:.5},desc:"180% + 피해의 50% 흡혈"},
+  nightFang:{name:"밤의 송곳니",icon:"🌒",cls:"vampire",lv:10,mp:20,mult:2.8,fx:{heal:.35},desc:"280% + 35% 흡혈. 밤에 강해진다."},
+  bloodArt:{name:"혈주(血呪)",icon:"🩸",cls:"bloodMage",lv:1,hpCost:.08,mp:0,mult:2.6,desc:"[HP 8% 소모] 260% — 피의 대가"},
+  bloodBurst:{name:"혈폭(血爆)",icon:"💥",cls:"bloodMage",lv:10,hpCost:.18,mp:0,mult:4.5,desc:"[HP 18% 소모] 450% — 몸이 남아나질 않는다"},
+  dimShot:{name:"차원 저격",icon:"🔭",cls:"dimSniper",lv:1,mp:16,mult:3.0,fx:{gcrit:1},desc:"300% 확정 치명타. 차원 너머에서 온다."},
+  moonWeight:{name:"달의 무게감",icon:"🌙",cls:"moonPriest",lv:1,mp:18,mult:0,fx:{moonWeight:1},desc:"적 방어 -40%·공속 저하(4턴). 부작용: 내 화면도 무거워짐(30초)…"},
+  moonBolt:{name:"월광탄",icon:"🌘",cls:"moonPriest",lv:5,mp:12,mult:1.9,desc:"190% 월광 피해"},
+  chalkThrow:{name:"분필 던지기",icon:"🖍️",cls:"blackboard",lv:1,mp:5,mult:1.6,desc:"백묵을 던진다. 눈에 맞으면 아프다. 160%"},
+  rollBook:{name:"출석부 내려치기",icon:"📕",cls:"blackboard",lv:8,mp:14,mult:2.4,fx:{stun:1},desc:"240% + 기절. '조용히 해라.'"},
+  herbSpray:{name:"약초 뿌리기",icon:"🌿",cls:"herbalist",lv:1,mp:8,mult:1.2,fx:{selfHeal:.12},desc:"120% + HP 12% 회복"},
+  luckyPick:{name:"심마니의 눈",icon:"👁️",cls:"herbalist",lv:8,mp:12,mult:0,fx:{luck:1},desc:"3턴간 드랍 운 대폭 상승"},
+  fistRush:{name:"붕권",icon:"👊",cls:"brawler",lv:1,mp:8,mult:2.4,fx:{armRisk:1},desc:"240% 혼신의 주먹. ※15% 확률로 내 팔이 부러진다"},
+  fuseStrike:{name:"엉성한 후려치기",icon:"🐣",cls:"ultraNewbie",lv:1,mp:6,mult:1.4,desc:"초보의 몸부림. 140%"},
 };
-/* ═══════════════ 맵 & 몬스터 ═══════════════ */
+/* ═══════════════════ 절차 생성 스킬 (100개 — 실제 배열 생성) ═══════════════════ */
+const SK_ADJ=["불타는","얼어붙은","현란한","어설픈","우주적인","눈물의","배고픈","분노의","졸린","전설의"];
+const SK_ACT=["찌르기","내려치기","돌리기","던지기","울부짖기","할퀴기","박치기","꼬집기","저글링","발구르기"];
+const SK_ICON=["🔥","❄️","✨","🙃","🌌","😢","🍚","😡","😪","🏆"];
+const PROC_SKILLS=[];
+(function(){
+  for(let i=0;i<10;i++)for(let j=0;j<10;j++){
+    const idx=i*10+j, id="ps"+idx;
+    const mult=+(1.2+((idx*37)%100)/50).toFixed(2);           // 1.2 ~ 3.18
+    const mp=8+((idx*23)%23);                                  // 8 ~ 30
+    const lv=1+((idx*13)%30);                                  // 1 ~ 30
+    let fx=null, tag="";
+    const r=idx%10;
+    if(r===3){fx={stun:1};tag=" + 기절";} else if(r===5){fx={dot:.4};tag=" + 중독";}
+    else if(r===7){fx={critB:25};tag=" + 치명↑";} else if(r===9){fx={heal:.25};tag=" + 흡혈";}
+    const sk={id,name:SK_ADJ[i]+" "+SK_ACT[j],icon:SK_ICON[i],lv,mp,mult,fx:fx||undefined,proc:true,
+      price:Math.round(80+mult*120+lv*15),
+      desc:`${Math.round(mult*100)}% 피해${tag} (스킬서 습득)`};
+    PROC_SKILLS.push(sk); SKILLS[id]=sk;
+  }
+})();
+const getSkill=(s,id)=>SKILLS[id]||(s&&s.fused||[]).find(x=>x.id===id);
+/* ═══════════════════ 초초보자 스킬 융합 ═══════════════════ */
+const FUSE_RECIPES={
+  "powerStrike+shieldSk":{name:"칼 말고 방패로 세게 때리기",icon:"🛡️",mp:20,mult:2.8,fx:{stun:1},desc:"방패의 묵직함으로 280% + 기절. 발상의 승리."},
+  "guardBreak+whirlwind":{name:"돌려돌려 방어력 깎기",icon:"🌀",mp:22,mult:1.0,hits:3,fx:{defDown:.45},desc:"100%×3회전 + 적 방어 -45%. 어지럽다."},
+  "hSlash+vSlash":{name:"십자베기",icon:"➕",mp:14,mult:2.6,desc:"가로+세로=십자. 검술의 완성. 260%"},
+  "fireball+iceBolt":{name:"미지근한 볼트",icon:"🌡️",mp:8,mult:.8,desc:"뜨겁지도 차갑지도 않다. 80%. 대체 왜 만든 걸까."},
+};
+const FUSE_JUNK_TMPL=["한 손으로 하는 어정쩡한 {A} 겸 {B}","{A}인 척 하는 {B}","{A}하다가 마는 {B}","숙련되지 못한 {A}식 {B}","영혼 없는 {A} 그리고 {B}"];
+/* ═══════════════════ 고정 무기 + 절차 생성 장비 (각 100개) ═══════════════════ */
+const ITEMS={
+  club99:{id:"club99",slot:"weapon",name:"99강 나무 몽둥이",icon:"🪵",tier:5,atk:1,fixed:true,desc:"강화 수치가 실제로 적용되지 않는 전설의 몽둥이. 데미지 1."},
+  deathScythe:{id:"deathScythe",slot:"weapon",name:"죽음의 데스사이드",icon:"☠️",tier:5,atk:999,noEquip:true,fixed:true,desc:"장착 불가. 그저 바라만 볼 뿐."},
+  elexias:{id:"elexias",slot:"weapon",name:"일렉시아스",icon:"⚡",tier:5,atk:95,crit:12,fixed:true,desc:"뇌전을 두른 명검."},
+  flamberion:{id:"flamberion",slot:"weapon",name:"플람베리온",icon:"🔥",tier:5,atk:105,fixed:true,desc:"불꽃의 대검."},
+};
+const G_PRE=[["녹슨",.6],["저주받은",.85],["화려한",1.3],["냄새나는",.7],["빛나는",1.45],["금간",.5],["명품",1.7],["짝퉁",.4],["전설의",2.1],["평범한",1]];
+const W_NOUN=[["철검",12,"🗡️"],["냄비뚜껑",6,"🍳"],["뼈다귀",8,"🦴"],["장작",7,"🪵"],["프라이팬",10,"🥘"],["대걸레",7,"🧹"],["효자손",5,"🖐️"],["통기타",9,"🎸"],["삽",11,"⛏️"],["우산",8,"☂️"]];
+const A_NOUN=[["철갑옷",10,"🛡️"],["고릴라 옷",6,"🦍"],["종이 갑옷",3,"📄"],["솜이불",5,"🛏️"],["드럼통",12,"🛢️"],["교복",4,"🎓"],["잠옷",3,"🌙"],["앞치마",4,"🥼"],["비닐우비",2,"🌧️"],["박스",3,"📦"]];
+const PROC_WEAPONS=[],PROC_ARMORS=[];
+(function(){
+  for(let i=0;i<10;i++)for(let j=0;j<10;j++){
+    const idx=i*10+j;
+    const [pn,pm]=G_PRE[i];
+    {const [nn,nb,ic]=W_NOUN[j];
+     const atk=Math.max(1,Math.round(nb*pm*(1+((idx*29)%100)*.09)));
+     const it={id:"pw"+idx,slot:"weapon",name:pn+" "+nn,icon:ic,tier:clamp(1+Math.floor(atk/26),1,5),atk,proc:true,
+       price:Math.round(30+atk*9)};
+     PROC_WEAPONS.push(it); ITEMS[it.id]=it;}
+    {const [nn,nb,ic]=A_NOUN[j];
+     const df=Math.max(1,Math.round(nb*pm*(1+((idx*31)%100)*.07)));
+     const it={id:"pa"+idx,slot:"armor",name:pn+" "+nn,icon:ic,tier:clamp(1+Math.floor(df/18),1,5),def:df,hp:df*6,proc:true,
+       gorilla:nn==="고릴라 옷",price:Math.round(30+df*11)};
+     PROC_ARMORS.push(it); ITEMS[it.id]=it;}
+  }
+})();
+const TIER_NAME=["","일반","고급","희귀","영웅","전설"];
+const TIER_COL=["","#9ca3af","#4ade80","#60a5fa","#c084fc","#fb923c"];
+const SLOT_NAME={weapon:"무기",armor:"갑옷"};
+/* ═══════════════════ 룬 (드랍 · 3슬롯 · 합성 실패 시 파괴) ═══════════════════ */
+const RUNE_KINDS=[
+  {id:"fury",name:"맹공의 룬",icon:"⚔️",stat:"atk",v:g=>6*g},
+  {id:"wall",name:"철벽의 룬",icon:"🛡️",stat:"def",v:g=>4*g},
+  {id:"life",name:"생명의 룬",icon:"❤️",stat:"hp",v:g=>35*g},
+  {id:"mana",name:"샘물의 룬",icon:"💧",stat:"mp",v:g=>15*g},
+  {id:"eye",name:"매눈의 룬",icon:"🎯",stat:"crit",v:g=>+(1.3*g).toFixed(1)},
+  {id:"greed",name:"탐욕의 룬",icon:"💰",stat:"gold",v:g=>8*g},
+  {id:"star",name:"별빛의 룬",icon:"⭐",stat:"atk",v:g=>7*g},
+  {id:"moon",name:"달그림자 룬",icon:"🌙",stat:"crit",v:g=>+(1.6*g).toFixed(1)},
+];
+const GRADE=["","하급","중급","상급","최상급","전설"];
+const GRADE_COL=["","#9ca3af","#4ade80","#60a5fa","#c084fc","#fb923c"];
+/* ═══════════════════ 몬스터 · 맵 ═══════════════════ */
 const MONS={
   mole:{id:"mole",name:"들두더지",icon:"🐹",hp:20,atk:4,def:1,xp:8,gold:5,lv:1},
   hornRabbit:{id:"hornRabbit",name:"뿔토끼",icon:"🐰",hp:26,atk:5,def:1,xp:11,gold:7,lv:2},
   boar:{id:"boar",name:"성난 멧돼지",icon:"🐗",hp:60,atk:9,def:3,xp:24,gold:14,lv:5},
   gobScout:{id:"gobScout",name:"초록니 정찰꾼",icon:"👺",hp:85,atk:12,def:4,xp:38,gold:22,lv:8},
-  gobShaman:{id:"gobShaman",name:"초록니 주술사",icon:"🔮",hp:75,atk:16,def:3,xp:46,gold:28,lv:10},
+  skeleton:{id:"skeleton",name:"해골 병사",icon:"💀",hp:110,atk:14,def:6,xp:52,gold:30,lv:11,undead:true},
   direWolf:{id:"direWolf",name:"어스름 늑대",icon:"🐺",hp:130,atk:18,def:6,xp:70,gold:40,lv:13},
-  treant:{id:"treant",name:"화난 나무정령",icon:"🌳",hp:200,atk:16,def:10,xp:95,gold:55,lv:15},
+  zombie:{id:"zombie",name:"무덤 좀비",icon:"🧟",hp:200,atk:16,def:7,xp:90,gold:50,lv:15,undead:true},
   rockGolem:{id:"rockGolem",name:"바위 골렘",icon:"🗿",hp:340,atk:24,def:15,xp:160,gold:90,lv:19},
   banditKing:{id:"banditKing",name:"산적 두목 칼바람",icon:"🪓",hp:420,atk:32,def:12,xp:230,gold:150,lv:22,elite:true},
   orcWarrior:{id:"orcWarrior",name:"바위이빨 전사",icon:"🧌",hp:520,atk:38,def:16,xp:300,gold:180,lv:26},
-  orcMage:{id:"orcMage",name:"추방된 바위이빨 마법사",icon:"🌋",hp:430,atk:50,def:12,xp:380,gold:230,lv:29,elite:true},
-  boneDrake:{id:"boneDrake",name:"백골 비룡",icon:"🦴",hp:900,atk:60,def:22,xp:650,gold:400,lv:34,elite:true},
+  boneDrake:{id:"boneDrake",name:"백골 비룡",icon:"🦴",hp:900,atk:60,def:22,xp:650,gold:400,lv:34,elite:true,undead:true},
   wyvern:{id:"wyvern",name:"폐허 와이번",icon:"🐉",hp:1200,atk:75,def:26,xp:900,gold:550,lv:38},
-  lavaSpirit:{id:"lavaSpirit",name:"용암 정령",icon:"🔥",hp:1000,atk:88,def:20,xp:1000,gold:620,lv:41},
-  /* 최종보스 */
   unseenDragon:{id:"unseenDragon",name:"보이지 않는 용",icon:"🐲",hp:12000,atk:130,def:40,xp:30000,gold:20000,lv:50,boss:true,unseen:true},
+  isoBoss:{id:"isoBoss",name:"이름 없는 것",icon:"👁️",hp:6666,atk:9999,def:66,xp:66666,gold:66666,lv:99,iso:true,desc:"만렙도 한 방. 도망칠 수 없다."},
 };
 const MAPS=[
-  {id:"plain",name:"솔바람 평원",icon:"🌾",lv:1,mons:["mole","hornRabbit","boar"],npc:"이장 곽두식",desc:"새벽마을 앞의 평화로운 평원. 두더지가 유난히 많다."},
-  {id:"forest",name:"어스름 숲",icon:"🌲",lv:8,mons:["gobScout","gobShaman","direWolf","treant"],npc:"약초꾼 설이",desc:"초록니 부족과 늑대들이 사는 어두운 숲."},
-  {id:"rocky",name:"바위 광야",icon:"🏜️",lv:19,mons:["rockGolem","banditKing","orcWarrior","orcMage"],npc:"떠돌이 상인 만복",desc:"산적과 바위이빨 부족이 세력 다툼 중인 거친 땅."},
-  {id:"ruin",name:"용의 폐허",icon:"🏚️",lv:34,mons:["boneDrake","wyvern","lavaSpirit"],npc:"용학자 파른",desc:"먼 옛날 용들의 도시였던 곳. 뼈와 불씨만 남았다."},
-  {id:"mist",name:"안개 낀 봉우리",icon:"🌫️",lv:48,mons:["unseenDragon"],npc:"봉인술사 흰매",desc:"봉인이 풀린 '보이지 않는 용'이 사는 정상. 서버 최강의 몬스터."},
+  {id:"plain",name:"솔바람 평원",icon:"🌾",lv:1,mons:["mole","hornRabbit","boar"],desc:"새벽마을 앞 평원. 평화롭다. 아직은."},
+  {id:"forest",name:"어스름 숲",icon:"🌲",lv:8,mons:["gobScout","skeleton","direWolf"],desc:"초록니 부족과 언데드가 나오는 어두운 숲."},
+  {id:"grave",name:"달빛 공동묘지",icon:"🪦",lv:14,mons:["skeleton","zombie","boneDrake"],desc:"언데드 소굴. 성직자가 웃으며 오는 곳."},
+  {id:"rocky",name:"바위 광야",icon:"🏜️",lv:19,mons:["rockGolem","banditKing","orcWarrior"],desc:"산적과 바위이빨 부족의 땅."},
+  {id:"ruin",name:"용의 폐허",icon:"🏚️",lv:34,mons:["boneDrake","wyvern"],desc:"용들의 무덤. 뼈와 불씨만 남았다."},
+  {id:"mist",name:"안개 낀 봉우리",icon:"🌫️",lv:48,mons:["unseenDragon"],desc:"서버 최강 '보이지 않는 용'의 둥지."},
 ];
-/* ═══════════════ 장비 ═══════════════ */
-const ITEMS={
-  w1:{slot:"weapon",name:"이 빠진 검",icon:"🗡️",tier:1,atk:5},
-  w2:{slot:"weapon",name:"청동 장검",icon:"⚔️",tier:2,atk:14},
-  w3:{slot:"weapon",name:"은빛 대검",icon:"🌙",tier:3,atk:30},
-  w4:{slot:"weapon",name:"용맥의 검",icon:"🌟",tier:4,atk:58,crit:5},
-  w5:{slot:"weapon",name:"별을 벤 검",icon:"🌌",tier:5,atk:105,crit:10},
-  a1:{slot:"armor",name:"천 쪼가리 옷",icon:"👕",tier:1,def:3,hp:20},
-  a2:{slot:"armor",name:"가죽 갑옷",icon:"🦺",tier:2,def:9,hp:55},
-  a3:{slot:"armor",name:"판금 갑옷",icon:"⛓️",tier:3,def:20,hp:120},
-  a4:{slot:"armor",name:"용비늘 코트",icon:"🐲",tier:4,def:38,hp:260},
-  a5:{slot:"armor",name:"별빛 성의",icon:"✨",tier:5,def:70,hp:520},
-  gorilla:{slot:"armor",name:"버그난 고릴라 옷",icon:"🦍",tier:9,def:400,hp:100,bug:true},
-  c1:{slot:"acc",name:"나무 반지",icon:"💍",tier:1,crit:2,atk:2},
-  c2:{slot:"acc",name:"호박 목걸이",icon:"📿",tier:2,crit:4,atk:6,mp:25},
-  c3:{slot:"acc",name:"달빛 귀걸이",icon:"🌙",tier:3,crit:7,atk:14,mp:60},
-  c4:{slot:"acc",name:"용안 브로치",icon:"🔱",tier:4,crit:10,atk:26,hp:120},
-  c5:{slot:"acc",name:"관측 불가의 눈",icon:"👁️",tier:5,crit:15,atk:45,hp:250},
-};
-const TIER_POOL={1:["w1","a1","c1"],2:["w2","a2","c2"],3:["w3","a3","c3"],4:["w4","a4","c4"],5:["w5","a5","c5"]};
-const TIER_NAME=["","일반","고급","희귀","영웅","전설","","","","버그"];
-const TIER_COL=["","#9ca3af","#4ade80","#60a5fa","#c084fc","#fb923c","","","","#f43f5e"];
-const SLOT_NAME={weapon:"무기",armor:"갑옷",acc:"장신구"};
-/* ═══════════════ 룬 (10종 · 합성) ═══════════════ */
-const RUNES=[
-  {id:"logo",name:"망겜 로고 룬",icon:"🎮",stat:"all",v:g=>2*g,d:"모든 능력치"},
-  {id:"fairy",name:"탑 요정 룬",icon:"🧚",stat:"mp",v:g=>12*g,d:"마력"},
-  {id:"gob",name:"초록니 룬",icon:"👺",stat:"crit",v:g=>+(1.1*g).toFixed(1),d:"치명타%"},
-  {id:"potion",name:"물약 룬",icon:"🧪",stat:"hp",v:g=>30*g,d:"체력"},
-  {id:"fire",name:"불칼 룬",icon:"🔥",stat:"atk",v:g=>5*g,d:"공격력"},
-  {id:"guard",name:"방패 룬",icon:"🛡️",stat:"def",v:g=>3*g,d:"방어력"},
-  {id:"moon",name:"달조각 룬",icon:"🌙",stat:"crit",v:g=>+(1.4*g).toFixed(1),d:"치명타%"},
-  {id:"star",name:"별부스러기 룬",icon:"⭐",stat:"atk",v:g=>6*g,d:"공격력"},
-  {id:"cloud",name:"구름 룬",icon:"☁️",stat:"hp",v:g=>38*g,d:"체력"},
-  {id:"void",name:"공허 룬",icon:"🕳️",stat:"all",v:g=>3*g,d:"모든 능력치"},
-];
-const GRADE=["","하급","중급","상급","최상급","전설"];
-const GRADE_COL=["","#9ca3af","#4ade80","#60a5fa","#c084fc","#fb923c"];
-/* ═══════════════ 봇 유저 (가짜 서버) ═══════════════ */
-const BOT_DEFS=[
-  ["잠수함","mage",99,"legend"],      // 0위 관측불가 — 미스터리 유저
-  ["옆집고인물","sword",50,"pro"],["뇌지컬만렙","mage",48,"analyst"],["헬창아저씨","monk",49,"pro"],
-  ["정의구현맨","paladin",47,"pro"],["도망의달인","rogue",46,"pro"],["활잘쏘는옆집형","archer",47,"pro"],
-  ["뒷골목칼잡이","rogue",44,"pk"],["어둠의현질러","sword",42,"pk"],["뉴비사냥꾼","archer",40,"pk"],
-  ["0하나더","rogue",35,"scam"],["프로환불러","mage",33,"scam"],
-  ["상점앞노숙","sword",38,"merchant"],["만물상덜렁이","archer",36,"merchant"],
-  ["급식왕김철수","sword",22,"normal"],["와이파이도둑","rogue",25,"normal"],["눕자마자잠듦","mage",18,"normal"],
-  ["어쩔냉장고","monk",27,"normal"],["치킨은두마리","paladin",24,"normal"],["엄마몰래겜중","archer",15,"normal"],
-  ["소금빵성애자","mage",29,"normal"],["현질의노예","sword",31,"normal"],["렉걸린달팽이","monk",12,"normal"],
-  ["숙제는내일","rogue",14,"normal"],["겜삭제각","archer",20,"normal"],["버스만타는중","paladin",16,"normal"],
-  ["물약값없음","sword",9,"newbie"],["포션거지","mage",7,"newbie"],["던전미아","archer",6,"newbie"],
-  ["늅늅이","rogue",3,"newbie"],["고구마백개","monk",5,"newbie"],["사이다한잔","paladin",8,"newbie"],
-  ["랙때문에짐","sword",11,"normal"],["컨트롤제로","mage",10,"normal"],["피지컬안됨","archer",13,"normal"],
-  ["자동사냥꾼","rogue",28,"normal"],["세금내는중","monk",21,"normal"],["대출각","paladin",19,"normal"],
-  ["강화실패자","sword",26,"normal"],["인벤꽉참","archer",23,"normal"],
-];
-const BOT_CHAT={
-  normal:["아 강화 또 터짐;;","이 망겜 접는다 진짜 (내일 또 접속)","혹시 파티 구해요?","물약 어디서 싸게 팔아요?",
-    "방금 레어템 먹음 ㅋㅋㅋ","사냥터 자리 좀 맡아주실 분","아 랙 왜이럼","오늘 일퀘 다 돌았다~",
-    "고인물들은 대체 언제 자는 거임?","길드 사람 구해요! 아무나 환영","템 시세 아시는 분?","엌ㅋㅋㅋ 방금 두더지한테 죽음"],
-  newbie:["저기... 토끼는 어디서 잡아요?","뉴비인데 뭐부터 해요?","골드 1개만 주실 분...","이 게임 어려워요 ㅠㅠ",
-    "방금 시작했는데 재밌네요!","마을 밖에 나가도 돼요?"],
-  pro:["막피 도는 놈들 다 신고함","오늘 보스 3트 만에 클리어","랭킹 갱신하러 갑니다","결투 받아줄 사람?",
-    "뉴비분들 모르는 거 물어보세요","이번 패치 밸런스 어떰?"],
-  pk:["ㅋㅋ 잡히면 죽는 거임","약한 게 죄지","현상금? 그게 뭔데","도망쳐봐야 소용없다"],
-  scam:["개꿀템 팝니다 (진짜임)","전설급 무기 싸게 넘겨요","선입금하면 2배로 드림","이 검 진짜 좋은 거예요"],
-  merchant:["물약 정가 판매합니다","무기 삽니다/팝니다","시세보다 싸게 드려요","오늘의 특가! 서두르세요"],
-  analyst:["금주 전투력 랭킹 발표합니다","1위는 이번에도 그분이네요","랭킹 변동이 있었습니다","0위는 여전히 관측 불가..."],
-  legend:[],
-};
-/* ═══════════════ 생활 퀘스트 ═══════════════ */
-const QUESTS=[
-  {id:"q1",name:"이장님의 부탁",desc:"들두더지 앞니 수집 — 들두더지 10마리 처치",target:"mole",n:10,rw:{gold:50,xp:40},repeat:true},
-  {id:"q2",name:"뿔토끼 소동",desc:"밭을 망치는 뿔토끼 8마리 처치",target:"hornRabbit",n:8,rw:{gold:70,xp:60},repeat:true},
-  {id:"q3",name:"숲의 경고",desc:"초록니 정찰꾼 12마리 처치",target:"gobScout",n:12,rw:{gold:200,xp:250,stone:2},repeat:true},
-  {id:"q4",name:"늑대 사냥 의뢰",desc:"어스름 늑대 10마리 처치",target:"direWolf",n:10,rw:{gold:350,xp:500,stone:2},repeat:true},
-  {id:"q5",name:"광야의 평화",desc:"바위이빨 전사 10마리 처치",target:"orcWarrior",n:10,rw:{gold:900,xp:2000,stone:4},repeat:true},
-  {id:"q6",name:"용의 흔적",desc:"폐허 와이번 8마리 처치",target:"wyvern",n:8,rw:{gold:2500,xp:8000,stone:6},repeat:true},
-  {id:"qh1",name:"[히든] 벽시계의 비밀",desc:"이장님 집 벽시계를 조사했다… 열쇠였다!",hidden:true,rw:{gold:3000,stone:10}},
-];
-/* ═══════════════ 월드 퀘스트 (서버 이벤트 · 이름 새로 창작) ═══════════════ */
-const WORLDQ=[
-  {id:"wq_siege",name:"달빛여울 마을 방어전",icon:"🏘️",lv:12,boss:"산적 군단장 그록",bhp:4000,batk:26,goal:1000,
-   desc:"마을을 지키던 결계가 사라졌다. 몰려오는 산적·몬스터를 막아라!",reward:"기여도에 따라 골드·강화석·명예"},
-  {id:"wq_plague",name:"역병의 밤",icon:"🧟",lv:20,boss:"포식자 진창늪 머드",bhp:9000,batk:40,goal:1500,
-   desc:"물리면 감염되는 좀비 '스산이'가 퍼진다. 감염 위험을 무릅쓰고 정화하라!",reward:"감염 저항 + 대량 경험치",infect:true},
-  {id:"wq_faction",name:"두 깃발의 전쟁",icon:"⚔️",lv:28,boss:"반역 백작 에스란",bhp:16000,batk:60,goal:2200,
-   desc:"백작이 반란을 일으켰다. 왕당파와 반란파 중 한쪽을 선택하라. (한 번만!)",reward:"선택 진영 전용 칭호·보상",faction:true},
-  {id:"wq_mana",name:"마나 포식자 강림",icon:"🐉",lv:38,boss:"마력 포식 와이번 그르반",bhp:30000,batk:85,goal:3000,
-   desc:"마탑의 마나를 빨아들인 와이번. 물리로 표피를 깨야 마법이 통한다!",reward:"마탑의 인정 + 전설급 확률 상승",armor:true},
-];
-/* ═══════════════ 저장 / 스탯 ═══════════════ */
-const BODY=["왼팔","오른팔","옆구리","어깨","허벅지","등","정강이","손등","목덜미"];
+
+/* ═══════════════════ 저장 ═══════════════════ */
 function mkSave(nick,pwh,cls){
-  return {ver:1,nick,pwh,cls,hcls:null,promo:[],lv:1,xp:0,sp:0,skp:1,
+  return {ver:2,nick,pwh,cls,lv:1,xp:0,sp:0,time:0,
     alloc:{hp:0,mp:0,atk:0,def:0,crit:0},
-    hp:1,mp:1,gold:120,stone:3,
+    hp:1,mp:1,gold:200,
     map:"plain",lastMon:{},
-    equip:{weapon:{uid:"i0",t:"w1",plus:0},armor:null,acc:null},
-    inv:[],runes:[],runeEq:[null,null,null,null],skills:{},autoSkill:null,_auto:false,
-    kills:{},killTotal:0,bareKills:0,critCount:0,
-    duelW:0,duelL:0,pk:0,bounty:0,jailT:0,bountyHunted:0,
-    calcStreak:0,calcStreakBest:0,calcTotal:0,calcOk:0,
-    wqClears:0,wqDone:{},faction:null,guild:null,
-    quests:{},questsDone:{},hiddenFound:{},hiddenClaimed:{},
-    sensory:5,live:false,status:[],
-    combat:null,seq:1,log:[],created:Date.now()};
+    equip:{weapon:null,armor:null},
+    inv:[],runes:[],runeEq:[null,null,null],
+    learned:{},fused:[],autoSkill:null,_auto:false,
+    kills:{},killTotal:0,armBreaks:0,fuseCount:0,runeBroke:0,
+    iso:null,isoEscapes:0,isoBossKills:0,
+    status:[],combat:null,dungeon:null,
+    seq:1,log:[],created:Date.now()};
 }
 function hydrate(o){
   const d=mkSave(o.nick||"모험가",o.pwh||"",CLS[o.cls]?o.cls:"sword");
   const m={...d,...o};
   m.alloc={...d.alloc,...(o.alloc||{})};
   m.equip={...d.equip,...(o.equip||{})};
-  m.runeEq=Array.isArray(o.runeEq)&&o.runeEq.length===4?o.runeEq:[null,null,null,null];
-  m.inv=o.inv||[]; m.runes=o.runes||[]; m.log=o.log||[]; m.skills=o.skills||{};
-  m.kills=o.kills||{}; m.quests=o.quests||{}; m.questsDone=o.questsDone||{};
-  m.hiddenFound=o.hiddenFound||{}; m.hiddenClaimed=o.hiddenClaimed||{}; m.wqDone=o.wqDone||{};
-  m.promo=Array.isArray(o.promo)?o.promo.filter(h=>HID[h]):[];
+  m.runeEq=Array.isArray(o.runeEq)&&o.runeEq.length===3?o.runeEq:[null,null,null];
+  m.inv=o.inv||[]; m.runes=o.runes||[]; m.log=o.log||[]; m.learned=o.learned||{};
+  m.fused=Array.isArray(o.fused)?o.fused:[]; m.kills=o.kills||{};
   m.status=Array.isArray(o.status)?o.status:[];
-  if(m.hcls&&!HID[m.hcls])m.hcls=null;
+  if(!CLS[m.cls])m.cls="sword";
   if(!MAPS.find(x=>x.id===m.map))m.map="plain";
-  m.combat=null; m._auto=false; m.jailT=m.jailT||0;
+  m.combat=null; m.dungeon=null; m._auto=false;
+  if(m.iso&&m.iso.active){ m.iso.t0=Date.now(); }  // 고립 던전은 재접속해도 못 나간다. 타이머만 리셋(악랄)
   return m;
 }
+/* ═══════════════════ 스탯 계산 (낮밤 · 뱀파이어 · 고릴라 옷 버그 · 룬 · 상태) ═══════════════════ */
+const isDayOf=s=>Math.floor(s.time/15)%2===0;
 function calc(s){
   const c=CLS[s.cls],L=s.lv-1;
   let hp=c.base.hp+c.grow.hp*L, mp=c.base.mp+c.grow.mp*L, atk=c.base.atk+c.grow.atk*L,
       def=c.base.def+c.grow.def*L, crit=c.base.crit+c.grow.crit*L;
   hp+=s.alloc.hp*18; mp+=s.alloc.mp*9; atk+=s.alloc.atk*2; def+=s.alloc.def*2; crit+=s.alloc.crit*.4;
-  for(const slot of ["weapon","armor","acc"]){
+  for(const slot of ["weapon","armor"]){
     const it=s.equip[slot]; if(!it)continue; const t=ITEMS[it.t]; if(!t)continue;
-    const mul=1+0.11*(it.plus||0);
-    atk+=(t.atk||0)*mul; def+=(t.def||0)*(t.bug?1:mul); hp+=(t.hp||0)*mul; mp+=(t.mp||0)*mul; crit+=(t.crit||0)*mul;
-    if(t.bug)def+=(t.def||0)*9; // 고릴라 옷 버그: 방어력 10배
+    atk+=(t.atk||0); crit+=(t.crit||0);
+    let dv=(t.def||0); if(t.gorilla)dv*=10;              // 🦍 고릴라 옷: 표기의 10배 (버그)
+    def+=dv; hp+=(t.hp||0);
   }
   for(const uid of s.runeEq){ if(!uid)continue; const r=s.runes.find(x=>x.uid===uid); if(!r)continue;
-    const R2=RUNES.find(x=>x.id===r.id); const v=R2.v(r.g);
-    if(R2.stat==="atk")atk+=v; else if(R2.stat==="hp")hp+=v; else if(R2.stat==="mp")mp+=v;
-    else if(R2.stat==="def")def+=v; else if(R2.stat==="crit")crit+=v;
-    else if(R2.stat==="all"){atk+=v;def+=v;crit+=v*.5;hp+=v*8;mp+=v*4;} }
-  for(const st of s.status){ if(st.k==="sugar_down"){atk*=.8;} if(st.k==="sugar_up"){atk*=1.2;} if(st.k==="overeat"){def*=.9;} }
-  if(s.hcls){ const h=HID[s.hcls]; atk*=h.mult.atk; hp*=h.mult.hp; def*=h.mult.def; }
-  return {hp:Math.round(hp),mp:Math.round(mp),atk:Math.round(atk),def:Math.round(def),crit:+clamp(crit,0,75).toFixed(1)};
+    const K=RUNE_KINDS.find(k=>k.id===r.k); const v=K.v(r.g);
+    if(K.stat==="atk")atk+=v; else if(K.stat==="def")def+=v; else if(K.stat==="hp")hp+=v;
+    else if(K.stat==="mp")mp+=v; else if(K.stat==="crit")crit+=v; }
+  for(const st of s.status){ if(st.k==="armbreak")atk*=.5; if(st.k==="atkbuff")atk*=1.4; }
+  if(s.cls==="vampire"){ const day=isDayOf(s); atk*=day?.5:1.3; def*=day?.5:1.3; }  // 🧛 낮 반토막/밤 강화
+  return {hp:Math.round(hp),mp:Math.round(mp),atk:Math.round(atk),def:Math.round(def),crit:+clamp(crit,0,80).toFixed(1)};
 }
-function powerOf(s){ const st=calc(s); const skp=Object.values(s.skills).reduce((a,b)=>a+b,0);
-  return Math.round(st.atk*12+st.hp*.6+st.def*5+st.crit*10+st.mp*.4+s.lv*30+skp*40+(s.hcls?3000:0)); }
-function botPower(b){ if(b.type==="legend")return Infinity; const base=b.lv*b.lv*22+b.lv*80;
-  const tb={pro:1.5,analyst:1.2,pk:1.25,merchant:.7,scam:.8,normal:1,newbie:.6}[b.type]||1; return Math.round(base*tb+(b.hidden?4000:0)); }
+function goldMul(s){ return s.cls==="herbalist"?(s.status.some(x=>x.k==="luck")?2.2:1.4):(s.status.some(x=>x.k==="luck")?1.8:1); }
 
-function ensureTrystero(cb){ if(window.__trystero){cb(window.__trystero);return;}
-  const h=()=>{window.removeEventListener("trystero-ready",h);cb(window.__trystero);}; window.addEventListener("trystero-ready",h); }
-
-/* ═══════════════ 게임 ═══════════════ */
+/* ═══════════════════ 게임 (상태: 단일 스토어 ref + useReducer 강제 리렌더) ═══════════════════ */
 function Game(){
   const S=useRef(null);
   const scr=useRef("login"), tab=useRef("hunt");
   const [,bump]=useReducer(x=>x+1,0);
   const [nick,setNick]=useState(""),[pw,setPw]=useState(""),[err,setErr]=useState("");
   const [toast,setToast]=useState(null); const toastT=useRef(null);
-  const pend=useRef(null), fuseSel=useRef(null);
+  const pend=useRef(null), fuseSel=useRef([]), runeSel=useRef(null);
   const dfx=useRef([]), dfxSeq=useRef(1), shakeK=useRef(0), monLunge=useRef(0), hurtK=useRef(0), atkFx=useRef(null);
-  const chat=useRef([]), chatSeq=useRef(1);
   const calcState=useRef(null); const calcTimer=useRef(null); const [,cbump]=useReducer(x=>x+1,0);
   const [calcInput,setCalcInputRaw]=useState(""); const calcInputRef=useRef(""); const setCalcInput=v=>{calcInputRef.current=v;setCalcInputRaw(v);};
-  const duel=useRef(null), wq=useRef(null), quiz=useRef(null), trade=useRef(null), gwar=useRef(null);
+  const heavyUntil=useRef(0);
 
   const say=t=>{ setToast(t); clearTimeout(toastT.current); toastT.current=setTimeout(()=>setToast(null),1900); };
   const persist=()=>{ const s=S.current; if(!s)return; try{ localStorage.setItem(KEY+"_"+s.nick,JSON.stringify(s)); }catch(e){} };
@@ -11343,363 +11329,305 @@ function Game(){
   const log=(t,c)=>{ const s=S.current; s.log.unshift({t,c:c||"",id:s.seq++}); if(s.log.length>60)s.log.length=60; };
   const addFx=(txt,col)=>{ const now=Date.now(); dfx.current=dfx.current.filter(f=>now-f.born<900);
     dfx.current.push({id:dfxSeq.current++,txt,col,x:6+Math.floor(R()*54),born:now}); if(dfx.current.length>8)dfx.current.shift(); };
-  const hsay=(from,txt,col)=>{ chat.current.push({id:chatSeq.current++,from,txt,col}); if(chat.current.length>80)chat.current.shift(); };
 
-  /* ---------- 계정 ---------- */
+  /* ── 계정 ── */
   const accounts=()=>{ const o=[]; try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith(KEY+"_"))o.push(k.slice(KEY.length+1)); } }catch(e){} return o; };
   const doLogin=()=>{ setErr(""); if(!nick.trim()||!pw){setErr("닉네임과 비밀번호를 입력하세요.");return;}
     let raw=null; try{ raw=localStorage.getItem(KEY+"_"+nick.trim()); }catch(e){}
     if(!raw){ setErr("존재하지 않는 계정입니다. [신규 생성]을 눌러주세요."); return; }
-    let o=null; try{o=JSON.parse(raw);}catch(e){ setErr("저장 데이터가 손상되었습니다."); return; }
+    let o=null; try{o=JSON.parse(raw);}catch(e){ setErr("저장 데이터 손상."); return; }
     if(o.pwh!==hashPw(pw)){ setErr("비밀번호가 일치하지 않습니다."); return; }
     S.current=hydrate(o); const st=calc(S.current); S.current.hp=clamp(S.current.hp,1,st.hp); S.current.mp=clamp(S.current.mp,0,st.mp);
-    scr.current="game"; tab.current="hunt"; log("🔑 접속 완료. 서버에 재접속했습니다.","g"); commit(); };
+    scr.current="game"; tab.current="hunt";
+    if(S.current.iso&&S.current.iso.active)log("…다시 눈을 떴다. 아직도 고립 던전이다.","r");
+    else log("🔑 접속 완료.","g");
+    commit(); };
   const doCreate=()=>{ setErr(""); if(!nick.trim()||!pw){setErr("닉네임과 비밀번호를 입력하세요.");return;}
     if(nick.trim().length>12){setErr("닉네임은 12자 이하.");return;}
     let raw=null; try{ raw=localStorage.getItem(KEY+"_"+nick.trim()); }catch(e){}
-    if(raw){ setErr("이미 존재하는 닉네임입니다."); return; }
+    if(raw){ setErr("이미 존재하는 닉네임."); return; }
     pend.current={nick:nick.trim(),pwh:hashPw(pw)}; scr.current="create"; bump(); };
   const pickClass=cid=>{ const {nick,pwh}=pend.current; S.current=mkSave(nick,pwh,cid);
     const st=calc(S.current); S.current.hp=st.hp; S.current.mp=st.mp;
-    scr.current="game"; tab.current="hunt"; log(`${CLS[cid].icon} [${CLS[cid].name}] ${nick}, 새벽마을에서 눈을 뜨다.`,"g"); commit(); };
-  const logout=()=>{ persist(); S.current=null; scr.current="login"; setPw(""); bump(); };
+    // 시작 스킬: 직업 1레벨 스킬 자동 습득
+    for(const [id,sk] of Object.entries(SKILLS)){ if(sk.cls===cid&&sk.lv===1&&!sk.proc)S.current.learned[id]=1; }
+    scr.current="game"; tab.current="hunt";
+    log(`${CLS[cid].icon} [${CLS[cid].name}] ${nick}, 환장의 세계에 접속했다.`,"g"); commit(); };
+  const logout=()=>{ persist(); S.current=null; scr.current="login"; setPw(""); document.body.classList.remove("iso-mode","heavy"); bump(); };
 
-  /* ---------- 성장 ---------- */
+  /* ── 성장/드랍 ── */
   const gainXp=n=>{ const s=S.current; s.xp+=n; let need=needXp(s.lv);
-    while(s.xp>=need&&s.lv<50){ s.xp-=need; s.lv++; s.sp+=4; s.skp+=1; const st=calc(s); s.hp=st.hp; s.mp=st.mp;
-      log(`🎉 레벨 업! Lv.${s.lv} (스탯 +4, 스킬 +1)`,"g"); need=needXp(s.lv); }
+    while(s.xp>=need&&s.lv<50){ s.xp-=need; s.lv++; s.sp+=4; const st=calc(s); s.hp=st.hp; s.mp=st.mp;
+      log(`🎉 레벨 업! Lv.${s.lv} (스탯 +4)`,"g"); need=needXp(s.lv); }
     if(s.lv>=50)s.xp=Math.min(s.xp,needXp(50)); };
-  const addItem=t=>{ const s=S.current; s.inv.push({uid:"i"+(s.seq++),t,plus:0}); };
-  const addRune=(id,g)=>{ const s=S.current; s.runes.push({uid:"r"+(s.seq++),id,g}); };
-  const drops=(m)=>{ const s=S.current, tier=clamp(Math.ceil(m.lv/10),1,5);
-    if(R()<.22){ s.stone++; log("🪨 강화석 +1","d"); }
-    if(R()<.08){ const rr=pick(RUNES); const g=clamp(tier-1+(R()<.25?1:0),1,4); addRune(rr.id,g); log(`💠 [${GRADE[g]}] ${rr.name} 획득!`,"d"); }
-    if(R()<.04){ const pool=TIER_POOL[tier]; const t=pick(pool); addItem(t); log(`🎁 [${TIER_NAME[tier]}] ${ITEMS[t].name} 획득!`,"d"); }
-    if(m.elite&&R()<.02){ addItem("gorilla"); log("🦍 [버그] 고릴라 옷 획득?! 방어력이 이상하게 높다…","c"); } };
-  const checkPromo=()=>{ const s=S.current; if(s.hcls)return;
-    for(const hid of Object.keys(HID)){ if(s.promo.includes(hid))continue; const H=HID[hid];
-      if(H.base!==s.cls&&(!CLS[s.cls]||CLS[s.cls].name!==H.base))continue;
-      let ok=false; try{ok=H.check(s);}catch(e){} if(ok){ s.promo.push(hid); log(`🌟 히든 직업 [${H.name}] 전직 조건 달성! 가방 탭에서 전직하세요.`,"g"); } } };
-  const promote=hid=>{ const s=S.current; if(s.hcls||!s.promo.includes(hid))return; const H=HID[hid];
-    s.hcls=hid; s.skills[H.skill]=1; const st=calc(s); s.hp=st.hp; s.mp=st.mp;
-    log(`${H.icon} [${H.name}]로 전직! 고유 스킬 [${SKILLS[H.skill].name}] 습득! (되돌릴 수 없음)`,"g"); commit(); };
-  const checkHidden=()=>{ const s=S.current; const q=QUESTS.find(x=>x.id==="qh1");
-    if(q&&!s.hiddenFound.qh1&&!s.hiddenClaimed.qh1&&(s.visits_plain=(s.kills.mole||0))>=15){ s.hiddenFound.qh1=true; log("❗ 히든 퀘스트 발견: [벽시계의 비밀] — 퀘스트 탭 확인!","g"); } };
-
-  /* ---------- 상태이상 ---------- */
+  const addItem=t=>{ const s=S.current; s.inv.push({uid:"i"+(s.seq++),t}); };
+  const addRune=(k,g)=>{ const s=S.current; s.runes.push({uid:"r"+(s.seq++),k,g}); };
+  const learnRandomSkill=()=>{ const s=S.current;
+    const pool=PROC_SKILLS.filter(sk=>!s.learned[sk.id]); if(!pool.length)return false;
+    const sk=pick(pool); s.learned[sk.id]=1; log(`📖 스킬서에서 [${sk.name}] 습득!`,"c"); return true; };
+  const drops=m=>{ const s=S.current; const luck=s.status.some(x=>x.k==="luck")?2.2:(s.cls==="herbalist"?1.5:1);
+    const tier=clamp(Math.ceil(m.lv/10),1,5);
+    if(R()<.12*luck){ const K=pick(RUNE_KINDS); addRune(K.id,clamp(tier-1+(R()<.25?1:0),1,3)); log(`💠 ${K.name} 획득!`,"d"); }
+    if(R()<.08*luck){ learnRandomSkill(); }
+    if(R()<.06*luck){ const pool=(R()<.5?PROC_WEAPONS:PROC_ARMORS).filter(x=>Math.abs(x.tier-tier)<=1); if(pool.length){ const t=pick(pool); addItem(t.id); log(`🎁 [${TIER_NAME[t.tier]}] ${t.name} 획득!`,"d"); } }
+    if(R()<.01){ addItem("club99"); log("🪵 [전설] 99강 나무 몽둥이 획득! …왜 전설이지?","c"); }
+    if(R()<.008){ addItem("deathScythe"); log("☠️ 죽음의 데스사이드 획득!! …그런데 장착이 안 된다.","c"); }
+    if(m.lv>=30&&R()<.01){ const t=R()<.5?"elexias":"flamberion"; addItem(t); log(`🌟 명검 [${ITEMS[t].name}] 획득!!!`,"c"); } };
   const addStatus=(k,t,label)=>{ const s=S.current; s.status=s.status.filter(x=>x.k!==k); s.status.push({k,t,label}); };
-  const tickStatus=()=>{ const s=S.current, st=calc(s); let dot=0;
-    for(const x of s.status){ if(x.k==="bleed")dot+=Math.max(1,Math.round(st.hp*.03)); if(x.k==="infect")dot+=Math.max(1,Math.round(st.hp*.02)); x.t--; }
-    s.status=s.status.filter(x=>x.t>0);
-    if(dot>0){ s.hp-=dot; log(`🩸 상태이상 지속 피해 -${fmt(dot)}`,"r"); if(s.hp<=0)death(); } };
+  const tickStatus=()=>{ const s=S.current; for(const x of s.status)x.t--; s.status=s.status.filter(x=>x.t>0); };
+  const death=()=>{ const s=S.current; s.hp=0;
+    if(s.iso&&s.iso.active){ s.iso.deaths++; const st=calc(s); s.hp=st.hp; s.mp=st.mp; s.combat=null;
+      log(`💀 죽었다… 하지만 고립 던전 입구에서 다시 눈을 떴다. (${s.iso.deaths}번째 죽음)`,"r");
+      log("…나갈 수 없다. 이곳은 그런 곳이다.","r"); return; }
+    const lost=Math.floor(s.gold*.05); s.gold-=lost;
+    log(`💀 사망… 골드 ${fmt(lost)}을 잃고 마을에서 부활.`,"r");
+    s.map="plain"; s.combat=null; s.dungeon=null; s._auto=false; s.status=[];
+    const st=calc(s); s.hp=Math.round(st.hp*.4); s.mp=Math.round(st.mp*.4); };
 
-  const death=()=>{ const s=S.current; s.hp=0; const lost=Math.floor(s.gold*.05); s.gold-=lost;
-    log(`💀 사망… 골드 ${fmt(lost)} 잃고 새벽마을에서 부활. (감각 ${s.pk>0?10:5}% — 아팠겠네요)`,"r");
-    s.map="plain"; s.combat=null; s._auto=false; s.status=[]; const st=calc(s); s.hp=Math.round(st.hp*.4); s.mp=Math.round(st.mp*.4); };
-
-  /* ---------- 마법 연산 ---------- */
+  /* ── 마법 연산 ── */
   const genProblem=lvl=>{ let q,a;
-    if(lvl<=1){ const x=2+Math.floor(R()*18),y=2+Math.floor(R()*18); if(R()<.5){q=`${x} + ${y}`;a=x+y;} else {const b=Math.max(x,y),c=Math.min(x,y);q=`${b} - ${c}`;a=b-c;} }
+    if(lvl<=1){ const x=2+Math.floor(R()*18),y=2+Math.floor(R()*18); if(R()<.5){q=`${x} + ${y}`;a=x+y;} else {const b=Math.max(x,y),c2=Math.min(x,y);q=`${b} - ${c2}`;a=b-c2;} }
     else if(lvl===2){ const x=2+Math.floor(R()*11),y=2+Math.floor(R()*8); q=`${x} × ${y}`; a=x*y; }
-    else if(lvl===3){ const x=2+Math.floor(R()*11),y=2+Math.floor(R()*8),z=1+Math.floor(R()*15); if(R()<.5){q=`${x} × ${y} + ${z}`;a=x*y+z;} else {q=`${x} × ${y} - ${z}`;a=x*y-z;} }
-    else { const x=2+Math.floor(R()*9),y=2+Math.floor(R()*8),z=2+Math.floor(R()*7); q=`(${x} + ${y}) × ${z}`; a=(x+y)*z; }
+    else { const x=2+Math.floor(R()*11),y=2+Math.floor(R()*8),z=1+Math.floor(R()*15); if(R()<.5){q=`${x} × ${y} + ${z}`;a=x*y+z;} else {q=`${x} × ${y} - ${z}`;a=x*y-z;} }
     return {q,a}; };
-  const CALC_SEC=[0,8,9,10,11,12];
-  const startCalc=(skillId)=>{ const s=S.current, sk=SKILLS[skillId]; const p=genProblem(sk.calc);
-    const sec=CALC_SEC[sk.calc]||10; const deadline=Date.now()+sec*1000;
-    calcState.current={skillId,q:p.q,a:p.a,deadline,sec}; setCalcInput(""); cbump();
+  const CALC_SEC=[0,8,9,10];
+  const startCalc=skillId=>{ const sk=getSkill(S.current,skillId); const p=genProblem(sk.calc); const sec=CALC_SEC[sk.calc]||10;
+    calcState.current={skillId,q:p.q,a:p.a,deadline:Date.now()+sec*1000,sec}; setCalcInput(""); cbump();
     clearInterval(calcTimer.current);
-    calcTimer.current=setInterval(()=>{ if(!calcState.current)return; if(Date.now()>=calcState.current.deadline){ submitCalc(true); } },200); };
-  const submitCalc=(timeout)=>{ const cs=calcState.current; if(!cs)return; clearInterval(calcTimer.current);
-    const s=S.current; const val=parseInt(calcInputRef.current,10);
-    const correct=!timeout&&val===cs.a;
-    s.calcTotal++;
-    if(correct){ s.calcOk++; s.calcStreak++; s.calcStreakBest=Math.max(s.calcStreakBest,s.calcStreak); }
-    else { s.calcStreak=0; }
+    calcTimer.current=setInterval(()=>{ if(!calcState.current)return; if(Date.now()>=calcState.current.deadline)submitCalc(true); },200); };
+  const submitCalc=timeout=>{ const cs=calcState.current; if(!cs)return; clearInterval(calcTimer.current);
+    const correct=!timeout&&parseInt(calcInputRef.current,10)===cs.a;
     const skillId=cs.skillId; calcState.current=null; setCalcInput(""); cbump();
     resolveHit(skillId,{calc:correct,calcFail:!correct,timeout}); };
 
-  /* ---------- 전투 ---------- */
+  /* ── 전투 ── */
   const spawn=mid=>{ const s=S.current, m=MONS[mid]; if(!m)return; s.lastMon[s.map]=mid;
-    s.combat={mid,hp:m.hp,maxHp:m.hp,dot:0}; };
+    s.combat={mid,hp:m.hp,maxHp:m.hp,dot:0,defDown:0,mwT:0}; };
   const enemyTurn=()=>{ const s=S.current, c=s.combat; if(!c||c.hp<=0)return; const m=MONS[c.mid]; const st=calc(s);
     if(c.stun){ c.stun=false; log(`💫 ${m.name}이(가) 기절해 있다!`); return; }
-    if(m.unseen&&R()<.3){ log(`🐲 ${m.name}이(가) 울부짖는다! 순간 능력치가 곤두박질친다… (감각 압박)`,"r"); }
+    if(c.mwT>0&&R()<.3){ log(`🌙 ${m.name}이(가) 달의 무게에 짓눌려 움직이지 못한다!`,"d"); return; }
+    if(m.unseen&&R()<.3){ log(`🐲 ${m.name}이(가) 울부짖는다! 능력치가 곤두박질친다…`,"r"); }
     const dmg=Math.max(1,Math.round((m.atk-st.def*.55)*(.85+R()*.3)));
     s.hp-=dmg; monLunge.current=Date.now(); hurtK.current=Date.now();
-    const part=pick(BODY); const pain=s.pk>0?10:s.sensory;
-    log(`🩸 ${m.name}의 공격! -${fmt(dmg)} (감각 ${pain}%: ${part}에 통증)`,"r");
-    if(m.id==="direWolf"&&R()<.25){ addStatus("bleed",3,"출혈"); log("🩸 출혈 상태이상! (3턴)","r"); }
+    log(`🩸 ${m.name}의 공격! -${fmt(dmg)}`,"r");
     if(s.hp<=0)death(); };
   const resolveHit=(skillId,extra)=>{ const s=S.current, c=s.combat; if(!c)return; const m=MONS[c.mid]; const st=calc(s);
-    extra=extra||{}; let mult=1,sfx={},usedSkill=null,hits=1,bare=false;
-    if(skillId){ const sk=SKILLS[skillId], slv=s.skills[skillId]||0;
-      if(!slv){ say("습득하지 않은 스킬."); return; }
-      mult=sk.mult*(1+0.11*(slv-1)); sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1; }
-    else { bare=!s.equip.weapon; }
+    extra=extra||{}; let mult=1,sfx={},usedSkill=null,hits=1;
+    if(skillId){ const sk=getSkill(s,skillId); if(!sk||!s.learned[skillId]&&!sk.fusedItem){ say("습득하지 않은 스킬."); return; }
+      mult=sk.mult; sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1; }
+    s.time++;
+    /* 스몰 힐 → 언데드 즉사기 */
+    if(usedSkill&&sfx.undeadNuke&&m.undead&&c.hp>0){
+      c.hp=0; shakeK.current++; atkFx.current={kind:"burst",n:1,key:Date.now()+R()};
+      log(`${usedSkill.icon} [${usedSkill.name}]!! 성스러운 기운에 ${m.name}이(가) 그대로 소멸했다!!! (언데드 즉사)`,"c");
+      onKill(); tickStatus(); commit(); return; }
     let total=0,anyCrit=false;
     if(!usedSkill||usedSkill.mult>0){
       const critCh=sfx.gcrit?100:st.crit+(sfx.critB||0);
       let dmgMul=mult;
-      if(extra.calc){ dmgMul*=2; }         // 마법 연산 성공 → 2배
-      if(extra.calcFail){ dmgMul*=.5; }     // 실패 → 절반
-      for(let i=0;i<hits;i++){ const isCrit=R()*100<critCh; if(isCrit){anyCrit=true; s.critCount++;}
-        let dmg=Math.max(1,Math.round((st.atk*dmgMul-m.def)*(.9+R()*.2)));
-        if(m.unseen)dmg=Math.round(dmg*(.4+R()*.3)); // 투명 용: 잘 안 맞음
+      if(extra.calc)dmgMul*=2; if(extra.calcFail)dmgMul*=.5;
+      const mDef=Math.max(0,m.def*(1-(c.defDown||0))*(c.mwT>0?0.6:1));
+      for(let i=0;i<hits;i++){ const isCrit=R()*100<critCh; if(isCrit)anyCrit=true;
+        let dmg=Math.max(1,Math.round((st.atk*dmgMul-mDef)*(.9+R()*.2)));
+        if(m.unseen)dmg=Math.round(dmg*(.4+R()*.3));
         if(isCrit)dmg=Math.round(dmg*1.8);
         c.hp-=dmg; total+=dmg; addFx("-"+fmt(dmg),isCrit?"#fde047":"#93c5fd"); if(c.hp<=0)break; }
       shakeK.current++; atkFx.current={kind:usedSkill?(hits>1?"multi":"burst"):"slash",n:Math.min(hits,3),key:Date.now()+R()};
       const calcTag=extra.calc?"✅연산성공 2배! ":extra.calcFail?(extra.timeout?"⏰시간초과… ":"❌오답… "):"";
-      log(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${calcTag}${anyCrit?"치명타! ":""}${bare?"맨손 ":""}${m.name}에게 ${fmt(total)} 피해`,anyCrit?"c":"");
-      if(sfx.heal&&total>0){ s.hp=Math.min(st.hp,s.hp+Math.round(total*sfx.heal)); }
-      if(sfx.dot&&c.hp>0){ c.dot=Math.max(1,Math.round(st.atk*sfx.dot)); c.dotT=3; log("🧪 중독 부여!","d"); }
-      if(sfx.stun&&c.hp>0){ c.stun=true; }
+      log(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} ${calcTag}${anyCrit?"치명타! ":""}${m.name}에게 ${fmt(total)} 피해`,anyCrit?"c":"");
+      if((sfx.heal||s.cls==="vampire")&&total>0){ const hr=sfx.heal||(s.cls==="vampire"?.1:0); const h=Math.round(total*hr);
+        if(h>0){ s.hp=Math.min(st.hp,s.hp+h); addFx("+"+fmt(h),"#f472b6"); if(s.cls==="vampire")log(`🧛 흡혈 +${fmt(h)}`,"d"); } }
+      if(sfx.dot&&c.hp>0){ c.dot=Math.max(1,Math.round(st.atk*sfx.dot)); c.dotT=3; log("🧪 중독!","d"); }
+      if(sfx.stun&&c.hp>0)c.stun=true;
+      if(sfx.defDown&&c.hp>0){ c.defDown=Math.max(c.defDown||0,sfx.defDown); log(`🔨 적 방어 -${Math.round(sfx.defDown*100)}%!`,"d"); }
+      /* 무도가: 팔 부러짐 */
+      if((sfx.armRisk||(!usedSkill&&s.cls==="brawler"))&&R()<(sfx.armRisk?.15:.1)){
+        if(s.status.some(x=>x.k==="armbreak")){ log("🦴 이미 부러진 팔로 때렸다!! 본인이 제일 아프다!!","r"); }
+        else { addStatus("armbreak",3,"팔 부러짐"); s.armBreaks++; log("🦴 …빠각. 내 팔이 부러졌다. (3턴간 공격력 반토막)","r"); } }
     } else { log(`${usedSkill.icon} [${usedSkill.name}] 사용!`,"g"); }
     if(usedSkill){ if(sfx.selfHeal){ const h=Math.round(st.hp*sfx.selfHeal); s.hp=Math.min(st.hp,s.hp+h); log(`✨ HP ${fmt(h)} 회복`,"g"); }
       if(sfx.shield){ c.shield=Math.round(st.hp*sfx.shield); log(`🛡️ 보호막 ${fmt(c.shield)}`,"g"); }
-      if(sfx.atkB){ addStatus("atkbuff",3,"공격 강화"); log("🌀 공격력 상승! (3턴)","g"); } }
-    if(c.hp<=0){ c.hp=0; onKill(bare); } else { if(c.dot){ c.hp-=c.dot; c.dotT--; if(c.dotT<=0)c.dot=0; if(c.hp<=0){onKill(bare);commit();return;} } enemyTurn(); }
+      if(sfx.luck){ addStatus("luck",3,"심마니의 눈"); log("👁️ 드랍 운이 좋아진 기분!","g"); }
+      if(sfx.moonWeight){ c.mwT=4; heavyUntil.current=Date.now()+30000; document.body.classList.add("heavy");
+        log("🌙 [달의 무게감] 적이 짓눌린다! (방어↓·공속↓ 4턴)","d");
+        log("…그런데 내 화면도 무거워졌다. 스크롤이… 느리다… (30초)","r"); } }
+    if(c.hp<=0){ c.hp=0; onKill(); }
+    else { if(c.dot){ c.hp-=c.dot; c.dotT--; if(c.dotT<=0)c.dot=0; if(c.hp<=0){c.hp=0;onKill();tickStatus();commit();return;} }
+      if(c.mwT>0)c.mwT--;
+      enemyTurn(); }
     tickStatus(); if(s.combat&&s.hp>0){ s.mp=Math.min(st.mp,s.mp+Math.round(st.mp*.03)); } commit(); };
-  const doAttack=(skillId)=>{ const s=S.current; if(!s||scr.current!=="game")return;
-    if(s.jailT>0){ say("지하 감옥 수감 중! 사냥할 수 없습니다."); return; }
-    if(s.hp<=0){ say("체력이 없습니다. 여관에서 회복하세요."); return; }
-    if(!s.combat){ const mid=s.lastMon[s.map]||MAPS.find(x=>x.id===s.map).mons[0]; spawn(mid); }
-    if(skillId){ const sk=SKILLS[skillId], slv=s.skills[skillId]||0;
-      if(!slv){ say("습득하지 않은 스킬."); return; }
-      if(s.mp<sk.mp){ say("MP가 부족합니다!"); return; }
-      s.mp-=sk.mp;
-      if(sk.calc){ startCalc(skillId); return; } // 마법 연산 발동
-    }
+  const doAttack=skillId=>{ const s=S.current; if(!s||scr.current!=="game")return;
+    if(s.hp<=0){ say("체력이 없습니다."); return; }
+    if(!s.combat){ if(s.iso&&s.iso.active){ isoSpawn(); } else { const mid=s.lastMon[s.map]||MAPS.find(x=>x.id===s.map).mons[0]; spawn(mid); } }
+    if(skillId){ const sk=getSkill(s,skillId); if(!sk||!s.learned[skillId]){ say("습득하지 않은 스킬."); return; }
+      if(sk.hpCost){ const st=calc(s); const cost=Math.max(1,Math.round(st.hp*sk.hpCost));
+        if(s.hp<=cost){ say("HP가 부족해 피의 대가를 치를 수 없다!"); return; }
+        s.hp-=cost; hurtK.current=Date.now(); log(`🩸 혈술의 대가로 HP ${fmt(cost)} 지불…`,"r"); }
+      else if(s.mp<(sk.mp||0)){ say("MP가 부족합니다!"); return; }
+      else s.mp-=(sk.mp||0);
+      if(sk.calc){ startCalc(skillId); return; } }
     resolveHit(skillId,{}); };
-  const onKill=(bare)=>{ const s=S.current, c=s.combat, m=MONS[c.mid];
-    s.killTotal++; s.kills[m.id]=(s.kills[m.id]||0)+1; if(bare)s.bareKills++;
-    let gx=m.xp, gg=m.gold; s.gold+=gg; log(`☠️ ${m.name} 처치! +${fmt(gx)}XP +${fmt(gg)}G`);
-    gainXp(gx); drops(m); s.combat=null;
-    checkHidden(); checkPromo();
-    if(m.boss&&m.unseen){ log("🏆 서버 최강 '보이지 않는 용'을 쓰러뜨렸다! 당신의 이름이 서버에 새겨진다!","c"); }
-    // 랜덤 이벤트
-    if(R()<.02)triggerEvent(); };
-  const flee=()=>{ const s=S.current; s.combat=null; commit(); };
+  const onKill=()=>{ const s=S.current, c=s.combat, m=MONS[c.mid];
+    s.killTotal++; s.kills[m.id]=(s.kills[m.id]||0)+1;
+    const gg=Math.round(m.gold*goldMul(s)); s.gold+=gg;
+    log(`☠️ ${m.name} 처치! +${fmt(m.xp)}XP +${fmt(gg)}G`);
+    gainXp(m.xp); drops(m); s.combat=null;
+    if(m.iso){ isoBossDown(); return; }
+    if(s.dungeon){ dungeonNext(); } };
+  const flee=()=>{ const s=S.current;
+    if(s.iso&&s.iso.active){ say("알 수 없는 기운이 막고 있습니다."); log("🚫 도망칠 수 없다. '알 수 없는 기운이 막고 있습니다.'","r"); return; }
+    s.combat=null; if(s.dungeon){ s.dungeon=null; log("🏃 던전에서 후퇴했다.","r"); } commit(); };
 
-  /* ---------- 랜덤 이벤트 ---------- */
-  const triggerEvent=()=>{ const s=S.current; const r=R();
-    if(r<.4){ const st=calc(s); s.hp=st.hp; s.mp=st.mp; addStatus("overeat",2,"과식"); log("🍗 [이벤트] 명량치킨 트럭 등장! HP/MP 완전 회복… 근데 과식했다.","c"); }
-    else if(r<.7){ openQuiz(); }
-    else { const g=Math.floor(s.gold*.1)+50; s.gold+=g; log(`🪙 [버그?] 돈복사 버그 발동! +${fmt(g)}G (운영자가 안 보고 있길…)`,"c"); }
-    commit(); };
-  const QUIZ=[
-    {q:"이 게임에서 이장이 토끼 간 퀘스트를 클리어하면 주는 보상 골드는?",a:["20골드","100골드","300골드"],c:0},
-    {q:"서버 최강의 몬스터 '보이지 않는 용'이 울부짖으면 걸리는 디버프는?",a:["능력치 대폭 감소","즉사","수면"],c:0},
-    {q:"마법사가 마법을 쓸 때 반드시 통과해야 하는 것은?",a:["마법 연산(암산)","제물 바치기","춤추기"],c:0},
-    {q:"PK를 하면 닉네임이 무슨 색으로 변할까?",a:["빨간색","파란색","초록색"],c:0},
-    {q:"방어력이 10배로 적용되는 버그 아이템은?",a:["고릴라 옷","강철 갑옷","용비늘 코트"],c:0},
-  ];
-  const openQuiz=()=>{ quiz.current={...pick(QUIZ),done:null}; bump(); };
-  const answerQuiz=i=>{ const s=S.current, q=quiz.current; if(!q||q.done!=null)return;
-    q.done=i; if(i===q.c){ s.gold+=500; log("🎉 [퀴즈쇼] 정답! +500G","g"); } else { log("❌ [퀴즈쇼] 오답… 다음 기회에.","r"); } commit();
-    setTimeout(()=>{ quiz.current=null; bump(); },1400); };
+  /* ── 던전 (입장 시 3% 고립 납치) ── */
+  const enterDungeon=()=>{ const s=S.current;
+    if(s.iso&&s.iso.active){ say("이미 고립되어 있다…"); return; }
+    if(s.dungeon){ say("이미 던전 안입니다."); return; }
+    if(R()<.03){ enterIso(); return; }                    // 3% — 환장의 순간
+    s.dungeon={wave:1}; log(`🕳️ [${MAPS.find(x=>x.id===s.map).name} 던전] 입장! 5웨이브 연전!`,"g");
+    dungeonWave(); tab.current="hunt"; commit(); };
+  const dungeonWave=()=>{ const s=S.current, d=s.dungeon; const map=MAPS.find(x=>x.id===s.map);
+    const base=MONS[pick(map.mons)];
+    const t={...base,id:base.id,name:base.name+" · 심층"+d.wave,hp:Math.round(base.hp*(1.3+.4*d.wave)),atk:Math.round(base.atk*(1.1+.12*d.wave)),
+      xp:Math.round(base.xp*1.6),gold:Math.round(base.gold*1.5)};
+    MONS["_dg"]=t; s.combat={mid:"_dg",hp:t.hp,maxHp:t.hp,dot:0,defDown:0,mwT:0}; };
+  const dungeonNext=()=>{ const s=S.current, d=s.dungeon; if(!d)return;
+    if(d.wave>=5){ const tier=clamp(Math.ceil(MAPS.find(x=>x.id===s.map).lv/10),1,5);
+      const g=Math.round(300*tier*goldMul(s)); s.gold+=g;
+      const K=pick(RUNE_KINDS); addRune(K.id,clamp(tier,1,4));
+      log(`🏆 던전 클리어! +${fmt(g)}G + ${K.name}!`,"g");
+      if(R()<.5)learnRandomSkill();
+      s.dungeon=null; }
+    else { d.wave++; log(`⬇️ 웨이브 ${d.wave}/5!`); dungeonWave(); } };
+  /* ── 고립 던전 ── */
+  const enterIso=()=>{ const s=S.current;
+    s.dungeon=null; s.combat=null;
+    s.iso={active:true,t0:Date.now(),deaths:0,bossHp:MONS.isoBoss.hp,days:0};
+    log("…발밑이 꺼졌다.","r");
+    log("⛓️ [고립 던전]에 납치되었습니다. 화면이 붉게 물든다.","r");
+    log("나가기·귀환은 작동하지 않는다. 보스를 잡거나… 버텨라.","r");
+    tab.current="hunt"; commit(); };
+  const isoSpawn=()=>{ const s=S.current;
+    const t={...MONS.isoBoss}; t.hp=s.iso.bossHp;                 // 보스 HP는 죽어도 유지된다 (그나마의 자비)
+    MONS.isoBoss.hpNow=s.iso.bossHp;
+    s.combat={mid:"isoBoss",hp:s.iso.bossHp,maxHp:MONS.isoBoss.hp,dot:0,defDown:0,mwT:0,isoLink:true}; };
+  const isoTick=()=>{ const s=S.current; if(!s||!s.iso||!s.iso.active)return;
+    if(s.combat&&s.combat.mid==="isoBoss")s.iso.bossHp=s.combat.hp;  // 진행 저장
+    s.iso.days=Math.floor((Date.now()-s.iso.t0)/10000); };            // 10초 = 게임 내 1일
+  const isoEscapeReady=()=>{ const s=S.current; return s.iso&&s.iso.active&&(Date.now()-s.iso.t0)>=180000; }; // 현실 3분
+  const isoEscape=()=>{ const s=S.current; if(!isoEscapeReady())return;
+    s.iso=null; s.isoEscapes++; s.combat=null; s.map="plain";
+    log("…기운이 약해졌다. 필사적으로 틈을 비집고 나왔다.","g");
+    log("🌄 살았다. 진짜 밖이다. (고립 던전 탈출)","g"); commit(); };
+  const isoBossDown=()=>{ const s=S.current;
+    s.iso=null; s.isoBossKills++;
+    s.gold+=50000; addItem(R()<.5?"elexias":"flamberion");
+    const K=pick(RUNE_KINDS); addRune(K.id,5);
+    log("👁️ …'이름 없는 것'이 무너져 내렸다.","c");
+    log("🏆 고립 던전의 주인을 처치했다!!! +50,000G + 명검 + 전설 룬!","c");
+    log("🌄 붉은 기운이 걷힌다. 밖으로 나왔다.","g"); commit(); };
+  useEffect(()=>{ const iv=setInterval(()=>{ const s=S.current; if(!s||scr.current!=="game")return;
+    isoTick();
+    const iso=s.iso&&s.iso.active;
+    document.body.classList.toggle("iso-mode",!!iso);
+    document.body.classList.toggle("heavy",Date.now()<heavyUntil.current);
+    bump(); },1000); return ()=>clearInterval(iv); },[]);
 
-  /* ---------- 스킬 / 스탯 / 장비 / 룬 ---------- */
-  const learnSkill=id=>{ const s=S.current, sk=SKILLS[id]; if(sk.cls!==s.cls&&sk.cls!==s.hcls)return;
-    if(s.lv<sk.lv){ say(`레벨 ${sk.lv}부터 습득 가능.`); return; } const cur=s.skills[id]||0;
-    if(cur>=10){ say("최대 레벨(10)."); return; } if(s.skp<1){ say("스킬 포인트 부족."); return; }
-    s.skp--; s.skills[id]=cur+1; log(cur===0?`📜 [${sk.name}] 습득!`:`📜 [${sk.name}] Lv.${cur+1}!`,"g"); commit(); };
-  const allocPt=k=>{ const s=S.current; if(s.sp<1)return; s.sp--; s.alloc[k]++; commit(); };
-  const allItems=()=>{ const s=S.current, o=[]; for(const sl of ["weapon","armor","acc"]){ if(s.equip[sl])o.push({inst:s.equip[sl],eq:sl}); } for(const it of s.inv)o.push({inst:it,eq:null}); return o; };
-  const enhance=uid=>{ const s=S.current; const f=allItems().find(x=>x.inst.uid===uid); if(!f)return; const it=f.inst;
-    if(it.plus>=12){ say("최대 강화 +12."); return; } const gold=60*(it.plus+1)*(it.plus+1), stone=Math.ceil((it.plus+1)/2);
-    if(s.gold<gold){say("골드 부족.");return;} if(s.stone<stone){say("강화석 부족.");return;}
-    s.gold-=gold; s.stone-=stone; const rate=Math.max(.1,1-it.plus*.08);
-    if(R()<rate){ it.plus++; log(`⚒️ 강화 성공! ${ITEMS[it.t].name} +${it.plus}`,"g"); }
-    else { log(`💥 강화 실패…`,"r"); } commit(); };
-  const equipItem=uid=>{ const s=S.current; const i=s.inv.findIndex(x=>x.uid===uid); if(i<0)return; const it=s.inv[i], slot=ITEMS[it.t].slot;
-    const old=s.equip[slot]; s.equip[slot]=it; s.inv.splice(i,1); if(old)s.inv.push(old);
-    const st=calc(s); s.hp=Math.min(s.hp,st.hp); s.mp=Math.min(s.mp,st.mp); log(`🎽 ${ITEMS[it.t].name} 장착!`); checkPromo(); commit(); };
-  const unequipItem=slot=>{ const s=S.current; const it=s.equip[slot]; if(!it)return; s.equip[slot]=null; s.inv.push(it);
-    const st=calc(s); s.hp=Math.min(s.hp,st.hp); commit(); };
-  const sellItem=uid=>{ const s=S.current; const i=s.inv.findIndex(x=>x.uid===uid); if(i<0)return; const it=s.inv[i];
-    const price=Math.round(ITEMS[it.t].tier*35*(1+it.plus*.5)); s.inv.splice(i,1); s.gold+=price; log(`💰 ${ITEMS[it.t].name} 판매 +${fmt(price)}G`); commit(); };
-  const equipRune=uid=>{ const s=S.current; if(s.runeEq.includes(uid))return; const i=s.runeEq.findIndex(x=>!x); if(i<0){say("룬 슬롯 가득 (4칸).");return;} s.runeEq[i]=uid; commit(); };
-  const unequipRune=i=>{ const s=S.current; s.runeEq[i]=null; commit(); };
-  const fuseRune=uid=>{ const s=S.current; if(s.runeEq.includes(uid)){say("장착 중인 룬은 합성 불가.");return;}
-    if(!fuseSel.current){ fuseSel.current=uid; bump(); return; } if(fuseSel.current===uid){ fuseSel.current=null; bump(); return; }
-    const a=s.runes.find(x=>x.uid===fuseSel.current), b=s.runes.find(x=>x.uid===uid);
-    if(!a||!b){ fuseSel.current=null; bump(); return; }
-    if(a.id!==b.id||a.g!==b.g){ say("같은 종류·등급의 룬만 합성."); fuseSel.current=null; bump(); return; }
-    if(a.g>=5){ say("이미 최고 등급(전설)."); fuseSel.current=null; bump(); return; }
-    s.runes=s.runes.filter(x=>x.uid!==a.uid&&x.uid!==b.uid); addRune(a.id,a.g+1);
-    log(`✨ 룬 합성 성공! [${GRADE[a.g+1]}] ${RUNES.find(x=>x.id===a.id).name}!`,"g"); fuseSel.current=null; commit(); };
-
-  /* ---------- 퀘스트 ---------- */
-  const qProg=q=>{ const s=S.current; if(q.hidden)return s.hiddenFound.qh1?1:0; return s.kills[q.target]||0; };
-  const claimQuest=q=>{ const s=S.current;
-    if(q.hidden){ if(!s.hiddenFound.qh1||s.hiddenClaimed.qh1)return; s.hiddenClaimed.qh1=true; }
-    else { const prog=(s.kills[q.target]||0)-(s.quests[q.id]||0); if(prog<q.n)return; s.quests[q.id]=(s.kills[q.target]||0); if(!q.repeat)s.questsDone[q.id]=1; }
-    if(q.rw.gold)s.gold+=q.rw.gold; if(q.rw.stone)s.stone+=q.rw.stone; if(q.rw.xp)gainXp(q.rw.xp);
-    log(`✅ 퀘스트 완료: [${q.name}]`,"g"); commit(); };
-  const acceptQuest=q=>{ const s=S.current; if(q.hidden)return; s.quests[q.id]=s.kills[q.target]||0; log(`📋 퀘스트 수락: [${q.name}]`); commit(); };
-
-  /* ---------- 포탈 이동 ---------- */
-  const travel=mid=>{ const s=S.current; if(s.jailT>0){say("수감 중 이동 불가.");return;} s.map=mid; s.combat=null; log(`🗺️ ${MAPS.find(x=>x.id===mid).name}(으)로 이동.`); commit(); };
-
-  /* ---------- 여관 ---------- */
-  const rest=()=>{ const s=S.current; const cost=40+s.lv*10; if(s.gold<cost){say("골드 부족.");return;} if(s.combat){say("전투 중엔 쉴 수 없음.");return;}
-    s.gold-=cost; const st=calc(s); s.hp=st.hp; s.mp=st.mp; s.status=[]; log(`🛏️ 여관에서 휴식. HP/MP 완전 회복 (-${fmt(cost)}G)`,"g"); persist(); say("회복 & 저장 완료!"); bump(); };
-
-  /* ---------- 봇 서버 시뮬 ---------- */
-  const bots=useRef(null);
-  const initBots=()=>{ if(bots.current)return; bots.current=BOT_DEFS.map(([nm,cls,lv,type])=>({nick:nm,cls,lv,type,hidden:type==="legend",online:R()<.85})); };
-  useEffect(()=>{ initBots();
-    const iv=setInterval(()=>{ if(scr.current!=="game")return; const on=bots.current.filter(b=>b.online&&b.type!=="legend"); if(!on.length)return;
-      if(R()<.7){ const b=pick(on); const lines=BOT_CHAT[b.type]||BOT_CHAT.normal; if(lines.length){ hsay(b.nick,pick(lines),b.type==="pk"?"pk":b.type==="pro"||b.type==="analyst"?"pro":"norm"); if(tab.current==="plaza")bump(); } }
-      if(R()<.1){ const b=pick(bots.current); b.online=!b.online; }
-    },3200);
-    return ()=>clearInterval(iv); },[]);
-  /* 마법 연산 타이머 강제 리렌더 */
-  useEffect(()=>{ const iv=setInterval(()=>{ if(calcState.current)cbump(); if(S.current&&S.current.jailT>0){ /*수감 시간 흐름*/ } },250); return ()=>clearInterval(iv); },[]);
-  /* 자동 사냥 */
+  /* ── 자동 사냥 (달의 무게감 시 2배로 느려짐) ── */
+  const autoRef=useRef(0);
   useEffect(()=>{ const iv=setInterval(()=>{ const s=S.current; if(!s||scr.current!=="game"||!s._auto||calcState.current)return;
-    if(s.hp<=0||s.jailT>0){ s._auto=false; bump(); return; }
-    let sk=null; if(s.autoSkill&&s.skills[s.autoSkill]&&!SKILLS[s.autoSkill].calc&&s.mp>=SKILLS[s.autoSkill].mp)sk=s.autoSkill;
+    if(s.hp<=0){ s._auto=false; bump(); return; }
+    const heavy=Date.now()<heavyUntil.current;
+    autoRef.current++; if(heavy&&autoRef.current%2===1)return;      // 억까: 턴 게이지가 절반 속도
+    let sk=null; if(s.autoSkill&&s.learned[s.autoSkill]){ const K=getSkill(s,s.autoSkill); if(K&&!K.calc&&!K.hpCost&&s.mp>=(K.mp||0))sk=s.autoSkill; }
     doAttack(sk); },1200); return ()=>clearInterval(iv); },[]);
 
-  /* ---------- 랭킹 ---------- */
-  const ranking=()=>{ const s=S.current; initBots();
-    const list=bots.current.filter(b=>b.type!=="legend").map(b=>({name:b.nick,cls:CLS[b.cls].name,lv:b.lv,power:botPower(b),bot:true,hidden:b.hidden}));
-    list.push({name:s.nick,cls:s.hcls?HID[s.hcls].name:CLS[s.cls].name,lv:s.lv,power:powerOf(s),me:true,hidden:!!s.hcls});
-    list.sort((a,b)=>b.power-a.power); return list; };
+  /* ── 초초보자 스킬 융합 ── */
+  const fuseTry=()=>{ const s=S.current; const sel=fuseSel.current;
+    if(!CLS[s.cls].fuse){ say("초초보자만 융합할 수 있습니다."); return; }
+    if(sel.length!==2){ say("스킬 2개를 선택하세요."); return; }
+    const [a,b]=sel; const key1=a+"+"+b, key2=b+"+"+a;
+    const rec=FUSE_RECIPES[key1]||FUSE_RECIPES[key2];
+    const A=getSkill(s,a),B=getSkill(s,b);
+    delete s.learned[a]; delete s.learned[b];                       // 재료 소모
+    s.fused=s.fused.filter(f=>f.id!==a&&f.id!==b);
+    let ns;
+    if(rec){ ns={id:"fu"+(s.seq++),...rec,fusedItem:true};
+      log(`✨ 융합 대성공!! [${ns.name}] 탄생!`,"c"); }
+    else { const tmpl=pick(FUSE_JUNK_TMPL);
+      ns={id:"fu"+(s.seq++),name:tmpl.replace("{A}",A.name).replace("{B}",B.name).slice(0,24),icon:"🤪",
+        mp:Math.round(((A.mp||10)+(B.mp||10))/2),mult:+((((A.mult||1)+(B.mult||1))/2)*.8).toFixed(2),fusedItem:true,
+        desc:"융합의 결과물. 뭔가… 애매하다."};
+      log(`🤪 융합 결과: [${ns.name}] …이게 뭐지?`,"d"); }
+    s.fused.push(ns); s.learned[ns.id]=1; s.fuseCount++;
+    fuseSel.current=[]; commit(); };
 
-  /* ---------- 결투 (봇 PVP) ---------- */
-  const startDuel=b=>{ const s=S.current; if(s.combat){say("전투 중.");return;} if(s.jailT>0){say("수감 중.");return;}
-    const st=calc(s); const bl=b.lv; const bp={hp:Math.round(90+bl*bl*3.2),atk:Math.round(10+bl*2.4),def:Math.round(4+bl*1.3),crit:8};
-    duel.current={b,bhp:bp.hp,bmax:bp.hp,bp,myHp:st.hp,myMax:st.hp,turn:"me",log:[`⚔️ ${b.nick}(Lv.${bl})와의 결투 시작!`],over:null}; tab.current="plaza"; bump(); };
-  const duelAtk=skillId=>{ const d=duel.current; if(!d||d.over||d.turn!=="me")return; const s=S.current, st=calc(s);
-    let mult=1,usedSkill=null,hits=1;
-    if(skillId){ const sk=SKILLS[skillId], slv=s.skills[skillId]||0; if(!slv)return; if(sk.calc){ d.turn="calc"; startDuelCalc(skillId); return; } mult=sk.mult*(1+.11*(slv-1)); usedSkill=sk; hits=sk.hits||1; }
-    let total=0; for(let i=0;i<hits;i++){ const crit=R()*100<st.crit; let dmg=Math.max(1,Math.round((st.atk*mult-d.bp.def)*(.9+R()*.2))); if(crit)dmg=Math.round(dmg*1.8); total+=dmg; }
-    d.bhp-=total; d.log.unshift(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} → ${d.b.nick}에게 ${fmt(total)}`);
-    if(d.bhp<=0){ d.bhp=0; endDuel(true); return; } duelEnemyTurn(); bump(); };
-  const startDuelCalc=skillId=>{ const sk=SKILLS[skillId]; const p=genProblem(sk.calc); const sec=CALC_SEC[sk.calc]||10;
-    calcState.current={skillId,q:p.q,a:p.a,deadline:Date.now()+sec*1000,sec,duel:true}; setCalcInput(""); cbump();
-    clearInterval(calcTimer.current); calcTimer.current=setInterval(()=>{ if(!calcState.current)return; if(Date.now()>=calcState.current.deadline)submitDuelCalc(true); },200); };
-  const submitDuelCalc=timeout=>{ const cs=calcState.current; if(!cs)return; clearInterval(calcTimer.current); const s=S.current, d=duel.current;
-    const correct=!timeout&&parseInt(calcInputRef.current,10)===cs.a; s.calcTotal++; if(correct){s.calcOk++;s.calcStreak++;s.calcStreakBest=Math.max(s.calcStreakBest,s.calcStreak);}else s.calcStreak=0;
-    const sk=SKILLS[cs.skillId]; calcState.current=null; setCalcInput(""); const st=calc(s);
-    let dmg=Math.max(1,Math.round((st.atk*sk.mult*(correct?2:.5)-d.bp.def)*(.9+R()*.2))); const crit=R()*100<st.crit; if(crit)dmg=Math.round(dmg*1.8);
-    d.bhp-=dmg; d.log.unshift(`${sk.icon} [${sk.name}] ${correct?"✅연산성공 2배!":timeout?"⏰시간초과":"❌오답"} → ${fmt(dmg)}`); d.turn="me";
-    if(d.bhp<=0){ d.bhp=0; endDuel(true); return; } duelEnemyTurn(); cbump(); bump(); };
-  const duelEnemyTurn=()=>{ const d=duel.current; if(!d||d.over)return; const s=S.current, st=calc(s);
-    const dmg=Math.max(1,Math.round((d.bp.atk-st.def*.5)*(.85+R()*.3))); d.myHp-=dmg; hurtK.current=Date.now();
-    d.log.unshift(`🩸 ${d.b.nick}의 공격 → -${fmt(dmg)}`); if(d.myHp<=0){ d.myHp=0; endDuel(false); } d.turn="me"; };
-  const endDuel=won=>{ const d=duel.current, s=S.current; d.over=won?"win":"lose";
-    if(won){ s.duelW++; const g=80+d.b.lv*15; s.gold+=g; d.log.unshift(`🏆 승리! +${fmt(g)}G`); log(`⚔️ [결투] ${d.b.nick}에게 승리! (+${fmt(g)}G)`,"g"); }
-    else { s.duelL++; d.log.unshift("💀 패배…"); log(`⚔️ [결투] ${d.b.nick}에게 패배…`,"r"); }
-    checkPromo(); commit(); };
-  const closeDuel=()=>{ duel.current=null; bump(); };
+  /* ── 룬: 3슬롯 장착 · 합성(실패 시 파괴) ── */
+  const equipRune=uid=>{ const s=S.current; if(s.runeEq.includes(uid))return; const i=s.runeEq.findIndex(x=>!x);
+    if(i<0){ say("룬 슬롯 가득 (3칸)."); return; } s.runeEq[i]=uid; commit(); };
+  const unequipRune=i=>{ const s=S.current; s.runeEq[i]=null; commit(); };
+  const fuseRune=uid=>{ const s=S.current; if(s.runeEq.includes(uid)){say("장착 중인 룬은 합성 불가.");return;}
+    if(!runeSel.current){ runeSel.current=uid; bump(); return; }
+    if(runeSel.current===uid){ runeSel.current=null; bump(); return; }
+    const a=s.runes.find(x=>x.uid===runeSel.current), b=s.runes.find(x=>x.uid===uid);
+    if(!a||!b){ runeSel.current=null; bump(); return; }
+    if(a.k!==b.k||a.g!==b.g){ say("같은 종류·같은 등급만 합성 가능."); runeSel.current=null; bump(); return; }
+    if(a.g>=5){ say("이미 전설 등급."); runeSel.current=null; bump(); return; }
+    s.runes=s.runes.filter(x=>x.uid!==a.uid&&x.uid!==b.uid);
+    if(R()<.7){ addRune(a.k,a.g+1); log(`✨ 룬 진화 성공! [${GRADE[a.g+1]}] ${RUNE_KINDS.find(k=>k.id===a.k).name}!`,"g"); }
+    else { s.runeBroke+=2; log("💥 룬 진화 실패… 두 룬이 산산조각 났다.","r"); }
+    runeSel.current=null; commit(); };
 
-  /* ---------- PK / 현상금 / 지하감옥 ---------- */
-  const pkBot=b=>{ const s=S.current; if(s.jailT>0){say("수감 중.");return;}
-    if(b.type==="pk"){ // 현상수배범 사냥 (정당)
-      s.bountyHunted++; const g=200+b.lv*20; s.gold+=g; hsay("시스템",`${s.nick}님이 현상수배범 ${b.nick}을(를) 처치했습니다!`,"sys");
-      log(`🎯 현상수배범 [${b.nick}] 처치! 현상금 +${fmt(g)}G (정의구현)`,"g"); checkPromo(); commit(); return; }
-    // 무고한 유저 PK → 패널티
-    s.pk++; s.bounty+=1000; s.status=s.status.filter(x=>x.k!=="pkpenalty"); s.status.push({k:"pkpenalty",t:5,label:"PK 페널티"});
-    hsay("시스템",`⚠️ ${s.nick}님이 ${b.nick}님을 PK했습니다! 닉네임이 붉게 물듭니다.`,"sys");
-    log(`🔪 ${b.nick}을(를) PK했다! 닉네임 빨강, 현상금 ${fmt(s.bounty)}G. (감각 10% 고정)`,"r");
-    if(R()<.5){ s.jailT=8; log("🚨 감옥 관리인에게 발각! 지하 감옥에 수감되었습니다. (사냥/이동 제한)","r"); }
-    commit(); };
-  const bribeOut=()=>{ const s=S.current; if(s.jailT<=0)return; const cost=s.bounty||500; if(s.gold<cost){say(`보석금 ${fmt(cost)}G 부족.`);return;}
-    s.gold-=cost; s.jailT=0; s.bounty=0; log(`💸 보석금 ${fmt(cost)}G 지불하고 석방. (전과는 남는다)`,"d"); commit(); };
-  const serveTime=()=>{ const s=S.current; if(s.jailT<=0)return; s.jailT--; if(s.jailT<=0){ log("⛓️ 형기 종료. 석방되었습니다.","g"); } else log(`⛓️ 감옥에서 시간을 보낸다… (남은 ${s.jailT})`); commit(); };
+  /* ── 장비 ── */
+  const equipItem=uid=>{ const s=S.current; const i=s.inv.findIndex(x=>x.uid===uid); if(i<0)return;
+    const it=s.inv[i], t=ITEMS[it.t];
+    if(t.noEquip){ say("장착할 수 없습니다: 죽음이 거부한다."); log("☠️ 데스사이드가 스스로 장착을 거부했다.","d"); return; }
+    const slot=t.slot; const old=s.equip[slot]; s.equip[slot]=it; s.inv.splice(i,1); if(old)s.inv.push(old);
+    const st=calc(s); s.hp=Math.min(s.hp,st.hp); s.mp=Math.min(s.mp,st.mp);
+    log(`🎽 ${t.name} 장착!${t.gorilla?" …어? 방어력이 이상하게 높은데?":""}`); commit(); };
+  const unequipItem=slot=>{ const s=S.current; const it=s.equip[slot]; if(!it)return; s.equip[slot]=null; s.inv.push(it);
+    const st=calc(s); s.hp=Math.min(s.hp,st.hp); commit(); };
+  const sellItem=uid=>{ const s=S.current; const i=s.inv.findIndex(x=>x.uid===uid); if(i<0)return;
+    const t=ITEMS[s.inv[i].t]; const p=Math.round((t.price||t.tier*50)/2); s.inv.splice(i,1); s.gold+=p;
+    log(`💰 ${t.name} 판매 +${fmt(p)}G`); commit(); };
+  const allocPt=k=>{ const s=S.current; if(s.sp<1)return; s.sp--; s.alloc[k]++; commit(); };
+  const buyItem=id=>{ const s=S.current; const t=ITEMS[id]; if(!t)return;
+    if(s.gold<t.price){ say("골드 부족."); return; } s.gold-=t.price; addItem(id); log(`🛒 ${t.name} 구매!`,"g"); commit(); };
+  const buySkill=id=>{ const s=S.current; const sk=SKILLS[id]; if(!sk)return;
+    if(s.learned[id]){ say("이미 배운 스킬."); return; }
+    if(s.gold<sk.price){ say("골드 부족."); return; } s.gold-=sk.price; s.learned[id]=1; log(`📖 [${sk.name}] 습득!`,"g"); commit(); };
+  const learnClassSkill=id=>{ const s=S.current; const sk=SKILLS[id];
+    if(sk.cls!==s.cls){ say("직업이 다릅니다."); return; }
+    if(s.lv<sk.lv){ say(`레벨 ${sk.lv} 필요.`); return; }
+    const cost=sk.lv*40; if(s.gold<cost){ say(`골드 부족 (${cost}G).`); return; }
+    s.gold-=cost; s.learned[id]=1; log(`📜 [${sk.name}] 습득! (-${cost}G)`,"g"); commit(); };
+  const travel=mid=>{ const s=S.current;
+    if(s.iso&&s.iso.active){ say("알 수 없는 기운이 막고 있습니다."); log("🚫 이동 불가. '알 수 없는 기운이 막고 있습니다.'","r"); return; }
+    s.map=mid; s.combat=null; s.dungeon=null; log(`🗺️ ${MAPS.find(x=>x.id===mid).name}(으)로 이동.`); commit(); };
+  const rest=()=>{ const s=S.current;
+    if(s.iso&&s.iso.active){ say("여관은 밖에 있다. 여긴… 고립 던전이다."); return; }
+    const cost=40+s.lv*10; if(s.gold<cost){say("골드 부족.");return;} if(s.combat){say("전투 중.");return;}
+    s.gold-=cost; const st=calc(s); s.hp=st.hp; s.mp=st.mp; s.status=s.status.filter(x=>x.k==="luck");
+    log(`🛏️ 휴식 완료. (-${fmt(cost)}G)`,"g"); persist(); say("회복 & 저장!"); bump(); };
 
-  /* ---------- 트레이드 (사기 위험) ---------- */
-  const MERCH_STOCK=[{t:"w2",p:120},{t:"a2",p:130},{t:"c2",p:110},{t:"w3",p:600},{t:"a3",p:650}];
-  const openTrade=b=>{ const s=S.current; if(b.type==="scam"){ trade.current={b,scam:true,offer:pick(["w4","a4","w5"]),price:Math.floor(300+R()*400)}; }
-    else { trade.current={b,scam:false,stock:MERCH_STOCK}; } bump(); };
-  const buyStock=t=>{ const s=S.current, it=MERCH_STOCK.find(x=>x.t===t); if(!it)return; if(s.gold<it.p){say("골드 부족.");return;}
-    s.gold-=it.p; addItem(t); log(`🛒 ${ITEMS[t].name} 구매 (-${fmt(it.p)}G)`,"g"); commit(); };
-  const takeScamDeal=()=>{ const s=S.current, t=trade.current; if(!t||!t.scam)return; if(s.gold<t.price){say("골드 부족.");return;}
-    s.gold-=t.price;
-    if(R()<.5){ log(`😈 사기당했다! ${t.b.nick}이(가) '0 하나 빼기' 수법으로 튀었다. 돈만 날림…`,"r"); }
-    else { addItem(t.offer); log(`😲 어라, 진짜였다! ${ITEMS[t.offer].name} 획득! (운이 좋았다)`,"g"); }
-    trade.current=null; commit(); };
-  const closeTrade=()=>{ trade.current=null; bump(); };
 
-  /* ---------- 길드 ---------- */
-  const createGuild=name=>{ const s=S.current; if(s.guild){say("이미 길드 소속.");return;} if(!name||!name.trim()){say("길드 이름 입력.");return;}
-    s.guild={name:name.trim(),master:true,rank:9999-Math.floor(R()*500),members:3+Math.floor(R()*5)};
-    log(`🏰 길드 [${name.trim()}] 창설! (이름은 두 번 다시 못 바꿉니다)`,"g"); commit(); };
-  const guildWar=()=>{ const s=S.current; if(!s.guild){say("길드가 없습니다.");return;} if(gwar.current){return;}
-    const rival=pick(["철벽동맹","무법지대","새벽기사단","돈미새연합","고인물집합소"]);
-    const st=calc(s); gwar.current={rival,round:1,myHp:st.hp*3,myMax:st.hp*3,foeHp:st.hp*2.6,foeMax:st.hp*2.6,contrib:0,log:[`⚔️ [길드전] ${s.guild.name} vs ${rival}! 거점 쟁탈전 시작!`],over:null}; bump(); };
-  const gwarAtk=()=>{ const g=gwar.current, s=S.current; if(!g||g.over)return; const st=calc(s);
-    const dmg=Math.max(1,Math.round(st.atk*(1.5+R()))); g.foeHp-=dmg; g.contrib+=dmg; g.log.unshift(`🗡️ 적 거점에 ${fmt(dmg)} 피해 (기여도 누적 ${fmt(g.contrib)})`);
-    if(g.foeHp<=0){ g.over="win"; const rw=500+s.lv*30; s.gold+=rw; g.log.unshift(`🏆 길드전 승리! 기여 보상 +${fmt(rw)}G`); log(`🏰 [길드전] ${g.rival} 격파! +${fmt(rw)}G`,"g"); commit(); bump(); return; }
-    const foe=Math.max(1,Math.round(st.atk*(.8+R()*.6))); g.myHp-=foe; g.log.unshift(`🩸 적 길드의 반격 -${fmt(foe)}`); g.round++;
-    if(g.myHp<=0){ g.over="lose"; g.log.unshift("💀 우리 거점이 무너졌다…"); log(`🏰 [길드전] ${g.rival}에게 패배…`,"r"); }
-    bump(); };
-  const closeGwar=()=>{ gwar.current=null; bump(); };
-
-  /* ---------- 월드 퀘스트 ---------- */
-  const openWQ=w=>{ const s=S.current; if(s.lv<w.lv){say(`레벨 ${w.lv}부터 참여 가능.`);return;}
-    const online=bots.current.filter(b=>b.online&&b.type!=="legend").slice(0,6+Math.floor(R()*6));
-    wq.current={w,bhp:w.bhp,bmax:w.bhp,prog:0,goal:w.goal,contrib:0,
-      party:online.map(b=>({nick:b.nick,lv:b.lv,contrib:0})),over:null,faction:null,
-      log:[`${w.icon} [월드 퀘스트] ${w.name} 시작! ${online.length+1}명의 유저가 참전 중.`]}; tab.current="worldq"; bump(); };
-  const wqAttack=skillId=>{ const wqs=wq.current, s=S.current; if(!wqs||wqs.over)return; if(wqs.w.faction&&!wqs.faction){ say("먼저 진영을 선택하세요."); return; }
-    const st=calc(s); let mult=1,usedSkill=null,hits=1;
-    if(skillId){ const sk=SKILLS[skillId], slv=s.skills[skillId]||0; if(!slv)return; if(s.mp<sk.mp){say("MP 부족");return;} s.mp-=sk.mp; if(sk.calc){ wqStartCalc(skillId); return; } mult=sk.mult*(1+.11*(slv-1)); usedSkill=sk; hits=sk.hits||1; }
-    wqResolve(skillId,mult,usedSkill,hits,1); };
-  const wqStartCalc=skillId=>{ const sk=SKILLS[skillId]; const p=genProblem(sk.calc); const sec=CALC_SEC[sk.calc]||10;
-    calcState.current={skillId,q:p.q,a:p.a,deadline:Date.now()+sec*1000,sec,wq:true}; setCalcInput(""); cbump();
-    clearInterval(calcTimer.current); calcTimer.current=setInterval(()=>{ if(!calcState.current)return; if(Date.now()>=calcState.current.deadline)wqSubmitCalc(true); },200); };
-  const wqSubmitCalc=timeout=>{ const cs=calcState.current; if(!cs)return; clearInterval(calcTimer.current); const s=S.current;
-    const correct=!timeout&&parseInt(calcInputRef.current,10)===cs.a; s.calcTotal++; if(correct){s.calcOk++;s.calcStreak++;s.calcStreakBest=Math.max(s.calcStreakBest,s.calcStreak);}else s.calcStreak=0;
-    const sk=SKILLS[cs.skillId]; calcState.current=null; setCalcInput(""); wqResolve(cs.skillId,sk.mult*(correct?2:.5),sk,1,correct?2:.5); };
-  const wqResolve=(skillId,mult,usedSkill,hits,calcMul)=>{ const wqs=wq.current, s=S.current, st=calc(s);
-    let total=0; for(let i=0;i<hits;i++){ const crit=R()*100<st.crit; let dmg=Math.max(1,Math.round((st.atk*mult-wqs.w.batk*.3)*(.9+R()*.2))); if(crit)dmg=Math.round(dmg*1.8); total+=dmg; }
-    if(wqs.w.armor&&!usedSkill&&R()<.5){ wqs.log.unshift("🛡️ 마력 표피에 튕겨나갔다! (물리로 껍질을 깨야…)"); }
-    wqs.bhp-=total; wqs.contrib+=total; wqs.prog=Math.min(wqs.goal,wqs.prog+Math.round(total/50)+1);
-    wqs.log.unshift(`${usedSkill?usedSkill.icon+" ["+usedSkill.name+"]":"⚔️"} → 보스에게 ${fmt(total)} (내 기여 ${fmt(wqs.contrib)})`);
-    // 파티 봇들도 딜
-    let partySum=0; for(const p of wqs.party){ const d=Math.round((20+p.lv*p.lv*.5)*(.5+R())); p.contrib+=d; partySum+=d; }
-    wqs.bhp-=partySum; wqs.prog=Math.min(wqs.goal,wqs.prog+Math.round(partySum/50));
-    if(wqs.w.infect&&R()<.15){ addStatus("infect",4,"감염"); wqs.log.unshift("🧟 좀비에게 물렸다! 감염 상태이상 (4턴)"); }
-    // 보스 반격 (광역)
-    if(wqs.bhp>0&&R()<.6){ const foe=Math.max(1,Math.round(wqs.w.batk-st.def*.5)); s.hp-=foe; hurtK.current=Date.now(); wqs.log.unshift(`🩸 보스의 광역 공격 -${fmt(foe)}`); if(s.hp<=0){ death(); wqs.log.unshift("💀 쓰러졌다… 잠시 후 복귀."); s.hp=Math.round(st.hp*.4); } }
-    if(wqs.bhp<=0){ wqs.bhp=0; wqEnd(true); return; }
-    if(wqs.prog>=wqs.goal){ wqEnd(true); return; }
-    tickStatus(); cbump(); bump(); commit(); };
-  const wqPickFaction=f=>{ const wqs=wq.current, s=S.current; if(!wqs||wqs.faction)return; wqs.faction=f; s.faction=f; wqs.log.unshift(`🚩 [${f}] 진영을 선택했다! (되돌릴 수 없음)`); bump(); };
-  const wqEnd=won=>{ const wqs=wq.current, s=S.current; wqs.over=won?"win":"fail";
-    // 기여도 순위
-    const all=[{nick:s.nick,contrib:wqs.contrib,me:true},...wqs.party]; all.sort((a,b)=>b.contrib-a.contrib);
-    wqs.rank=all.findIndex(x=>x.me)+1; wqs.total=all.length;
-    if(won){ s.wqClears++; s.wqDone[wqs.w.id]=1; const share=wqs.contrib/Math.max(1,all.reduce((a,b)=>a+b.contrib,0));
-      const g=Math.round((1000+s.lv*40)*(0.3+share)); const stn=Math.round(5+share*15); s.gold+=g; s.stone+=stn;
-      if(wqs.w.infect)addStatus("infect_resist",99,"감염 저항");
-      if(R()<0.2+share*0.5){ const t=pick(TIER_POOL[clamp(Math.ceil(wqs.w.lv/10),3,5)]); addItem(t); wqs.itemDrop=ITEMS[t].name; }
-      wqs.log.unshift(`🏆 토벌 성공! 기여도 ${wqs.rank}위/${wqs.total} — 보상 ${fmt(g)}G, 강화석 ${stn}${wqs.itemDrop?", "+wqs.itemDrop:""}`);
-      log(`${wqs.w.icon} [월드퀘스트] ${wqs.w.name} 클리어! 기여 ${wqs.rank}위`,"g"); checkPromo(); }
-    else { wqs.log.unshift("💀 월드 퀘스트 실패…"); }
-    commit(); bump(); };
-  const closeWQ=()=>{ wq.current=null; tab.current="worldq"; bump(); };
-
-  /* ═══════════════ UI 헬퍼 ═══════════════ */
+  /* ═══════════════════ UI 헬퍼 ═══════════════════ */
   const Bar=(cur,max,col,h)=>(<div className="w-full rounded-full overflow-hidden" style={{background:"rgba(0,0,0,.5)",height:h||10}}>
     <div className="h-full rounded-full transition-all" style={{width:clamp(cur/max*100,0,100)+"%",background:col}}/></div>);
-  const itemLabel=it=>{ const t=ITEMS[it.t]; return <span style={{color:TIER_COL[t.tier]}}>{t.icon} {t.name}{it.plus>0?` +${it.plus}`:""}</span>; };
-  const itemStats=it=>{ const t=ITEMS[it.t], m=1+.11*(it.plus||0), p=[];
-    if(t.atk)p.push("공 "+Math.round(t.atk*m)); if(t.def)p.push("방 "+Math.round(t.def*(t.bug?10:m))); if(t.hp)p.push("HP "+Math.round(t.hp*m));
-    if(t.mp)p.push("MP "+Math.round(t.mp*m)); if(t.crit)p.push("치명 "+(t.crit*m).toFixed(1)+"%"); return p.join(" · "); };
+  const itemLabel=it=>{ const t=ITEMS[it.t]; return <span style={{color:TIER_COL[t.tier]}}>{t.icon} {t.name}</span>; };
+  const itemStats=it=>{ const t=ITEMS[it.t], p=[];
+    if(t.atk)p.push("공 "+t.atk); if(t.def)p.push("방 "+t.def+(t.gorilla?"(?)":"")); if(t.hp)p.push("HP "+t.hp); if(t.crit)p.push("치명 "+t.crit+"%");
+    if(t.noEquip)p.push("장착 불가"); return p.join(" · "); };
+  const myLearned=s=>Object.keys(s.learned).filter(id=>getSkill(s,id));
+  const dayRotation=(arr,n,salt)=>{ const day=Math.floor(Date.now()/86400000); const out=[];
+    for(let i=0;i<n;i++)out.push(arr[(day*7+salt*13+i*31)%arr.length]); return out; };
 
-  /* ═══════════════ 로그인 / 직업선택 ═══════════════ */
+  /* ═══════════════════ 로그인 · 직업 선택 ═══════════════════ */
   const renderLogin=()=>(
     <div className="min-h-screen flex items-center justify-center p-4 fadein" style={{background:"radial-gradient(ellipse at 50% 25%,#141d33 0%,#07090f 70%)"}}>
       <div className="panel p-8 w-full max-w-sm text-center pop">
         <div className="text-5xl mb-2">🎮</div>
-        <h1 className="text-2xl font-black text-sky-300 glow">환생록 온라인</h1>
-        <p className="text-[11px] text-slate-400 mt-1 mb-5">감각 동기화형 가상현실 MMORPG — 마법은 암산으로, 명성은 실력으로.</p>
+        <h1 className="text-2xl font-black text-sky-300 glow">환장 RPG: 완전판</h1>
+        <p className="text-[11px] text-slate-400 mt-1 mb-5">100+ 스킬 · 200+ 절차생성 장비 · 스킬 융합 · 고립 던전. 환장할 준비 되셨습니까?</p>
         <input value={nick} onChange={e=>setNick(e.target.value)} placeholder="닉네임" className="w-full mb-2 px-4 py-2.5 rounded-lg bg-black/40 border border-slate-700 text-sm"/>
         <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호" onKeyDown={e=>{if(e.key==="Enter")doLogin();}} className="w-full mb-3 px-4 py-2.5 rounded-lg bg-black/40 border border-slate-700 text-sm"/>
         {err&&<p className="text-xs text-red-400 mb-2">{err}</p>}
@@ -11710,335 +11638,234 @@ function Game(){
         <p className="text-[10px] text-slate-600 mt-4">데이터는 이 브라우저(localStorage)에 저장됩니다.</p>
       </div>
     </div>);
-  const renderCreate=()=>(
-    <div className="min-h-screen flex items-center justify-center p-4 fadein" style={{background:"radial-gradient(ellipse at 50% 25%,#141d33 0%,#07090f 70%)"}}>
-      <div className="w-full max-w-3xl text-center">
+  const renderCreate=()=>{
+    const groups=[["정상","정상 직업","#7dd3fc"],["히든","히든 직업","#c084fc"],["예능","비전투·예능 직업","#fbbf24"]];
+    return (
+    <div className="min-h-screen flex items-start justify-center p-4 fadein overflow-y-auto" style={{background:"radial-gradient(ellipse at 50% 25%,#141d33 0%,#07090f 70%)"}}>
+      <div className="w-full max-w-4xl text-center py-4">
         <h1 className="text-xl font-black text-sky-300 mb-1">직업을 선택하라, {pend.current&&pend.current.nick}</h1>
-        <p className="text-xs text-slate-500 mb-5">각 직업엔 숨겨진 전직의 길이 있다. 마법사는 전투마다 <b className="text-amber-300">암산</b>을 각오할 것.</p>
-        <div className="grid md:grid-cols-3 gap-3">
-          {Object.entries(CLS).map(([cid,c])=>(
-            <button key={cid} onClick={()=>pickClass(cid)} className="btn panel p-4 text-left hover:border-sky-500/50">
-              <div className="text-3xl mb-1 text-center">{c.icon}</div>
-              <div className="font-black text-center text-sky-200 mb-1">{c.name}{c.calc&&<span className="text-[9px] text-amber-300 ml-1">[연산]</span>}</div>
-              <p className="text-[11px] text-slate-400 leading-snug mb-2 text-center min-h-[42px]">{c.desc}</p>
-              <div className="text-[10px] text-slate-300">❤️{c.base.hp} 💧{c.base.mp} ⚔️{c.base.atk} 🛡️{c.base.def} 🎯{c.base.crit}%</div>
-            </button>))}
-        </div>
-        <button onClick={()=>{scr.current="login";bump();}} className="btn mt-4 px-4 py-2 rounded-lg bg-slate-800 text-xs text-slate-400">← 돌아가기</button>
+        <p className="text-xs text-slate-500 mb-4">14개의 길. 정상적인 것부터… 칠판까지.</p>
+        {groups.map(([g,label,col])=>(
+          <div key={g} className="mb-4">
+            <div className="text-xs font-black mb-2 text-left" style={{color:col}}>◆ {label}</div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+              {Object.entries(CLS).filter(([id,c])=>c.grp===g).map(([cid,c])=>(
+                <button key={cid} onClick={()=>pickClass(cid)} className="btn panel p-3 text-left hover:border-sky-500/50">
+                  <div className="text-2xl text-center mb-1">{c.icon}</div>
+                  <div className="font-black text-center text-sky-200 text-sm mb-1">{c.name}{c.calc&&<span className="text-[8px] text-amber-300 ml-1">🧮</span>}{c.fuse&&<span className="text-[8px] text-emerald-300 ml-1">융합</span>}</div>
+                  <p className="text-[10px] text-slate-400 leading-snug min-h-[52px]">{c.desc}</p>
+                  <div className="text-[9px] text-slate-500 mt-1">❤️{c.base.hp} 💧{c.base.mp} ⚔️{c.base.atk} 🛡️{c.base.def} 🎯{c.base.crit}%</div>
+                </button>))}
+            </div>
+          </div>))}
+        <button onClick={()=>{scr.current="login";bump();}} className="btn mt-1 px-4 py-2 rounded-lg bg-slate-800 text-xs text-slate-400">← 돌아가기</button>
       </div>
-    </div>);
-  /* ═══════════════ 마법 연산 모달 ═══════════════ */
+    </div>); };
+
+  /* ═══════════════════ 마법 연산 모달 ═══════════════════ */
   const renderCalc=()=>{ const cs=calcState.current; if(!cs)return null;
     const left=Math.max(0,(cs.deadline-Date.now())/1000);
-    const submit=cs.duel?()=>submitDuelCalc(false):cs.wq?()=>wqSubmitCalc(false):()=>submitCalc(false);
     return (<div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{background:"rgba(4,8,18,.86)"}}>
-      <div className="panel p-6 w-full max-w-sm text-center pop" style={{borderColor:"rgba(56,189,248,.5)"}}>
-        <div className="text-xs font-bold text-amber-300 mb-1">🧮 마법 연산 — 제한 시간 내 정답을 입력!</div>
-        <div className="text-[11px] text-slate-400 mb-3">정답 시 위력 <b className="text-emerald-300">2배</b>, 실패 시 절반. (마법사의 숙명)</div>
+      <div className="panel p-6 w-full max-w-sm text-center calc-pop" style={{borderColor:"rgba(56,189,248,.5)"}}>
+        <div className="text-xs font-bold text-amber-300 mb-1">🧮 마법 연산 — 제한 시간 내 정답 입력!</div>
+        <div className="text-[11px] text-slate-400 mb-3">정답 시 위력 <b className="text-emerald-300">2배</b>, 실패 시 절반.</div>
         <div className="text-4xl font-black text-white my-4 glow">{cs.q} = ?</div>
         <input autoFocus value={calcInput} onChange={e=>setCalcInput(e.target.value.replace(/[^0-9-]/g,""))}
-          onKeyDown={e=>{if(e.key==="Enter")submit();}} inputMode="numeric"
+          onKeyDown={e=>{if(e.key==="Enter")submitCalc(false);}} inputMode="numeric"
           className="w-full text-center text-2xl font-black px-4 py-3 rounded-lg bg-black/50 border-2 border-sky-500/40 mb-3"/>
         <div className="mb-3"><div className="calc-timer" style={{animationDuration:cs.sec+"s"}}/></div>
         <div className="text-[11px] text-slate-500 mb-3">남은 시간 {left.toFixed(1)}초</div>
-        <button onClick={submit} className="btn w-full py-2.5 rounded-lg bg-sky-600 text-white font-bold">🔥 시전!</button>
-      </div></div>); };
-  /* ═══════════════ 퀴즈 모달 ═══════════════ */
-  const renderQuiz=()=>{ const q=quiz.current; if(!q)return null;
-    return (<div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{background:"rgba(4,8,18,.8)"}}>
-      <div className="panel p-6 w-full max-w-md text-center pop">
-        <div className="text-xs font-bold text-fuchsia-300 mb-2">🎪 명량 퀴즈쇼! (정답 시 500G)</div>
-        <div className="text-sm font-bold mb-4">{q.q}</div>
-        <div className="space-y-2">{q.a.map((a,i)=>(
-          <button key={i} onClick={()=>answerQuiz(i)} disabled={q.done!=null}
-            className={"btn w-full py-2 rounded-lg text-sm font-bold "+(q.done==null?"bg-slate-700":i===q.c?"bg-emerald-700":i===q.done?"bg-red-800":"bg-slate-800 opacity-50")}>{a}</button>))}</div>
-        {q.done!=null&&<div className="text-xs mt-3 font-bold" style={{color:q.done===q.c?"#6ee7b7":"#fca5a5"}}>{q.done===q.c?"정답! 🎉":"오답 ㅠㅠ"}</div>}
-      </div></div>); };
-  /* ═══════════════ 트레이드 모달 ═══════════════ */
-  const renderTrade=()=>{ const t=trade.current; if(!t)return null;
-    return (<div className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{background:"rgba(4,8,18,.8)"}}>
-      <div className="panel p-5 w-full max-w-sm pop">
-        <div className="flex justify-between items-center mb-3"><div className="text-sm font-bold">🤝 {t.b.nick}와의 거래</div>
-          <button onClick={closeTrade} className="btn text-xs text-slate-400">✕</button></div>
-        {t.scam?(<div className="text-center">
-          <div className="text-[11px] text-amber-300 mb-2">"이 {ITEMS[t.offer].name}, 원래 비싼 건데 특별히 {fmt(t.price)}G에 드려요! 선입금만 하시면…"</div>
-          <div className="text-3xl my-3">{ITEMS[t.offer].icon}</div>
-          <div className="text-[10px] text-red-400 mb-3">⚠️ 어딘가 수상하다. 사기일 수도 있다…</div>
-          <div className="flex gap-2"><button onClick={takeScamDeal} className="btn flex-1 py-2 rounded-lg bg-amber-700 text-xs font-bold">거래한다 ({fmt(t.price)}G)</button>
-            <button onClick={closeTrade} className="btn flex-1 py-2 rounded-lg bg-slate-700 text-xs">거절</button></div>
-        </div>):(<div className="space-y-2">
-          <div className="text-[11px] text-slate-400 mb-1">정직한 상인이다. 정가 판매 중.</div>
-          {t.stock.map(x=>(<div key={x.t} className="flex justify-between items-center panel p-2">
-            <div className="text-xs">{itemLabel({t:x.t,plus:0})} <span className="text-slate-500">({itemStats({t:x.t,plus:0})})</span></div>
-            <button onClick={()=>buyStock(x.t)} className="btn px-2.5 py-1 rounded bg-emerald-800 text-[11px]">{fmt(x.p)}G</button></div>))}
-        </div>)}
-      </div></div>); };
-  /* ═══════════════ 결투 오버레이 ═══════════════ */
-  const renderDuel=()=>{ const d=duel.current; if(!d)return null; const s=S.current;
-    const learned=Object.keys(s.skills).filter(id=>s.skills[id]>0&&(SKILLS[id].cls===s.cls||SKILLS[id].cls===s.hcls));
-    return (<div className="fixed inset-0 z-[65] flex items-center justify-center p-4" style={{background:"rgba(4,8,18,.85)"}}>
-      <div className="panel p-5 w-full max-w-md pop">
-        <div className="text-center text-sm font-black text-sky-300 mb-3">⚔️ 결투장</div>
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="panel p-3"><div className="text-xs font-bold">{s.hcls?HID[s.hcls].icon:CLS[s.cls].icon} {s.nick} <span className="text-[9px] text-cyan-400">(나)</span></div>
-            <div className="text-[10px] flex justify-between mt-1"><span className="text-red-400">HP</span><span>{fmt(Math.max(0,Math.round(d.myHp)))}/{fmt(d.myMax)}</span></div>{Bar(d.myHp,d.myMax,"linear-gradient(90deg,#dc2626,#991b1b)",8)}</div>
-          <div className="panel p-3"><div className="text-xs font-bold">{CLS[d.b.cls].icon} {d.b.nick} <span className="text-[9px] text-slate-500">Lv.{d.b.lv}</span></div>
-            <div className="text-[10px] flex justify-between mt-1"><span className="text-purple-400">HP</span><span>{fmt(Math.max(0,Math.round(d.bhp)))}/{fmt(d.bmax)}</span></div>{Bar(d.bhp,d.bmax,"linear-gradient(90deg,#7c3aed,#4c1d95)",8)}</div>
-        </div>
-        {!d.over?(<div className="flex flex-wrap gap-1.5 mb-2">
-          <button onClick={()=>duelAtk(null)} className="btn px-3 py-2 rounded-lg bg-red-700 text-white text-xs font-bold">⚔️ 공격</button>
-          {learned.map(id=>{const sk=SKILLS[id]; return <button key={id} onClick={()=>duelAtk(id)}
-            className="btn px-2.5 py-2 rounded-lg bg-indigo-800 text-white text-[11px] font-bold">{sk.icon}{sk.name}{sk.calc?"🧮":""}</button>;})}
-        </div>):(<div className="text-center mb-2"><div className="text-2xl">{d.over==="win"?"🏆":"💀"}</div>
-          <button onClick={closeDuel} className="btn mt-1 px-4 py-1.5 rounded-lg bg-sky-800 text-xs font-bold">닫기</button></div>)}
-        <div className="panel p-2 h-28 overflow-y-auto text-[11px]">{d.log.map((l,i)=><div key={i} className="text-slate-300">{l}</div>)}</div>
-      </div></div>); };
-  /* ═══════════════ 길드전 오버레이 ═══════════════ */
-  const renderGwar=()=>{ const g=gwar.current; if(!g)return null; const s=S.current;
-    return (<div className="fixed inset-0 z-[65] flex items-center justify-center p-4" style={{background:"rgba(4,8,18,.85)"}}>
-      <div className="panel p-5 w-full max-w-md pop">
-        <div className="text-center text-sm font-black text-amber-300 mb-3">🏰 길드전 · {s.guild.name} vs {g.rival}</div>
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="panel p-3"><div className="text-xs font-bold text-cyan-300">우리 거점</div>{Bar(g.myHp,g.myMax,"linear-gradient(90deg,#0ea5e9,#0369a1)",8)}<div className="text-[9px] text-slate-500 mt-1">{fmt(Math.max(0,Math.round(g.myHp)))}</div></div>
-          <div className="panel p-3"><div className="text-xs font-bold text-red-300">{g.rival} 거점</div>{Bar(g.foeHp,g.foeMax,"linear-gradient(90deg,#dc2626,#7f1d1d)",8)}<div className="text-[9px] text-slate-500 mt-1">{fmt(Math.max(0,Math.round(g.foeHp)))}</div></div>
-        </div>
-        {!g.over?<button onClick={gwarAtk} className="btn w-full py-2.5 rounded-lg bg-red-700 text-white text-sm font-bold mb-2">🗡️ 거점 공격</button>
-          :<div className="text-center mb-2"><div className="text-2xl">{g.over==="win"?"🏆":"💀"}</div><button onClick={closeGwar} className="btn mt-1 px-4 py-1.5 rounded-lg bg-sky-800 text-xs font-bold">닫기</button></div>}
-        <div className="panel p-2 h-28 overflow-y-auto text-[11px]">{g.log.map((l,i)=><div key={i} className="text-slate-300">{l}</div>)}</div>
+        <button onClick={()=>submitCalc(false)} className="btn w-full py-2.5 rounded-lg bg-sky-600 text-white font-bold">🔥 시전!</button>
       </div></div>); };
 
-  /* ═══════════════ 탭: 사냥터 ═══════════════ */
+  /* ═══════════════════ 탭: 사냥 (+ 고립 던전) ═══════════════════ */
   const renderHunt=(s,st)=>{ const map=MAPS.find(x=>x.id===s.map), c=s.combat, m=c?MONS[c.mid]:null;
-    const learned=Object.keys(s.skills).filter(id=>s.skills[id]>0&&(SKILLS[id].cls===s.cls||SKILLS[id].cls===s.hcls));
-    if(s.jailT>0)return (<div className="panel p-6 text-center space-y-3">
-      <div className="text-4xl">⛓️</div><div className="font-black text-red-300">지하 감옥에 수감 중</div>
-      <p className="text-xs text-slate-400">PK 전과로 붙잡혔습니다. 남은 형기 <b className="text-amber-300">{s.jailT}</b>. 사냥·이동이 제한됩니다.</p>
-      <div className="flex gap-2 justify-center"><button onClick={serveTime} className="btn px-4 py-2 rounded-lg bg-slate-700 text-xs">시간 보내기 (-1)</button>
-        <button onClick={bribeOut} className="btn px-4 py-2 rounded-lg bg-amber-700 text-xs font-bold">보석금 내기 ({fmt(s.bounty||500)}G)</button></div></div>);
+    const learned=myLearned(s); const iso=s.iso&&s.iso.active;
+    const day=isDayOf(s);
     return (<div className="space-y-3">
+      {iso&&(<div className="panel p-4 text-center" style={{borderColor:"rgba(255,60,80,.5)",background:"rgba(60,8,14,.6)"}}>
+        <div className="text-lg font-black iso-title">⛓️ 고 립 던 전 ⛓️</div>
+        <div className="text-[11px] text-red-300 mt-1">갇힌 지 {s.iso.days}일째 · 사망 {s.iso.deaths}회 · 탈출구는 보스뿐… 아니면 버텨라.</div>
+        <div className="mt-1.5">{Bar(clamp((Date.now()-s.iso.t0)/180000,0,1),1,"linear-gradient(90deg,#7f1d1d,#ef4444)",6)}</div>
+        <div className="text-[9px] text-red-400/70 mt-0.5">알 수 없는 기운 약화까지 {Math.max(0,Math.ceil((180000-(Date.now()-s.iso.t0))/1000))}초</div>
+        {isoEscapeReady()&&<button onClick={isoEscape} className="btn mt-2 px-5 py-2 rounded-lg bg-emerald-700 text-sm font-black pop">🌄 기운이 약해졌다 — 탈출한다!</button>}
+        <div className="flex gap-2 justify-center mt-2">
+          <button onClick={()=>{say('알 수 없는 기운이 막고 있습니다.');log("🚫 '마을로 귀환'이 작동하지 않는다…","r");}} className="btn px-3 py-1.5 rounded-lg bg-slate-800 text-[11px] text-slate-500">🏘️ 마을로 귀환</button>
+          <button onClick={()=>{say('알 수 없는 기운이 막고 있습니다.');log("🚫 '던전 나가기'가 작동하지 않는다…","r");}} className="btn px-3 py-1.5 rounded-lg bg-slate-800 text-[11px] text-slate-500">🚪 던전 나가기</button>
+        </div>
+      </div>)}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="text-sm font-bold">{map.icon} {map.name} <span className="text-[10px] text-slate-500">권장 Lv.{map.lv}</span></div>
-        <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer"><input type="checkbox" checked={s._auto} onChange={()=>{s._auto=!s._auto;bump();}}/>자동 사냥{CLS[s.cls].calc?" (연산 스킬 제외)":""}</label>
+        <div className="text-sm font-bold">{iso?"👁️ 어디인지 알 수 없는 곳":map.icon+" "+map.name} <span className="text-[10px] text-slate-500">{iso?"":"권장 Lv."+map.lv}</span>
+          <span className={"text-[10px] ml-2 "+(day?"text-amber-300":"text-indigo-300")}>{day?"☀️ 낮":"🌙 밤"}{s.cls==="vampire"?(day?" (스탯 반토막…)":" (전성기!)"):""}</span></div>
+        <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer"><input type="checkbox" checked={s._auto} onChange={()=>{s._auto=!s._auto;bump();}}/>자동 사냥{Date.now()<heavyUntil.current?" (무겁다…)":""}</label>
       </div>
-      {s.status.length>0&&<div className="flex flex-wrap gap-1">{s.status.map((x,i)=><span key={i} className="chip" style={{background:"rgba(239,68,68,.15)",color:"#fca5a5"}}>{x.label} · {x.t}</span>)}</div>}
+      {s.status.length>0&&<div className="flex flex-wrap gap-1">{s.status.map((x,i)=><span key={i} className="chip" style={{background:"rgba(239,68,68,.15)",color:"#fca5a5"}}>{x.label} · {x.t}턴</span>)}</div>}
+      {s.dungeon&&<div className="text-xs font-bold text-purple-300">🕳️ 던전 웨이브 {s.dungeon.wave}/5</div>}
       {m?(<div className="panel p-4">
         <div className="flex items-center gap-4">
           <div className="relative" style={{width:56}}>
-            <div key={"lg"+monLunge.current} className={monLunge.current>0?"lunge":""}><div key={"sk"+shakeK.current} className={"text-5xl "+(shakeK.current>0?"shake":"")+(m.unseen?" ghost-mon":"")}>{m.icon}</div></div>
+            <div key={"lg"+monLunge.current} className={monLunge.current>0?"lunge":""}><div key={"sk"+shakeK.current} className={"text-5xl "+(shakeK.current>0?"shake":"")+(m.unseen?" opacity-20":"")}>{m.icon}</div></div>
             {atkFx.current&&<div key={"af"+atkFx.current.key} className="atk-layer">{atkFx.current.kind==="slash"&&<div className="fx-slash"/>}{atkFx.current.kind==="multi"&&Array.from({length:atkFx.current.n}).map((_,i)=><div key={i} className="fx-slash" style={{animationDelay:(i*.11)+"s",transform:"rotate("+(-28+i*26)+"deg)"}}/>)}{atkFx.current.kind==="burst"&&<div className="fx-burst"/>}<div className="fx-impact"/></div>}
             {dfx.current.map(f=><span key={f.id} className="dfloat text-sm" style={{color:f.col,left:(f.x-16)+"px",top:"-8px"}}>{f.txt}</span>)}
           </div>
-          <div className="flex-1"><div className="flex justify-between text-sm font-bold"><span>{m.name}{m.unseen?" (거의 안 보인다!)":""}{c.stun?" 💫":""}</span><span className="text-slate-400">{fmt(Math.max(0,c.hp))}/{fmt(c.maxHp)}</span></div>
-            <div className="mt-1">{Bar(c.hp,c.maxHp,"linear-gradient(90deg,#ef4444,#b91c1c)",12)}</div>
-            <div className="text-[11px] text-slate-500 mt-1">공격 {m.atk} · 방어 {m.def} · {fmt(m.xp)}XP/{fmt(m.gold)}G {m.elite&&<span className="text-amber-300">★엘리트</span>}</div></div>
+          <div className="flex-1"><div className="flex justify-between text-sm font-bold"><span>{m.name}{m.undead?" 🦴":""}{c.stun?" 💫":""}{c.mwT>0?" 🌙":""}</span><span className="text-slate-400">{fmt(Math.max(0,c.hp))}/{fmt(c.maxHp)}</span></div>
+            <div className="mt-1">{Bar(c.hp,c.maxHp,m.iso?"linear-gradient(90deg,#991b1b,#450a0a)":"linear-gradient(90deg,#ef4444,#b91c1c)",12)}</div>
+            <div className="text-[11px] text-slate-500 mt-1">공격 {fmt(m.atk)} · 방어 {m.def}{c.defDown>0?` (−${Math.round(c.defDown*100)}%)`:""} · {fmt(m.xp)}XP {m.undead&&<span className="text-emerald-300">· 언데드(스몰 힐 주의)</span>}</div></div>
         </div>
         <div className="flex flex-wrap gap-2 mt-3">
-          <button onClick={()=>doAttack(null)} className="btn px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-bold">⚔️ {s.equip.weapon?"공격":"맨손 공격"}</button>
-          {learned.map(id=>{const sk=SKILLS[id]; return <button key={id} onClick={()=>doAttack(id)} disabled={s.mp<sk.mp}
-            className="btn px-3 py-2 rounded-lg bg-indigo-800 text-white text-xs font-bold">{sk.icon} {sk.name}{sk.calc?" 🧮":""} <span className="text-indigo-300">MP{sk.mp}</span></button>;})}
-          <button onClick={flee} className="btn px-3 py-2 rounded-lg bg-slate-700 text-xs">🏃 물러나기</button>
+          <button onClick={()=>doAttack(null)} className="btn px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-bold">⚔️ 공격</button>
+          {learned.map(id=>{const sk=getSkill(s,id); if(!sk)return null;
+            return <button key={id} onClick={()=>doAttack(id)} disabled={!sk.hpCost&&s.mp<(sk.mp||0)}
+              className="btn px-3 py-2 rounded-lg bg-indigo-800 text-white text-xs font-bold">{sk.icon} {sk.name}{sk.calc?" 🧮":""} <span className="text-indigo-300">{sk.hpCost?("HP"+Math.round(sk.hpCost*100)+"%"):("MP"+(sk.mp||0))}</span></button>;})}
+          <button onClick={flee} className="btn px-3 py-2 rounded-lg bg-slate-700 text-xs">🏃 도망</button>
         </div>
-      </div>):(<div className="panel p-4"><div className="text-xs text-slate-400 mb-2">사냥할 몬스터 선택:</div>
-        <div className="flex flex-wrap gap-2">{map.mons.map(mid=>{const mm=MONS[mid]; return <button key={mid} onClick={()=>{spawn(mid);commit();}} className="btn panel px-4 py-3 text-sm">{mm.icon} {mm.name}<div className="text-[10px] text-slate-500">HP {fmt(mm.hp)} · {fmt(mm.xp)}XP</div></button>;})}</div></div>)}
-      <div className="panel p-3 h-44 overflow-y-auto text-[12px] leading-relaxed">{s.log.length===0&&<div className="text-slate-600">전투 기록이 여기에…</div>}
+      </div>):(<div className="panel p-4">
+        {iso?(<div className="text-center py-3">
+          <div className="text-5xl opacity-60">👁️</div>
+          <div className="text-sm font-bold text-red-300 mt-2">'이름 없는 것'이 어둠 속에서 나를 보고 있다.</div>
+          <div className="text-[11px] text-slate-500 mt-1">남은 HP {fmt(s.iso.bossHp)}/{fmt(MONS.isoBoss.hp)} — 진행도는 죽어도 유지된다.</div>
+          <button onClick={()=>{isoSpawn();commit();}} className="btn mt-3 px-5 py-2.5 rounded-lg bg-red-900 text-sm font-black">👁️ 맞선다</button>
+        </div>):(<React.Fragment>
+        <div className="text-xs text-slate-400 mb-2">사냥할 몬스터 선택:</div>
+        <div className="flex flex-wrap gap-2">{map.mons.map(mid=>{const mm=MONS[mid]; return <button key={mid} onClick={()=>{spawn(mid);commit();}} className="btn panel px-4 py-3 text-sm">{mm.icon} {mm.name}{mm.undead?" 🦴":""}<div className="text-[10px] text-slate-500">HP {fmt(mm.hp)} · {fmt(mm.xp)}XP</div></button>;})}</div>
+        <button onClick={enterDungeon} className="btn mt-3 px-4 py-2 rounded-lg bg-purple-900 text-xs font-bold">🕳️ 이 지역 던전 입장 (5웨이브) <span className="text-purple-300/60">…가끔 이상한 곳으로 빨려든다는 소문이</span></button>
+        </React.Fragment>)}
+      </div>)}
+      <div className="panel p-3 h-44 overflow-y-auto text-[12px] leading-relaxed">{s.log.length===0&&<div className="text-slate-600">전투 기록…</div>}
         {s.log.map(l=><div key={l.id} className={l.c==="r"?"text-red-400":l.c==="g"?"text-emerald-300":l.c==="d"?"text-amber-300":l.c==="c"?"text-yellow-300 font-bold":"text-slate-300"}>{l.t}</div>)}</div>
     </div>); };
 
-  /* ═══════════════ 탭: 마을(포탈) ═══════════════ */
-  const renderTown=(s)=>{ const map=MAPS.find(x=>x.id===s.map);
+  /* ═══════════════════ 탭: 마을 (이동 + 상점) ═══════════════════ */
+  const renderTown=(s)=>{ const wRot=dayRotation(PROC_WEAPONS,5,1), aRot=dayRotation(PROC_ARMORS,5,2), sRot=dayRotation(PROC_SKILLS,6,3);
     return (<div className="space-y-3">
-      <div className="panel p-4"><div className="text-lg font-black">{map.icon} {map.name}</div>
-        <div className="text-[11px] text-slate-500">권장 Lv.{map.lv}</div>
-        <p className="text-xs text-slate-400 mt-1">{map.desc}</p>
-        <p className="text-xs text-sky-200/80 mt-2 italic">🧑 {map.npc}: "어서 오게, {s.nick}. {map.name}은(는) 위험하니 조심하게."</p></div>
-      <div className="text-xs text-slate-400 font-bold">🗺️ 이동 가능한 지역</div>
-      <div className="grid md:grid-cols-2 gap-2">{MAPS.map(mm=>(
+      <div className="text-xs text-slate-400 font-bold">🗺️ 지역 이동</div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">{MAPS.map(mm=>(
         <button key={mm.id} onClick={()=>travel(mm.id)} disabled={mm.id===s.map} className="btn panel p-3 text-left disabled:opacity-40">
-          <div className="text-2xl">{mm.icon}</div><div className="font-bold text-sm mt-1">{mm.name} {mm.id===s.map&&<span className="text-[9px] text-sky-300">(현재)</span>}</div>
-          <div className="text-[10px] text-slate-500">권장 Lv.{mm.lv} {s.lv<mm.lv?"⚠️ 위험":""}</div></button>))}</div>
+          <div className="text-xl">{mm.icon}</div><div className="font-bold text-xs mt-1">{mm.name}{mm.id===s.map&&" (현재)"}</div>
+          <div className="text-[10px] text-slate-500">Lv.{mm.lv}+ {s.lv<mm.lv?"⚠️":""}</div></button>))}</div>
+      <div className="panel p-3"><div className="text-xs font-bold text-amber-300 mb-2">🛒 오늘의 장비 상점 <span className="text-slate-500 font-normal">(매일 바뀜 · 절차생성 200종 로테이션)</span></div>
+        <div className="grid md:grid-cols-2 gap-1.5">{[...wRot,...aRot].map((t,i)=>(
+          <div key={i} className="flex justify-between items-center bg-white/5 rounded-lg px-2.5 py-1.5">
+            <span className="text-xs" style={{color:TIER_COL[t.tier]}}>{t.icon} {t.name} <span className="text-slate-500">({t.atk?"공"+t.atk:"방"+t.def})</span></span>
+            <button onClick={()=>buyItem(t.id)} className="btn px-2.5 py-1 rounded bg-emerald-800 text-[11px]">{fmt(t.price)}G</button></div>))}</div></div>
+      <div className="panel p-3"><div className="text-xs font-bold text-sky-300 mb-2">📖 오늘의 스킬서 상점 <span className="text-slate-500 font-normal">(100종 로테이션)</span></div>
+        <div className="grid md:grid-cols-2 gap-1.5">{sRot.map((sk,i)=>(
+          <div key={i} className="flex justify-between items-center bg-white/5 rounded-lg px-2.5 py-1.5">
+            <span className="text-xs">{sk.icon} {sk.name} <span className="text-slate-500">({Math.round(sk.mult*100)}% · MP{sk.mp})</span>{s.learned[sk.id]&&<span className="text-emerald-400 text-[9px]"> ✓습득</span>}</span>
+            <button onClick={()=>buySkill(sk.id)} disabled={!!s.learned[sk.id]} className="btn px-2.5 py-1 rounded bg-sky-800 text-[11px]">{fmt(sk.price)}G</button></div>))}</div></div>
     </div>); };
 
-  /* ═══════════════ 탭: 광장 (가짜 MMO) ═══════════════ */
-  const renderPlaza=(s,st)=>{ const rank=ranking(); const myRank=rank.findIndex(x=>x.me)+1;
-    const online=bots.current.filter(b=>b.online&&b.type!=="legend");
-    const tierOf=r=>r<=9?"하늘":r<=15?"땅":"땅바닥";
+  /* ═══════════════════ 탭: 스킬 ═══════════════════ */
+  const renderSkill=(s)=>{ const classSkills=Object.entries(SKILLS).filter(([id,sk])=>sk.cls===s.cls&&!sk.proc);
+    const others=myLearned(s).filter(id=>{const sk=getSkill(s,id); return sk&&(sk.proc||sk.fusedItem);});
     return (<div className="space-y-3">
-      <div className="grid md:grid-cols-2 gap-3">
-        <div className="panel p-3">
-          <div className="text-xs font-bold text-amber-300 mb-2">🏆 전투력 랭킹 <span className="text-[10px] text-slate-500 font-normal">(분석가 '차달림' 집계)</span></div>
-          <div className="text-[11px] mb-1.5 px-2 py-1.5 rounded bg-fuchsia-900/30 border border-fuchsia-500/30">
-            <span className="text-fuchsia-300 font-bold">천외천 · 0위</span> 🌊 잠수함 <span className="text-slate-500">(측정 불가 — 정체불명)</span></div>
-          <div className="space-y-1 max-h-64 overflow-y-auto">{rank.slice(0,20).map((r,i)=>(
-            <div key={i} className={"flex items-center justify-between text-[11px] rounded px-2 py-1 "+(r.me?"bg-sky-900/40 border border-sky-500/40":"bg-white/5")}>
-              <span><b className={i<9?"text-sky-300":i<15?"text-emerald-300":"text-slate-400"}>{i+1}위</b> <span className="text-[8px] text-slate-600">[{tierOf(i+1)}]</span> {r.hidden&&"🌟"}{r.name}{r.me&&<span className="text-[9px] text-cyan-400"> (나)</span>} <span className="text-slate-600">{r.cls} Lv.{r.lv}</span></span>
-              <span className="text-slate-500">{r.power===Infinity?"∞":fmt(r.power)}</span></div>))}</div>
-          <div className="text-[10px] text-slate-500 mt-1.5">내 순위: <b className="text-sky-300">{myRank}위</b> · 전투력 {fmt(powerOf(s))}</div>
-        </div>
-        <div className="panel p-3 flex flex-col">
-          <div className="text-xs font-bold text-cyan-300 mb-2">💬 전체 채팅 <span className="text-[10px] text-slate-500 font-normal">(접속 {online.length+1}명)</span></div>
-          <div className="flex-1 min-h-[220px] max-h-64 overflow-y-auto space-y-0.5 text-[11px]" ref={el=>{if(el)el.scrollTop=el.scrollHeight;}}>
-            {chat.current.slice(-40).map(c=>(<div key={c.id}><b className={c.col==="sys"?"text-amber-400":c.col==="pk"?"text-red-400":c.col==="pro"?"text-sky-300":"text-slate-400"}>{c.from}</b><span className="text-slate-300">: {c.txt}</span></div>))}
-            {chat.current.length===0&&<div className="text-slate-600">채팅이 곧 올라옵니다…</div>}</div>
-        </div>
-      </div>
-      <div className="panel p-3"><div className="text-xs font-bold text-slate-300 mb-2">👥 접속 중인 유저 — 결투 · 거래 · (주의) PK</div>
-        <div className="grid md:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto">{online.slice(0,24).map(b=>(
-          <div key={b.nick} className="flex items-center justify-between text-[11px] bg-white/5 rounded-lg px-2.5 py-1.5">
-            <span>{CLS[b.cls].icon} <b className={b.type==="pk"?"text-red-400":""}>{b.nick}</b> <span className="text-slate-500">{CLS[b.cls].name} Lv.{b.lv}</span>{b.type==="pk"&&<span className="text-[8px] text-red-500"> 💀수배</span>}{b.type==="scam"&&<span className="text-[8px] text-amber-500"> ⚠️</span>}</span>
-            <span className="flex gap-1">
-              <button onClick={()=>startDuel(b)} className="btn px-2 py-0.5 rounded bg-indigo-800 text-[10px]">결투</button>
-              {(b.type==="merchant"||b.type==="scam")&&<button onClick={()=>openTrade(b)} className="btn px-2 py-0.5 rounded bg-emerald-800 text-[10px]">거래</button>}
-              <button onClick={()=>pkBot(b)} className="btn px-2 py-0.5 rounded bg-red-900 text-[10px]">{b.type==="pk"?"처단":"PK"}</button>
-            </span></div>))}</div></div>
+      <div className="text-xs text-slate-400">📜 직업 스킬은 골드로 습득(레벨 제한). 절차 스킬 100종은 상점·드랍으로.</div>
+      <div className="text-xs font-bold text-sky-300">◆ {CLS[s.cls].name} 직업 스킬</div>
+      {classSkills.map(([id,sk])=>{ const owned=!!s.learned[id], locked=s.lv<sk.lv;
+        return (<div key={id} className="panel p-3 flex items-center justify-between gap-2 flex-wrap">
+          <div><div className="text-sm font-bold">{sk.icon} {sk.name}{sk.calc?" 🧮":""} {owned&&<span className="text-emerald-400 text-[10px]">✓습득</span>} {locked&&<span className="text-[10px] text-red-400">🔒Lv.{sk.lv}</span>}</div>
+            <div className="text-[11px] text-slate-500">{sk.desc} · {sk.hpCost?("HP "+Math.round(sk.hpCost*100)+"%"):("MP "+(sk.mp||0))}</div></div>
+          <div className="flex gap-1.5 items-center">{owned&&sk.mult>0&&!sk.calc&&!sk.hpCost&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-slate-700")}>{s.autoSkill===id?"자동✓":"자동"}</button>}
+            {!owned&&<button onClick={()=>learnClassSkill(id)} disabled={locked} className="btn px-3 py-1.5 rounded-lg bg-indigo-800 text-xs font-bold">습득 ({sk.lv*40}G)</button>}</div></div>);})}
+      {others.length>0&&<div className="text-xs font-bold text-amber-300 mt-2">◆ 습득한 절차·융합 스킬 ({others.length})</div>}
+      {others.map(id=>{const sk=getSkill(s,id); return (<div key={id} className="panel p-3 flex items-center justify-between gap-2">
+        <div><div className="text-sm font-bold">{sk.icon} {sk.name}</div><div className="text-[11px] text-slate-500">{sk.desc||Math.round(sk.mult*100)+"%"} · MP {sk.mp||0}</div></div>
+        {sk.mult>0&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-slate-700")}>{s.autoSkill===id?"자동✓":"자동"}</button>}</div>);})}
     </div>); };
 
-  /* ═══════════════ 탭: 월드 퀘스트 ═══════════════ */
-  const renderWorldQ=(s,st)=>{ const w=wq.current;
-    if(w){ const learned=Object.keys(s.skills).filter(id=>s.skills[id]>0&&(SKILLS[id].cls===s.cls||SKILLS[id].cls===s.hcls));
-      const rankParty=[{nick:s.nick,contrib:w.contrib,me:true},...w.party].sort((a,b)=>b.contrib-a.contrib);
-      return (<div className="space-y-3">
-        <div className="wq-banner rounded-xl p-3"><div className="text-sm font-black">{w.w.icon} {w.w.name}</div><div className="text-[11px] text-slate-300 mt-0.5">{w.w.desc}</div></div>
-        {w.w.faction&&!w.faction&&<div className="panel p-3 text-center"><div className="text-xs text-amber-300 mb-2">진영을 선택하세요 (한 번만!)</div>
-          <div className="flex gap-2 justify-center"><button onClick={()=>wqPickFaction("왕당파")} className="btn px-4 py-2 rounded-lg bg-sky-800 text-xs font-bold">👑 왕당파</button>
-            <button onClick={()=>wqPickFaction("반란파")} className="btn px-4 py-2 rounded-lg bg-red-800 text-xs font-bold">🚩 반란파</button></div></div>}
-        {!w.over?(<div className="panel p-4">
-          <div className="flex justify-between text-sm font-bold"><span>{w.w.boss}{w.faction?` · [${w.faction}]`:""}</span><span className="text-slate-400">{fmt(Math.max(0,w.bhp))}/{fmt(w.bmax)}</span></div>
-          <div className="mt-1">{Bar(w.bhp,w.bmax,"linear-gradient(90deg,#dc2626,#7f1d1d)",13)}</div>
-          <div className="text-[10px] text-slate-500 mt-1">서버 진행도 {fmt(w.prog)}/{fmt(w.goal)}</div><div className="mt-0.5">{Bar(w.prog,w.goal,"linear-gradient(90deg,#a855f7,#6d28d9)",6)}</div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <button onClick={()=>wqAttack(null)} className="btn px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-bold">⚔️ 공격</button>
-            {learned.map(id=>{const sk=SKILLS[id]; return <button key={id} onClick={()=>wqAttack(id)} disabled={s.mp<sk.mp} className="btn px-3 py-2 rounded-lg bg-indigo-800 text-white text-xs font-bold">{sk.icon}{sk.name}{sk.calc?"🧮":""}</button>;})}
-          </div></div>):(<div className="panel p-4 text-center pop"><div className="text-3xl">{w.over==="win"?"🏆":"💀"}</div>
-            <div className="text-sm font-bold mt-1">{w.over==="win"?`토벌 성공! 기여도 ${w.rank}위 / ${w.total}명`:"실패…"}</div>
-            <button onClick={closeWQ} className="btn mt-3 px-5 py-2 rounded-lg bg-sky-800 text-sm font-bold">돌아가기</button></div>)}
-        <div className="panel p-3"><div className="text-xs font-bold text-slate-300 mb-1.5">📊 실시간 기여도 순위</div>
-          <div className="space-y-1 max-h-32 overflow-y-auto">{rankParty.slice(0,8).map((p,i)=>(
-            <div key={i} className={"flex justify-between text-[11px] px-2 py-1 rounded "+(p.me?"bg-sky-900/40":"bg-white/5")}><span>{i+1}. {p.nick}{p.me&&" (나)"}</span><span className="text-slate-500">{fmt(p.contrib)}</span></div>))}</div></div>
-        <div className="panel p-2 h-28 overflow-y-auto text-[11px]">{w.log.map((l,i)=><div key={i} className="text-slate-300">{l}</div>)}</div>
-      </div>); }
-    return (<div className="space-y-3"><div className="text-xs text-slate-400">🌍 월드 퀘스트 — 서버의 모든 유저가 함께 싸우는 대규모 이벤트. 기여도에 따라 보상이 달라집니다.</div>
-      {WORLDQ.map(w=>{ const locked=s.lv<w.lv, done=s.wqDone[w.id];
-        return (<div key={w.id} className={"panel p-4 "+(locked?"opacity-55":"")}>
-          <div className="flex justify-between items-start"><div><div className="text-sm font-black">{w.icon} {w.name} {done&&<span className="text-[9px] text-emerald-400">✓클리어</span>}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">{w.desc}</div>
-            <div className="text-[10px] text-slate-600 mt-1">권장 Lv.{w.lv} · 보상: {w.reward}</div></div>
-            <button onClick={()=>openWQ(w)} disabled={locked} className="btn px-4 py-2 rounded-lg bg-red-800 text-xs font-bold shrink-0">{locked?`🔒 Lv.${w.lv}`:"참전"}</button></div>
-        </div>); })}
-      {s.faction&&<div className="panel p-3 text-center text-xs text-amber-300">🚩 현재 진영: <b>{s.faction}</b> (변경 불가)</div>}
+  /* ═══════════════════ 탭: 융합 (초초보자 전용) ═══════════════════ */
+  const renderFuse=(s)=>{ const can=CLS[s.cls].fuse; const learned=myLearned(s);
+    return (<div className="space-y-3">
+      {!can?(<div className="panel p-6 text-center"><div className="text-4xl">🐣</div>
+        <div className="text-sm font-bold mt-2">스킬 융합은 <span className="text-emerald-300">초초보자</span>만 가능합니다.</div>
+        <div className="text-[11px] text-slate-500 mt-1">영원한 초보에게만 허락된 힘…</div></div>)
+      :(<React.Fragment>
+        <div className="panel p-3"><div className="text-xs font-bold text-emerald-300 mb-1">🧪 스킬 융합소 — 배운 스킬 2개를 선택 (재료는 소모됩니다!)</div>
+          <div className="text-[10px] text-slate-500 mb-2">특정 조합은 강력한 융합기가, 나머지는… 뭔가 이상한 게 나옵니다.</div>
+          <div className="flex flex-wrap gap-1.5">{learned.map(id=>{const sk=getSkill(s,id); const sel=fuseSel.current.includes(id);
+            return <button key={id} onClick={()=>{ if(sel)fuseSel.current=fuseSel.current.filter(x=>x!==id);
+              else if(fuseSel.current.length<2)fuseSel.current.push(id); bump(); }}
+              className={"btn px-2.5 py-1.5 rounded-lg text-[11px] font-bold "+(sel?"bg-emerald-600":"bg-slate-800")}>{sk.icon} {sk.name}</button>;})}</div>
+          <button onClick={fuseTry} disabled={fuseSel.current.length!==2} className="btn w-full mt-3 py-2.5 rounded-lg bg-emerald-700 text-sm font-black">⚗️ 융합한다! ({fuseSel.current.length}/2)</button>
+        </div>
+        <div className="panel p-3"><div className="text-[11px] text-slate-500 font-bold mb-1">💡 알려진 레시피 (소문)</div>
+          <div className="text-[10px] text-slate-600 leading-relaxed">강타 + 쉴드 = ??? (방패로 뭘 한다던데…)<br/>휠윈드 + 가드 브레이커 = ??? (돌리면서 깎는다던데…)<br/>가로베기 + 세로베기 = ??? (그야 당연히…)<br/>파이어볼 + 아이스볼트 = ??? (섞으면 어떻게 될까…)</div></div>
+        <div className="text-[10px] text-slate-600">지금까지 융합 {s.fuseCount}회</div>
+      </React.Fragment>)}
     </div>); };
 
-  /* ═══════════════ 탭: 대장간 ═══════════════ */
-  const renderForge=(s)=>(<div className="space-y-2"><div className="text-xs text-slate-400">⚒️ 골드+강화석으로 장비 강화. 단계가 오를수록 성공률 하락. (최대 +12)</div>
-    {allItems().length===0&&<div className="panel p-5 text-center text-sm text-slate-500">강화할 장비가 없습니다.</div>}
-    {allItems().map(({inst,eq})=>{const t=ITEMS[inst.t]; const gold=60*(inst.plus+1)*(inst.plus+1), stone=Math.ceil((inst.plus+1)/2); const rate=Math.max(.1,1-inst.plus*.08);
-      return (<div key={inst.uid} className="panel p-3 flex items-center justify-between gap-2 flex-wrap">
-        <div><div className="text-sm font-bold">{itemLabel(inst)} {eq&&<span className="text-[10px] text-emerald-400">[장착·{SLOT_NAME[eq]}]</span>}</div><div className="text-[11px] text-slate-500">{itemStats(inst)}</div></div>
-        <div className="flex items-center gap-2"><div className="text-[10px] text-slate-500 text-right">성공 {(rate*100).toFixed(0)}%<br/>{fmt(gold)}G+🪨{stone}</div>
-          <button onClick={()=>enhance(inst.uid)} disabled={inst.plus>=12} className="btn px-3 py-1.5 rounded-lg bg-amber-700 text-xs font-bold">⚒️ 강화</button></div></div>);})}</div>);
-
-  /* ═══════════════ 탭: 룬 ═══════════════ */
+  /* ═══════════════════ 탭: 룬 공방 ═══════════════════ */
   const renderRune=(s)=>(<div className="space-y-3">
-    <div className="panel p-3"><div className="text-xs font-bold text-slate-300 mb-2">장착 룬 슬롯 (4)</div>
-      <div className="grid grid-cols-4 gap-2">{s.runeEq.map((uid,i)=>{const r=uid?s.runes.find(x=>x.uid===uid):null; const R2=r?RUNES.find(x=>x.id===r.id):null;
-        return <button key={i} onClick={()=>r&&unequipRune(i)} className="btn panel p-2 text-center min-h-[62px]">{r?(<div><div className="text-lg">{R2.icon}</div><div className="text-[9px]" style={{color:GRADE_COL[r.g]}}>{GRADE[r.g]}</div><div className="text-[8px] text-slate-500">+{R2.v(r.g)} {R2.d}</div></div>):<div className="text-slate-600 text-xs">비어있음</div>}</button>;})}</div>
-      <div className="text-[10px] text-slate-500 mt-1">클릭하면 해제.</div></div>
-    <div className="text-xs text-slate-400">💠 보유 룬 — [장착] 또는 [합성] 후 같은 종류·등급을 한 번 더 선택하면 상위 등급으로.</div>
-    {s.runes.filter(r=>!s.runeEq.includes(r.uid)).length===0&&<div className="panel p-4 text-center text-sm text-slate-500">보유 룬 없음. 사냥으로 획득!</div>}
-    <div className="grid md:grid-cols-2 gap-2">{s.runes.filter(r=>!s.runeEq.includes(r.uid)).map(r=>{const R2=RUNES.find(x=>x.id===r.id);
-      return (<div key={r.uid} className={"panel p-3 flex items-center justify-between "+(fuseSel.current===r.uid?"border-amber-400/70":"")}>
-        <div><div className="text-sm font-bold" style={{color:GRADE_COL[r.g]}}>{R2.icon} [{GRADE[r.g]}] {R2.name}</div><div className="text-[11px] text-slate-500">+{R2.v(r.g)} {R2.d}</div></div>
+    <div className="panel p-3"><div className="text-xs font-bold text-slate-300 mb-2">장착 룬 (3슬롯)</div>
+      <div className="grid grid-cols-3 gap-2">{s.runeEq.map((uid,i)=>{const r=uid?s.runes.find(x=>x.uid===uid):null; const K=r?RUNE_KINDS.find(k=>k.id===r.k):null;
+        return <button key={i} onClick={()=>r&&unequipRune(i)} className="btn panel p-2 text-center min-h-[62px]">{r?(<div><div className="text-lg">{K.icon}</div><div className="text-[9px]" style={{color:GRADE_COL[r.g]}}>{GRADE[r.g]}</div><div className="text-[8px] text-slate-500">+{K.v(r.g)} {K.stat}</div></div>):<div className="text-slate-600 text-xs">비어있음</div>}</button>;})}</div></div>
+    <div className="text-xs text-slate-400">💠 [합성]으로 같은 종류·등급 2개 → 상위 진화. <b className="text-red-400">실패(30%) 시 둘 다 파괴!</b></div>
+    {s.runes.filter(r=>!s.runeEq.includes(r.uid)).length===0&&<div className="panel p-4 text-center text-sm text-slate-500">보유 룬 없음. 몬스터가 떨군다.</div>}
+    <div className="grid md:grid-cols-2 gap-2">{s.runes.filter(r=>!s.runeEq.includes(r.uid)).map(r=>{const K=RUNE_KINDS.find(k=>k.id===r.k);
+      return (<div key={r.uid} className={"panel p-3 flex items-center justify-between "+(runeSel.current===r.uid?"border-amber-400/70":"")}>
+        <div><div className="text-sm font-bold" style={{color:GRADE_COL[r.g]}}>{K.icon} [{GRADE[r.g]}] {K.name}</div><div className="text-[11px] text-slate-500">+{K.v(r.g)} {K.stat}</div></div>
         <div className="flex gap-1.5"><button onClick={()=>equipRune(r.uid)} className="btn px-2.5 py-1 rounded-md bg-emerald-800 text-[11px]">장착</button>
-          <button onClick={()=>fuseRune(r.uid)} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(fuseSel.current===r.uid?"bg-amber-500 text-black font-bold":"bg-indigo-800")}>{fuseSel.current===r.uid?"선택됨":"합성"}</button></div></div>);})}</div>
+          <button onClick={()=>fuseRune(r.uid)} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(runeSel.current===r.uid?"bg-amber-500 text-black font-bold":"bg-indigo-800")}>{runeSel.current===r.uid?"선택됨":"합성"}</button></div></div>);})}</div>
+    {s.runeBroke>0&&<div className="text-[10px] text-red-400/70">지금까지 산산조각 난 룬: {s.runeBroke}개… (묵념)</div>}
   </div>);
 
-  /* ═══════════════ 탭: 스킬 ═══════════════ */
-  const renderSkill=(s)=>{ const avail=Object.entries(SKILLS).filter(([id,sk])=>sk.cls===s.cls||sk.cls===s.hcls);
-    return (<div className="space-y-2"><div className="flex justify-between items-center"><div className="text-xs text-slate-400">📜 스킬 습득·강화 (레벨업마다 +1). 🧮=마법 연산 필요</div><div className="text-sm font-bold text-amber-300">SP: {s.skp}</div></div>
-      {avail.map(([id,sk])=>{const cur=s.skills[id]||0, locked=s.lv<sk.lv;
-        return (<div key={id} className="panel p-3 flex items-center justify-between gap-2 flex-wrap">
-          <div><div className="text-sm font-bold">{sk.icon} {sk.name}{sk.calc?" 🧮":""} {cur>0&&<span className="text-amber-300">Lv.{cur}</span>} {locked&&<span className="text-[10px] text-red-400">🔒 Lv.{sk.lv}</span>}</div>
-            <div className="text-[11px] text-slate-500">{sk.desc} · MP {sk.mp}</div></div>
-          <div className="flex gap-1.5 items-center">{cur>0&&sk.mult>0&&!sk.calc&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-slate-700")}>{s.autoSkill===id?"자동✓":"자동"}</button>}
-            <button onClick={()=>learnSkill(id)} disabled={locked||cur>=10||s.skp<1} className="btn px-3 py-1.5 rounded-lg bg-indigo-800 text-xs font-bold">{cur===0?"습득":cur>=10?"MAX":"강화"}</button></div></div>);})}</div>); };
-
-  /* ═══════════════ 탭: 퀘스트 ═══════════════ */
-  const renderQuest=(s)=>{ const hidden=QUESTS.filter(q=>q.hidden&&s.hiddenFound.qh1&&!s.hiddenClaimed.qh1);
-    return (<div className="space-y-2"><div className="text-xs text-slate-400">📋 생활 퀘스트 — 반복 가능. 조건 충족 시 [완료].</div>
-      {hidden.map(q=>(<div key={q.id} className="panel p-3 border-amber-400/50 pop flex justify-between items-center"><div><div className="text-sm font-bold text-amber-300">🎖️ {q.name}</div><div className="text-[11px] text-slate-400">{q.desc}</div></div><button onClick={()=>claimQuest(q)} className="btn px-3 py-1.5 rounded-lg bg-amber-600 text-black text-xs font-bold">보상 수령</button></div>))}
-      {QUESTS.filter(q=>!q.hidden).map(q=>{const prog=(s.kills[q.target]||0)-(s.quests[q.id]||0); const active=s.quests[q.id]!=null; const can=active&&prog>=q.n;
-        return (<div key={q.id} className="panel p-3"><div className="flex justify-between items-center"><div><div className="text-sm font-bold">{q.name} {q.repeat&&<span className="text-[9px] text-cyan-400">[반복]</span>}</div><div className="text-[11px] text-slate-500">{q.desc} → {q.rw.gold?fmt(q.rw.gold)+"G ":""}{q.rw.xp?fmt(q.rw.xp)+"XP ":""}{q.rw.stone?"🪨"+q.rw.stone:""}</div></div>
-          {!active?<button onClick={()=>acceptQuest(q)} className="btn px-3 py-1.5 rounded-lg bg-slate-700 text-xs">수락</button>
-            :can?<button onClick={()=>claimQuest(q)} className="btn px-3 py-1.5 rounded-lg bg-emerald-700 text-xs font-bold pop">✅ 완료</button>
-            :<span className="text-xs text-slate-400">{clamp(prog,0,q.n)}/{q.n}</span>}</div>
-          {active&&<div className="mt-1.5">{Bar(clamp(prog,0,q.n),q.n,"linear-gradient(90deg,#8b5cf6,#6d28d9)",6)}</div>}</div>);})}</div>); };
-
-  /* ═══════════════ 탭: 가방/상태 ═══════════════ */
+  /* ═══════════════════ 탭: 가방 ═══════════════════ */
   const renderInv=(s,st)=>{ const rows=[["hp","❤️ 체력",st.hp],["mp","💧 마력",st.mp],["atk","⚔️ 공격력",st.atk],["def","🛡️ 방어력",st.def],["crit","🎯 치명타",st.crit+"%"]];
     return (<div className="space-y-3">
-      {!s.hcls&&s.promo.length>0&&<div className="panel p-4 border-amber-400/60 pop"><div className="text-sm font-black text-amber-300 mb-2">🌟 히든 전직 가능! (하나만 선택)</div>
-        <div className="grid md:grid-cols-2 gap-2">{s.promo.map(hid=>{const H=HID[hid]; return (<div key={hid} className="panel p-2.5 flex justify-between items-center gap-2"><div><div className="text-sm font-bold">{H.icon} {H.name}</div><div className="text-[10px] text-slate-500">{H.need}</div></div><button onClick={()=>promote(hid)} className="btn px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-black shrink-0">전직</button></div>);})}</div></div>}
       <div className="grid md:grid-cols-2 gap-3">
         <div className="panel p-4"><div className="text-xs font-bold text-slate-300 mb-2">📊 스탯 {s.sp>0&&<span className="text-amber-300">(분배 {s.sp})</span>}</div>
           {rows.map(([k,l,v])=>(<div key={k} className="flex justify-between items-center text-sm py-0.5"><span className="text-slate-400 text-xs">{l}</span><span className="font-bold flex items-center gap-2">{typeof v==="number"?fmt(v):v}{s.sp>0&&<button onClick={()=>allocPt(k)} className="btn w-5 h-5 rounded bg-emerald-700 text-xs leading-none">+</button>}</span></div>))}
-          <div className="text-[11px] text-slate-500 mt-2 border-t border-slate-800 pt-2">전투력 <b className="text-sky-300">{fmt(powerOf(s))}</b> · 결투 {s.duelW}승 {s.duelL}패<br/>총 처치 {fmt(s.killTotal)} · 치명타 {fmt(s.critCount)} · 맨손 처치 {fmt(s.bareKills)}<br/>연산 정답 {s.calcOk}/{s.calcTotal} (최고 연속 {s.calcStreakBest}) · 현상금 {fmt(s.bounty)}G</div></div>
+          <div className="text-[11px] text-slate-500 mt-2 border-t border-slate-800 pt-2">
+            {s.cls==="vampire"&&<span className={isDayOf(s)?"text-red-400":"text-indigo-300"}>{isDayOf(s)?"☀️ 낮 — 스탯 50% 페널티 적용 중":"🌙 밤 — 스탯 130% 버프 적용 중"}<br/></span>}
+            총 처치 {fmt(s.killTotal)} · 팔 부러짐 {s.armBreaks}회 · 융합 {s.fuseCount}회<br/>
+            고립 탈출 {s.isoEscapes}회 · 고립 보스 처치 {s.isoBossKills}회</div></div>
         <div className="panel p-4"><div className="text-xs font-bold text-slate-300 mb-2">🎽 장착 장비</div>
-          {["weapon","armor","acc"].map(slot=>(<div key={slot} className="flex items-center justify-between py-1 border-b border-slate-800/60 last:border-0">
+          {["weapon","armor"].map(slot=>(<div key={slot} className="flex items-center justify-between py-1 border-b border-slate-800/60 last:border-0">
             <span className="text-[11px] text-slate-500 w-12">{SLOT_NAME[slot]}</span>
-            {s.equip[slot]?(<div className="flex items-center gap-2 flex-1 justify-between"><div><div className="text-sm">{itemLabel(s.equip[slot])}</div><div className="text-[10px] text-slate-500">{itemStats(s.equip[slot])}</div></div><button onClick={()=>unequipItem(slot)} className="btn px-2 py-1 rounded bg-slate-700 text-[10px]">해제</button></div>):<span className="text-xs text-slate-600">비어있음{slot==="weapon"?" (맨손)":""}</span>}</div>))}</div>
+            {s.equip[slot]?(<div className="flex items-center gap-2 flex-1 justify-between"><div><div className="text-sm">{itemLabel(s.equip[slot])}</div><div className="text-[10px] text-slate-500">{itemStats(s.equip[slot])}</div></div><button onClick={()=>unequipItem(slot)} className="btn px-2 py-1 rounded bg-slate-700 text-[10px]">해제</button></div>):<span className="text-xs text-slate-600">비어있음</span>}</div>))}</div>
       </div>
       <div className="text-xs font-bold text-slate-300">🎒 인벤토리 ({s.inv.length})</div>
       {s.inv.length===0&&<div className="panel p-4 text-center text-sm text-slate-500">비어 있음.</div>}
-      <div className="grid md:grid-cols-2 gap-2">{s.inv.map(it=>(<div key={it.uid} className="panel p-3 flex items-center justify-between"><div><div className="text-sm">{itemLabel(it)} <span className="text-[9px] text-slate-600">[{SLOT_NAME[ITEMS[it.t].slot]}]</span></div><div className="text-[10px] text-slate-500">{itemStats(it)}</div></div>
+      <div className="grid md:grid-cols-2 gap-2">{s.inv.map(it=>(<div key={it.uid} className="panel p-3 flex items-center justify-between"><div><div className="text-sm">{itemLabel(it)} <span className="text-[9px] text-slate-600">[{SLOT_NAME[ITEMS[it.t].slot]}]</span></div><div className="text-[10px] text-slate-500">{itemStats(it)}{ITEMS[it.t].desc?" — "+ITEMS[it.t].desc:""}</div></div>
         <div className="flex gap-1.5"><button onClick={()=>equipItem(it.uid)} className="btn px-2.5 py-1 rounded-md bg-emerald-800 text-[11px]">장착</button><button onClick={()=>sellItem(it.uid)} className="btn px-2.5 py-1 rounded-md bg-slate-700 text-[11px]">판매</button></div></div>))}</div>
     </div>); };
 
-  /* ═══════════════ 탭: 길드 ═══════════════ */
-  const renderGuild=(s)=>(<div className="space-y-3">
-      {!s.guild?(<div className="panel p-5 text-center space-y-3"><div className="text-4xl">🏰</div><div className="font-black">길드 창설</div>
-        <p className="text-xs text-slate-400">이름은 한 번 정하면 <b className="text-red-300">두 번 다시 못 바꿉니다</b>. 길드 마스터는 탈퇴도 불가.</p>
-        <input id="guildname" placeholder="길드 이름" className="w-full max-w-xs mx-auto block px-4 py-2 rounded-lg bg-black/40 border border-slate-700 text-sm"/>
-        <button onClick={()=>createGuild(document.getElementById("guildname").value)} className="btn px-5 py-2 rounded-lg bg-amber-700 text-sm font-bold">창설하기</button></div>
-      ):(<div className="space-y-3"><div className="panel p-4"><div className="text-lg font-black">🏰 {s.guild.name}</div>
-        <div className="text-[11px] text-slate-500">길드 마스터: {s.nick} · 길드원 {s.guild.members}명 · 랭킹 {fmt(s.guild.rank)}위</div></div>
-        <div className="panel p-4 text-center"><div className="text-sm font-bold mb-2">⚔️ 길드전</div><p className="text-xs text-slate-400 mb-3">라이벌 길드에 전쟁을 선포하고 거점을 파괴하라. 기여도에 따라 보상.</p>
-          <button onClick={guildWar} className="btn px-5 py-2.5 rounded-lg bg-red-800 text-sm font-bold">길드전 선포</button></div></div>)}
-    </div>);
-
-  /* ═══════════════ 탭: 여관 ═══════════════ */
+  /* ═══════════════════ 탭: 여관 ═══════════════════ */
   const renderInn=(s)=>{ const cost=40+s.lv*10;
     return (<div className="panel p-6 text-center space-y-3"><div className="text-4xl">🛏️</div><div className="font-black">모닥불 여관</div>
-      <p className="text-xs text-slate-400">여관 주인: "푹 쉬면 HP·MP가 전부 차고 상태이상도 풀린다네. 쉴 때마다 저장도 되지."</p>
+      <p className="text-xs text-slate-400">푹 쉬면 HP·MP 회복 + 상태이상 해제 + 저장.</p>
       <div className="flex gap-2 justify-center"><button onClick={rest} className="btn px-5 py-2.5 rounded-lg bg-emerald-800 text-sm font-bold">🛏️ 휴식 ({fmt(cost)}G)</button>
         <button onClick={()=>{persist();say("저장 완료!");}} className="btn px-5 py-2.5 rounded-lg bg-slate-700 text-sm">💾 저장</button></div>
-      <label className="flex items-center gap-2 justify-center text-[11px] text-slate-400 cursor-pointer"><input type="checkbox" checked={s.live} onChange={()=>{s.live=!s.live;log(s.live?"📡 라이브 방송 ON — 전 서버에 내 플레이가 중계됩니다.":"📡 라이브 종료.","d");commit();}}/>📡 라이브 방송 기능 (플레이를 서버에 중계)</label>
       <button onClick={logout} className="btn px-4 py-2 rounded-lg bg-red-900/60 text-xs text-red-300 mt-1">🚪 로그아웃</button></div>); };
 
-  /* ═══════════════ 메인 ═══════════════ */
-  const TABS=[["hunt","⚔️","사냥"],["town","🗺️","마을"],["worldq","🌍","월드퀘"],["plaza","🏛️","광장"],["guild","🏰","길드"],["forge","⚒️","대장간"],["rune","💠","룬"],["skill","📜","스킬"],["quest","📋","퀘스트"],["inv","🎒","가방"],["inn","🛏️","여관"]];
+  /* ═══════════════════ 메인 ═══════════════════ */
+  const TABS=[["hunt","⚔️","사냥"],["town","🗺️","마을"],["skill","📜","스킬"],["fuse","⚗️","융합"],["rune","💠","룬"],["inv","🎒","가방"],["inn","🛏️","여관"]];
   const renderMain=()=>{ const s=S.current, st=calc(s); const need=needXp(s.lv);
-    const cname=s.hcls?HID[s.hcls].name:CLS[s.cls].name, cicon=s.hcls?HID[s.hcls].icon:CLS[s.cls].icon;
+    const iso=s.iso&&s.iso.active; const heavy=Date.now()<heavyUntil.current;
     return (<div className="max-w-5xl mx-auto p-3 fadein">
       <div className="panel p-3 mb-3"><div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2"><span className="text-2xl">{cicon}</span><div>
-          <div className="text-sm font-black"><span className={s.pk>0?"text-red-400":""}>{s.nick}</span> <span className="text-sky-300">Lv.{s.lv}</span> <span className="text-[10px] text-slate-400">{cname}</span>{s.live&&<span className="text-[9px] text-red-400 ml-1">🔴LIVE</span>}{s.guild&&<span className="text-[9px] text-amber-300 ml-1">[{s.guild.name}]</span>}</div>
-          <div className="text-[10px] text-slate-500">⚡전투력 {fmt(powerOf(s))} · 📍{MAPS.find(x=>x.id===s.map).icon}{MAPS.find(x=>x.id===s.map).name}</div></div></div>
-        <div className="flex items-center gap-3 text-xs font-bold"><span className="text-amber-300">💰{fmt(s.gold)}</span><span className="text-slate-300">🪨{s.stone}</span>
-          {s.bounty>0&&<span className="text-red-400">💀{fmt(s.bounty)}</span>}{s.jailT>0&&<span className="text-red-500">⛓️{s.jailT}</span>}{(s.sp>0||s.skp>0)&&<span className="text-emerald-300 pop">P:{s.sp}/{s.skp}</span>}</div></div>
+        <div className="flex items-center gap-2"><span className="text-2xl">{CLS[s.cls].icon}</span><div>
+          <div className="text-sm font-black">{s.nick} <span className="text-sky-300">Lv.{s.lv}</span> <span className="text-[10px] text-slate-400">{CLS[s.cls].name}</span>{iso&&<span className="text-[9px] text-red-400 ml-1 iso-title">⛓️고립</span>}</div>
+          <div className="text-[10px] text-slate-500">{iso?"📍 ???":"📍 "+MAPS.find(x=>x.id===s.map).icon+MAPS.find(x=>x.id===s.map).name} · {isDayOf(s)?"☀️":"🌙"}</div></div></div>
+        <div className="flex items-center gap-3 text-xs font-bold"><span className="text-amber-300">💰{fmt(s.gold)}</span>{s.sp>0&&<span className="text-emerald-300 pop">스탯P:{s.sp}</span>}</div></div>
         <div className="grid grid-cols-3 gap-2 mt-2 text-[10px]">
           <div><div className="flex justify-between"><span className="text-red-400">HP</span><span>{fmt(Math.max(0,Math.round(s.hp)))}/{fmt(st.hp)}</span></div>{Bar(s.hp,st.hp,"linear-gradient(90deg,#dc2626,#991b1b)")}</div>
           <div><div className="flex justify-between"><span className="text-blue-400">MP</span><span>{fmt(Math.max(0,Math.round(s.mp)))}/{fmt(st.mp)}</span></div>{Bar(s.mp,st.mp,"linear-gradient(90deg,#2563eb,#1e40af)")}</div>
           <div><div className="flex justify-between"><span className="text-amber-400">XP</span><span>{s.lv>=50?"MAX":fmt(s.xp)+"/"+fmt(need)}</span></div>{Bar(s.lv>=50?1:s.xp,s.lv>=50?1:need,"linear-gradient(90deg,#f59e0b,#b45309)")}</div></div></div>
       <div className="flex flex-wrap gap-1.5 mb-3">{TABS.map(([id,ic,l])=>(<button key={id} onClick={()=>{tab.current=id;bump();}} className={"btn px-3 py-2 rounded-lg text-xs font-bold "+(tab.current===id?"bg-sky-700 text-white":"bg-slate-800/80 text-slate-400")}>{ic} {l}</button>))}</div>
-      {tab.current==="hunt"&&renderHunt(s,st)}{tab.current==="town"&&renderTown(s)}{tab.current==="worldq"&&renderWorldQ(s,st)}{tab.current==="plaza"&&renderPlaza(s,st)}{tab.current==="guild"&&renderGuild(s)}{tab.current==="forge"&&renderForge(s)}{tab.current==="rune"&&renderRune(s)}{tab.current==="skill"&&renderSkill(s)}{tab.current==="quest"&&renderQuest(s)}{tab.current==="inv"&&renderInv(s,st)}{tab.current==="inn"&&renderInn(s)}
+      {tab.current==="hunt"&&renderHunt(s,st)}{tab.current==="town"&&renderTown(s)}{tab.current==="skill"&&renderSkill(s)}{tab.current==="fuse"&&renderFuse(s)}{tab.current==="rune"&&renderRune(s)}{tab.current==="inv"&&renderInv(s,st)}{tab.current==="inn"&&renderInn(s)}
     </div>); };
 
+  const iso=S.current&&S.current.iso&&S.current.iso.active;
   return (<div>
     {toast&&<div className="fixed top-3 left-1/2 -translate-x-1/2 z-[90] px-4 py-2 rounded-lg bg-black/85 border border-sky-400/40 text-sky-200 text-xs font-bold pop">{toast}</div>}
     {hurtK.current>0&&scr.current==="game"&&<div key={"hf"+hurtK.current} className="hurt-flash"/>}
+    {iso&&<div className="iso-vignette"/>}{iso&&<div className="iso-scan"/>}
+    {Date.now()<heavyUntil.current&&<div className="heavy-banner">🌙 달의 무게감… 화면이 무겁다… ({Math.ceil((heavyUntil.current-Date.now())/1000)}초)</div>}
     {scr.current==="login"&&renderLogin()}
     {scr.current==="create"&&renderCreate()}
     {scr.current==="game"&&S.current&&renderMain()}
-    {renderCalc()}{renderQuiz()}{renderTrade()}{renderDuel()}{renderGwar()}
+    {renderCalc()}
   </div>);
 }
 class ErrorBoundary extends React.Component{ constructor(p){super(p);this.state={err:null};} static getDerivedStateFromError(e){return {err:e};}
@@ -12053,8 +11880,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Game
 
 
 def mmo_page():
-    st.title("🎮 환생록 온라인 — 감각 동기화 MMORPG")
-    st.caption("'환장 RPG'에서 영감받은 가상현실 MMO! 마법은 🧮암산(마법 연산)으로 시전 · 6직업+히든 전직 · 전투력 랭킹(천외천~땅바닥) · 월드 퀘스트(기여도) · 결투/PK/현상금/지하감옥 · 길드전 · 룬 합성 · 살아있는 서버(봇 유저 채팅) · 계정 저장")
+    st.title("🎮 환장 RPG: 완전판")
+    st.caption("환장 RPG 오마주 팬게임 완전판! 직업 14종(정상/히든/예능 — 뱀파이어·혈술사·달의 사제·칠판·무도가) · 🧮마법 연산 · 절차생성 장비 200종+스킬 100종 · 초초보자 스킬 융합 · 룬 합성(실패 시 파괴) · ⛓️고립 던전(3% 납치·무한부활·현실 3분 탈출) · 계정 저장")
     components.html(MMO_HTML, height=900, scrolling=True)
 
 
@@ -12080,7 +11907,7 @@ zombie = st.Page(zombie_fps_page, title="좀비 디펜스 FPS", icon="🧟")
 ant = st.Page(ant_war_page, title="개미굴 대전", icon="🐜")
 gladiator = st.Page(gladiator_page, title="검투사 아레나", icon="⚔️")
 abyss = st.Page(abyss_rpg_page, title="나락의 심연 RPG", icon="🩸")
-mmo = st.Page(mmo_page, title="환생록 온라인 (환장RPG풍)", icon="🎮")
+mmo = st.Page(mmo_page, title="환장 RPG: 완전판", icon="🎮")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
 adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
 typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
