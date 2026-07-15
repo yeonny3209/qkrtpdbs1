@@ -11104,61 +11104,165 @@ const fmt=n=>{ n=Math.floor(n); if(!isFinite(n))return "∞"; if(n<1e4)return n.
   const U=["","K","M","B","T"]; let u=0,v=n; while(v>=1000&&u<4){v/=1000;u++;} return (v>=100?v.toFixed(1):v.toFixed(2))+U[u]; };
 const hashPw=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return String(h);};
 const KEY="ynd_hj_sav_v1";
-const needXp=lv=>Math.floor(50*Math.pow(1.42,lv-1));
+/* 극악 레벨링: 사냥만 며칠… 만렙 50. (원작 고증) */
+const needXp=lv=>Math.floor(420*Math.pow(1.30,lv-1)); // 극악: lv2=53마리, lv10≈4.5K, lv30≈86만, lv50≈1.65억(전설의 영역)
 
-/* ═══════════════════ 직업 (정상 5 · 히든 5 · 예능 4) ═══════════════════ */
+/* ═══════════════════ 직업 (선택 9 · 히든 5 — 히든은 트리거 전직) ═══════════════════ */
 const CLS={
-  /* 정상 직업 */
-  sword:{name:"검사",icon:"⚔️",grp:"정상",desc:"기본에 충실한 근접 딜러. 가로베기와 세로베기의 장인.",base:{hp:150,mp:35,atk:14,def:8,crit:7},grow:{hp:22,mp:4,atk:3.2,def:2.0,crit:.15}},
+  sword:{name:"검사",icon:"⚔️",grp:"정상",train:true,desc:"기본에 충실한 근접 딜러. 수련관에서 자세를 갈고닦을수록 강해진다.",base:{hp:150,mp:35,atk:14,def:8,crit:7},grow:{hp:22,mp:4,atk:3.2,def:2.0,crit:.15}},
   mage:{name:"마법사",icon:"🔮",grp:"정상",calc:true,desc:"마법 시전 = 수학 문제. 암산이 곧 화력인 두뇌파.",base:{hp:100,mp:90,atk:16,def:4,crit:6},grow:{hp:13,mp:12,atk:3.8,def:1.2,crit:.15}},
   archer:{name:"궁수",icon:"🏹",grp:"정상",desc:"원거리 정밀 사격. 치명타의 미학.",base:{hp:115,mp:50,atk:15,def:5,crit:13},grow:{hp:16,mp:6,atk:3.4,def:1.4,crit:.4}},
   rogue:{name:"도적",icon:"🗡️",grp:"정상",desc:"빠른 연격과 급소 노리기. 한탕주의.",base:{hp:120,mp:45,atk:14,def:5,crit:11},grow:{hp:17,mp:5,atk:3.3,def:1.5,crit:.35}},
   cleric:{name:"성직자",icon:"✨",grp:"정상",desc:"회복과 신성 마법. '스몰 힐'은 언데드에게… 끔찍한 무기다.",base:{hp:140,mp:80,atk:11,def:8,crit:5},grow:{hp:19,mp:10,atk:2.8,def:2.0,crit:.12}},
-  /* 히든 직업 */
-  magicSword:{name:"마검사",icon:"🌀",grp:"히든",calc:true,desc:"[히든] 검과 마법을 동시에. 연산 실력이 검기를 완성한다.",base:{hp:135,mp:65,atk:16,def:7,crit:9},grow:{hp:19,mp:8,atk:3.6,def:1.8,crit:.25}},
-  vampire:{name:"뱀파이어",icon:"🧛",grp:"히든",desc:"[히든] 밤에는 최강, 낮에는 스탯 반토막. 공격마다 흡혈.",base:{hp:140,mp:55,atk:16,def:6,crit:10},grow:{hp:20,mp:6,atk:3.7,def:1.6,crit:.3}},
-  bloodMage:{name:"혈술사",icon:"🩸",grp:"히든",desc:"[히든] 마나 대신 자기 HP로 스킬을 쓴다. 강력하지만 아프다. 진짜로.",base:{hp:180,mp:10,atk:17,def:6,crit:8},grow:{hp:26,mp:1,atk:3.9,def:1.5,crit:.2}},
-  dimSniper:{name:"차원의 저격수",icon:"🔭",grp:"히든",desc:"[히든] 차원 너머에서 쏜다. 치명타율이 비정상적으로 높다.",base:{hp:95,mp:60,atk:18,def:3,crit:25},grow:{hp:12,mp:7,atk:3.8,def:1.0,crit:.6}},
-  moonPriest:{name:"달의 사제",icon:"🌙",grp:"히든",desc:"[히든] 디버프 특화 귀족. 단, '달의 무게감'은 시전자의 화면까지 무겁게 만든다…",base:{hp:125,mp:95,atk:12,def:6,crit:6},grow:{hp:16,mp:12,atk:2.9,def:1.5,crit:.15}},
-  /* 예능 직업 */
-  ultraNewbie:{name:"초초보자",icon:"🐣",grp:"예능",fuse:true,desc:"[예능] 영원한 초보. 하지만 유일하게 스킬 2개를 '융합'할 수 있다!",base:{hp:130,mp:60,atk:12,def:6,crit:8},grow:{hp:18,mp:7,atk:3.0,def:1.6,crit:.25}},
-  blackboard:{name:"칠판",icon:"🟩",grp:"예능",desc:"[예능] 직업이… 칠판이다. 분필을 던지고 출석부로 내려친다. 의외로 단단함.",base:{hp:170,mp:30,atk:10,def:14,crit:4},grow:{hp:24,mp:3,atk:2.6,def:3.0,crit:.1}},
-  herbalist:{name:"약초꾼",icon:"🌿",grp:"예능",desc:"[예능] 싸움은 못하지만 골드·드랍 운이 좋고 스스로를 잘 치료한다.",base:{hp:135,mp:70,atk:9,def:7,crit:6},grow:{hp:18,mp:9,atk:2.4,def:1.7,crit:.2}},
-  brawler:{name:"무도가",icon:"🥊",grp:"예능",desc:"[예능] 맨주먹의 화력은 최강. 단, 때릴 때마다 자기 팔이 부러질 수 있다(15%).",base:{hp:160,mp:30,atk:19,def:7,crit:12},grow:{hp:23,mp:3,atk:4.2,def:1.8,crit:.35}},
+  ultraNewbie:{name:"초초보자",icon:"🐣",grp:"예능",fuse:true,desc:"영원한 초보. 하지만 유일하게 스킬 2개를 '융합'할 수 있다!",base:{hp:130,mp:60,atk:12,def:6,crit:8},grow:{hp:18,mp:7,atk:3.0,def:1.6,crit:.25}},
+  blackboard:{name:"칠판",icon:"🟩",grp:"예능",desc:"직업이… 칠판이다. 분필을 던지고 출석부로 내려친다. 의외로 단단함.",base:{hp:170,mp:30,atk:10,def:14,crit:4},grow:{hp:24,mp:3,atk:2.6,def:3.0,crit:.1}},
+  herbalist:{name:"약초꾼",icon:"🌿",grp:"예능",desc:"싸움은 못하지만 골드·드랍 운이 좋고 스스로를 잘 치료한다.",base:{hp:135,mp:70,atk:9,def:7,crit:6},grow:{hp:18,mp:9,atk:2.4,def:1.7,crit:.2}},
+  brawler:{name:"무도가",icon:"🥊",grp:"예능",desc:"맨주먹의 화력은 최강. 단, 때릴 때마다 자기 팔이 부러질 수 있다(15%).",base:{hp:160,mp:30,atk:19,def:7,crit:12},grow:{hp:23,mp:3,atk:4.2,def:1.8,crit:.35}},
+  /* 히든 — 창작 화면엔 안 나온다. 특정 조건 달성 시 '전직하시겠습니까?' */
+  magicSword:{name:"마검사",icon:"🌀",grp:"히든",hidden:true,calc:true,desc:"검과 마법을 동시에. 연산 실력이 검기를 완성한다.",base:{hp:135,mp:65,atk:16,def:7,crit:9},grow:{hp:19,mp:8,atk:3.6,def:1.8,crit:.25}},
+  vampire:{name:"뱀파이어",icon:"🧛",grp:"히든",hidden:true,desc:"밤에는 최강, 낮에는 스탯 반토막. 공격마다 흡혈.",base:{hp:140,mp:55,atk:16,def:6,crit:10},grow:{hp:20,mp:6,atk:3.7,def:1.6,crit:.3}},
+  bloodMage:{name:"혈술사",icon:"🩸",grp:"히든",hidden:true,desc:"마나 대신 자기 HP로 스킬을 쓴다. 강력하지만 아프다. 진짜로.",base:{hp:180,mp:10,atk:17,def:6,crit:8},grow:{hp:26,mp:1,atk:3.9,def:1.5,crit:.2}},
+  dimSniper:{name:"차원의 저격수",icon:"🔭",grp:"히든",hidden:true,desc:"차원 너머에서 쏜다. 치명타율이 비정상적으로 높다.",base:{hp:95,mp:60,atk:18,def:3,crit:25},grow:{hp:12,mp:7,atk:3.8,def:1.0,crit:.6}},
+  moonPriest:{name:"달의 사제",icon:"🌙",grp:"히든",hidden:true,desc:"디버프 특화 귀족. 단, '달의 무게감'은 시전자의 화면까지 무겁게 만든다…",base:{hp:125,mp:95,atk:12,def:6,crit:6},grow:{hp:16,mp:12,atk:2.9,def:1.5,crit:.15}},
 };
-/* ═══════════════════ 고정 스킬 ═══════════════════ */
-const SKILLS={
-  hSlash:{name:"가로베기",icon:"➡️",cls:"sword",lv:1,mp:6,mult:1.5,desc:"기초 검술 1식. 가로로 벤다."},
-  vSlash:{name:"세로베기",icon:"⬇️",cls:"sword",lv:1,mp:6,mult:1.5,desc:"기초 검술 2식. 세로로 벤다."},
-  powerStrike:{name:"강타",icon:"💢",cls:"sword",lv:5,mp:12,mult:2.2,desc:"묵직한 일격. 220%"},
-  shieldSk:{name:"쉴드",icon:"🛡️",cls:"sword",lv:7,mp:12,mult:0,fx:{shield:.3},desc:"최대 HP 30% 보호막"},
-  whirlwind:{name:"휠윈드",icon:"🌪️",cls:"sword",lv:10,mp:18,mult:.9,hits:3,desc:"90% × 3회전"},
-  guardBreak:{name:"가드 브레이커",icon:"🔨",cls:"sword",lv:12,mp:16,mult:1.6,fx:{defDown:.3},desc:"160% + 적 방어 -30%"},
-  fireball:{name:"파이어볼",icon:"🔥",cls:"mage",lv:1,mp:10,mult:2.2,calc:1,desc:"[연산] 220% — 수학 문제를 풀어야 시전!"},
-  iceBolt:{name:"아이스볼트",icon:"❄️",cls:"mage",lv:6,mp:16,mult:2.0,calc:2,fx:{stun:1},desc:"[연산] 200% + 빙결"},
-  meteor:{name:"메테오",icon:"☄️",cls:"mage",lv:14,mp:32,mult:3.8,calc:3,desc:"[연산] 380% 운석 낙하"},
-  aimShot:{name:"정조준",icon:"🎯",cls:"archer",lv:1,mp:8,mult:1.7,fx:{critB:30},desc:"170%, 치명 +30%"},
-  multiShot:{name:"갈래살",icon:"🌂",cls:"archer",lv:8,mp:16,mult:.9,hits:3,desc:"90% × 3연사"},
-  stab:{name:"급소 찌르기",icon:"🎯",cls:"rogue",lv:1,mp:8,mult:1.6,fx:{critB:25},desc:"160%, 치명 +25%"},
-  poisonBlade:{name:"독바르기",icon:"🧪",cls:"rogue",lv:7,mp:14,mult:1.4,fx:{dot:.5},desc:"140% + 중독"},
-  smallHeal:{name:"스몰 힐",icon:"💚",cls:"cleric",lv:1,mp:10,mult:0,fx:{selfHeal:.15,undeadNuke:1},desc:"HP 15% 회복. ※언데드에게 시전 시 즉사기(!)"},
-  holyBolt:{name:"신성탄",icon:"🌟",cls:"cleric",lv:5,mp:12,mult:1.8,desc:"180% 신성 피해"},
-  grandHeal:{name:"그랜드 힐",icon:"💖",cls:"cleric",lv:12,mp:26,mult:0,fx:{selfHeal:.5,undeadNuke:1},desc:"HP 50% 회복. 역시 언데드에겐 재앙."},
-  magicSlash:{name:"마력 검기",icon:"🌀",cls:"magicSword",lv:1,mp:12,mult:2.0,calc:1,desc:"[연산] 200% 마검 일섬"},
-  bloodDrain:{name:"흡혈",icon:"🧛",cls:"vampire",lv:1,mp:10,mult:1.8,fx:{heal:.5},desc:"180% + 피해의 50% 흡혈"},
-  nightFang:{name:"밤의 송곳니",icon:"🌒",cls:"vampire",lv:10,mp:20,mult:2.8,fx:{heal:.35},desc:"280% + 35% 흡혈. 밤에 강해진다."},
-  bloodArt:{name:"혈주(血呪)",icon:"🩸",cls:"bloodMage",lv:1,hpCost:.08,mp:0,mult:2.6,desc:"[HP 8% 소모] 260% — 피의 대가"},
-  bloodBurst:{name:"혈폭(血爆)",icon:"💥",cls:"bloodMage",lv:10,hpCost:.18,mp:0,mult:4.5,desc:"[HP 18% 소모] 450% — 몸이 남아나질 않는다"},
-  dimShot:{name:"차원 저격",icon:"🔭",cls:"dimSniper",lv:1,mp:16,mult:3.0,fx:{gcrit:1},desc:"300% 확정 치명타. 차원 너머에서 온다."},
-  moonWeight:{name:"달의 무게감",icon:"🌙",cls:"moonPriest",lv:1,mp:18,mult:0,fx:{moonWeight:1},desc:"적 방어 -40%·공속 저하(4턴). 부작용: 내 화면도 무거워짐(30초)…"},
-  moonBolt:{name:"월광탄",icon:"🌘",cls:"moonPriest",lv:5,mp:12,mult:1.9,desc:"190% 월광 피해"},
-  chalkThrow:{name:"분필 던지기",icon:"🖍️",cls:"blackboard",lv:1,mp:5,mult:1.6,desc:"백묵을 던진다. 눈에 맞으면 아프다. 160%"},
-  rollBook:{name:"출석부 내려치기",icon:"📕",cls:"blackboard",lv:8,mp:14,mult:2.4,fx:{stun:1},desc:"240% + 기절. '조용히 해라.'"},
-  herbSpray:{name:"약초 뿌리기",icon:"🌿",cls:"herbalist",lv:1,mp:8,mult:1.2,fx:{selfHeal:.12},desc:"120% + HP 12% 회복"},
-  luckyPick:{name:"심마니의 눈",icon:"👁️",cls:"herbalist",lv:8,mp:12,mult:0,fx:{luck:1},desc:"3턴간 드랍 운 대폭 상승"},
-  fistRush:{name:"붕권",icon:"👊",cls:"brawler",lv:1,mp:8,mult:2.4,fx:{armRisk:1},desc:"240% 혼신의 주먹. ※15% 확률로 내 팔이 부러진다"},
-  fuseStrike:{name:"엉성한 후려치기",icon:"🐣",cls:"ultraNewbie",lv:1,mp:6,mult:1.4,desc:"초보의 몸부림. 140%"},
+const SELECT_CLS=Object.keys(CLS).filter(c=>!CLS[c].hidden);
+const TIER_TITLE=["","1차 전직","2차 전직","3차 전직","4차 전직","5차 전직"];
+
+/* ═══════════════════ 직업별 스킬 트리 (각 30 · 레벨+전직차수 게이트) ═══════════════════ */
+const SKILLS={};
+const CLASS_SKILLS={};
+/* 각 직업의 손수 만든 대표 스킬 (id 보존 — 융합 레시피 등에서 참조) */
+const ICONIC={
+  sword:[["hSlash","가로베기","➡️",1,0,6,1.5,null,"기초 검술 1식. 가로로 벤다."],["vSlash","세로베기","⬇️",1,0,6,1.5,null,"기초 검술 2식. 세로로 벤다."],["powerStrike","강타","💢",4,0,12,2.2,null,"묵직한 일격. 220%"],["shieldSk","쉴드","🛡️",6,0,12,0,{shield:.3},"최대 HP 30% 보호막"],["whirlwind","휠윈드","🌪️",9,0,18,.9,{hits:3},"90% × 3회전"],["guardBreak","가드 브레이커","🔨",12,1,16,1.6,{defDown:.3},"160% + 적 방어 -30%"]],
+  mage:[["fireball","파이어볼","🔥",1,0,10,2.2,{calc:1},"[연산] 220% — 수학 문제!"],["iceBolt","아이스볼트","❄️",6,0,16,2.0,{calc:2,stun:1},"[연산] 200% + 빙결"],["meteor","메테오","☄️",14,1,32,3.8,{calc:3},"[연산] 380% 운석 낙하"]],
+  archer:[["aimShot","정조준","🎯",1,0,8,1.7,{critB:30},"170%, 치명 +30%"],["multiShot","갈래살","🌂",8,0,16,.9,{hits:3},"90% × 3연사"]],
+  rogue:[["stab","급소 찌르기","🎯",1,0,8,1.6,{critB:25},"160%, 치명 +25%"],["poisonBlade","독바르기","🧪",7,0,14,1.4,{dot:.5},"140% + 중독"]],
+  cleric:[["smallHeal","스몰 힐","💚",1,0,10,0,{selfHeal:.15,undeadNuke:1},"HP 15% 회복. ※언데드 즉사기!"],["holyBolt","신성탄","🌟",4,0,12,1.8,null,"180% 신성 피해"],["grandHeal","그랜드 힐","💖",12,1,26,0,{selfHeal:.5,undeadNuke:1},"HP 50% 회복. 언데드엔 재앙."]],
+  ultraNewbie:[["fuseStrike","엉성한 후려치기","🐣",1,0,6,1.4,null,"초보의 몸부림. 140%"]],
+  blackboard:[["chalkThrow","분필 던지기","🖍️",1,0,5,1.6,null,"백묵을 던진다. 160%"],["rollBook","출석부 내려치기","📕",8,0,14,2.4,{stun:1},"240% + 기절. '조용히 해라.'"]],
+  herbalist:[["herbSpray","약초 뿌리기","🌿",1,0,8,1.2,{selfHeal:.12},"120% + HP 12% 회복"],["luckyPick","심마니의 눈","👁️",8,0,12,0,{luck:1},"3턴간 드랍 운 대폭 상승"]],
+  brawler:[["fistRush","붕권","👊",1,0,8,2.4,{armRisk:1},"240% 혼신의 주먹. ※15% 팔 부러짐"]],
+  magicSword:[["magicSlash","마력 검기","🌀",1,0,12,2.0,{calc:1},"[연산] 200% 마검 일섬"]],
+  vampire:[["bloodDrain","흡혈","🧛",1,0,10,1.8,{heal:.5},"180% + 50% 흡혈"],["nightFang","밤의 송곳니","🌒",10,1,20,2.8,{heal:.35},"280% + 35% 흡혈. 밤에 강해진다."]],
+  bloodMage:[["bloodArt","혈주(血呪)","🩸",1,0,0,2.6,{hpCost:.08},"[HP 8%] 260% — 피의 대가"],["bloodBurst","혈폭(血爆)","💥",10,1,0,4.5,{hpCost:.18},"[HP 18%] 450%"]],
+  dimSniper:[["dimShot","차원 저격","🔭",1,0,16,3.0,{gcrit:1},"300% 확정 치명타"]],
+  moonPriest:[["moonWeight","달의 무게감","🌙",1,0,18,0,{moonWeight:1},"적 방어-40%·공속↓(4턴). 부작용: 내 화면도 무거워짐(30초)…"],["moonBolt","월광탄","🌘",5,0,12,1.9,null,"190% 월광 피해"]],
 };
+/* 절차 채움용 직업 flavor */
+const FLAVOR={
+  sword:{adj:["강철","질풍","패도","월광","무형"],act:["베기","참격","가르기","연격","일도"],ic:["⚔️","🗡️","🌊","💢","🌀"]},
+  mage:{adj:["작열","빙결","감전","비전","심연"],act:["폭발","화살","파동","작렬","붕괴"],ic:["🔥","❄️","⚡","🔮","🌌"]},
+  archer:{adj:["관통","폭풍","월광","맹독","섬광"],act:["사격","연사","저격","꿰뚫기","화살비"],ic:["🏹","🎯","🌪️","🌙","✨"]},
+  rogue:{adj:["그림자","맹독","암살","질풍","급소"],act:["찌르기","연격","베기","급습","교란"],ic:["🗡️","🌫️","🧪","💨","🎯"]},
+  cleric:{adj:["신성","정화","축복","심판","광휘"],act:["빛","파동","강타","치유","심판"],ic:["✨","🌟","💫","💚","⚡"]},
+  ultraNewbie:{adj:["엉성한","어설픈","우연한","초보의","잉여"],act:["몸부림","휘두르기","넘어지기","꼬집기","박치기"],ic:["🐣","🙃","😅","🤪","🍼"]},
+  blackboard:{adj:["분필","출석부","교탁","백묵","훈화"],act:["던지기","내려치기","긁기","호통","받아쓰기"],ic:["🟩","🖍️","📕","📏","📢"]},
+  herbalist:{adj:["약초","독초","산삼","이슬","뿌리"],act:["뿌리기","달이기","캐기","치유","해독"],ic:["🌿","🍃","👁️","💧","🌱"]},
+  brawler:{adj:["철권","붕권","벽력","맹호","금강"],act:["지르기","연타","박치기","올려치기","내려찍기"],ic:["👊","🥊","💥","🐯","💪"]},
+  magicSword:{adj:["마검","연산","오러","마력","검마"],act:["검기","일섬","베기","파동","연격"],ic:["🌀","⚔️","✨","🔮","🌌"]},
+  vampire:{adj:["혈야","박쥐","심홍","월야","흡혈"],act:["송곳니","베기","할퀴기","흡수","비상"],ic:["🧛","🦇","🩸","🌒","🌹"]},
+  bloodMage:{adj:["혈주","선혈","저주","제물","붉은"],act:["폭발","가시","의식","제물","분출"],ic:["🩸","💉","🔴","☠️","💢"]},
+  dimSniper:{adj:["차원","공허","시공","관측","무한"],act:["저격","관통","조준","붕괴","포격"],ic:["🔭","🌌","🕳️","🎯","💫"]},
+  moonPriest:{adj:["월광","월식","삭망","은월","달빛"],act:["저주","쇠약","심판","강타","포옹"],ic:["🌙","🌘","🌑","🌕","🌛"]},
+};
+/* 전직 차수별 고유기(캡스톤) 이름 */
+const CAP_NAMES={
+  sword:[["검기 각성","⚔️"],["비검 오의","🌀"],["검성의 태도","✨"],["검신 강림","🌌"],["일검필살","🌠"]],
+  mage:[["연산 가속","🧮"],["원소 폭주","🔥"],["금단의 방정식","📐"],["대현자 강림","🌟"],["빅뱅 공식","💥"]],
+  archer:[["매의 눈","🦅"],["폭풍 연사","🌪️"],["차원 관통사","🕳️"],["별자리 사격","✨"],["세계를 꿰뚫는 살","🌌"]],
+  rogue:[["그림자 잠행","🌫️"],["맹독 만개","☠️"],["암살 개시","🌑"],["천 개의 칼날","🗡️"],["절명","💀"]],
+  cleric:[["대치유","💖"],["신성 강타","⚡"],["부활의 기적","🕊️"],["심판의 날","🌅"],["창세의 빛","☀️"]],
+  ultraNewbie:[["초보 탈출(?)","🐤"],["얼떨결의 각성","😳"],["운빨 개화","🍀"],["초심자의 행운","🎲"],["전설의 초보","🏆"]],
+  blackboard:[["기립!","📢"],["칠판 지우개 던지기","🧹"],["종례 강타","🔔"],["훈화 말씀","😴"],["교장 선생님 등장","🎖️"]],
+  herbalist:[["만병통치","💊"],["독왕의 조제","🧪"],["산삼 폭식","🌰"],["자연의 가호","🌳"],["불로초","🍵"]],
+  brawler:[["연환격","👐"],["철산고","💥"],["금강불괴","🪨"],["맹호출림","🐯"],["일격필살권","☄️"]],
+  magicSword:[["마검 개안","🌀"],["오러 블레이드","⚔️"],["연산 검기","📐"],["검마 합일","🌌"],["차원 참","🌠"]],
+  vampire:[["피의 각성","🧛"],["박쥐 군무","🦇"],["심홍의 밤","🌹"],["진조의 권능","🩸"],["월야 강림","🌒"]],
+  bloodMage:[["피의 계약","🩸"],["선혈 폭발","💥"],["금단의 의식","☠️"],["제물 봉헌","🔴"],["혈신 강림","💀"]],
+  dimSniper:[["차원 조준","🔭"],["공허 관통","🕳️"],["시공 저격","💫"],["무한 포격","🌌"],["관측자의 종언","👁️"]],
+  moonPriest:[["월광 개화","🌙"],["삭월의 저주","🌑"],["은월 심판","🌕"],["월식 강림","🌘"],["달의 종언","🌛"]],
+};
+/* 캡스톤 fx 테마 */
+const CAP_FX={
+  sword:t=>({defDown:.2+t*.05}), mage:t=>({calc:Math.min(3,t)}), archer:t=>({gcrit:1}), rogue:t=>({dot:.4+t*.1}),
+  cleric:t=>(t===3?{selfHeal:.6}:{}), ultraNewbie:t=>({luck:1}), blackboard:t=>({stun:1}), herbalist:t=>({selfHeal:.3+t*.05}),
+  brawler:t=>({armRisk:1}), magicSword:t=>({calc:Math.min(3,t),defDown:.2}), vampire:t=>({heal:.4}), bloodMage:t=>({hpCost:.1+t*.03}),
+  dimSniper:t=>({gcrit:1,critB:20}), moonPriest:t=>({moonWeight:1,defDown:.2}),
+};
+const CAP_MULT=[0,2.6,3.4,4.5,5.8,7.4];
+(function(){
+  for(const cls of Object.keys(CLS)){
+    const list=[], seen=new Set();
+    (ICONIC[cls]||[]).forEach(a=>{ const [id,name,icon,lv,tier,mp,mult,fx,desc]=a;
+      const sk={id,cls,name,icon,lv,tier,mp,mult,fx:fx?{...fx}:undefined,hits:fx&&fx.hits,calc:fx&&fx.calc,hpCost:fx&&fx.hpCost,desc};
+      if(sk.fx){ if(sk.fx.hits)delete sk.fx.hits; if(sk.fx.calc)delete sk.fx.calc; if(sk.fx.hpCost)delete sk.fx.hpCost; if(!Object.keys(sk.fx).length)sk.fx=undefined; }
+      SKILLS[id]=sk; list.push(sk); seen.add(id); });
+    /* 캡스톤 5 (차수별 자동 습득) */
+    for(let t=1;t<=5;t++){ const nm=CAP_NAMES[cls][t-1]; const fx=CAP_FX[cls](t)||{};
+      const id="cap_"+cls+"_"+t; const mult=fx.calc!==undefined&&CAP_MULT[t]?CAP_MULT[t]:CAP_MULT[t];
+      const sk={id,cls,name:nm[0],icon:nm[1],lv:t*10,tier:t,adv:t,mp:16+t*6,hpCost:fx.hpCost,calc:fx.calc,hits:fx.hits,
+        mult:fx.selfHeal!==undefined&&Object.keys(fx).length===1?0:CAP_MULT[t],fx:(()=>{const f={...fx};delete f.calc;delete f.hits;delete f.hpCost;return Object.keys(f).length?f:undefined;})(),
+        desc:`[${TIER_TITLE[t]} 고유기] ${nm[0]}`};
+      SKILLS[id]=sk; list.push(sk); }
+    /* 절차 채움 → 30 */
+    const F=FLAVOR[cls]; let n=0;
+    while(list.length<30){ const ai=n%5, aj=Math.floor(n/5)%5; n++;
+      const id="ct_"+cls+"_"+n; if(SKILLS[id])continue;
+      const lv=clamp(2+ (n*7)%48,1,50); const tier=clamp(Math.floor(lv/10),0,5);
+      const mult=+(1.3+((n*29)%100)/45).toFixed(2);
+      let fx=undefined,tag=""; const rr=n%6;
+      if(rr===1){fx={stun:1};tag=" +기절";} else if(rr===2){fx={dot:.4};tag=" +중독";} else if(rr===3){fx={critB:20};tag=" +치명";} else if(rr===4){fx={defDown:.2};tag=" +방깎";}
+      const sk={id,cls,name:F.adj[ai]+" "+F.act[aj],icon:F.ic[(ai+aj)%5],lv,tier,mp:8+((n*11)%26),mult,fx,
+        desc:`${Math.round(mult*100)}% 피해${tag}`};
+      SKILLS[id]=sk; list.push(sk);
+    }
+    CLASS_SKILLS[cls]=list;
+  }
+})();
+
+/* ═══════════════════ 전직 임무 (10레벨마다 · 처치/수집) ═══════════════════ */
+const ADV_MISSIONS=[
+  null,
+  {tier:1,type:"kill",target:"gobScout",n:20,name:"1차 전직 시험",desc:"초록니 정찰꾼 20마리를 처치해 실력을 증명하라."},
+  {tier:2,type:"gold",n:3000,name:"2차 전직 시험",desc:"수련 자금 3,000G를 모아 전직관에 헌납하라. (소모)"},
+  {tier:3,type:"kill",target:"orcWarrior",n:25,name:"3차 전직 시험",desc:"바위이빨 전사 25마리를 처치하라."},
+  {tier:4,type:"rune",n:5,name:"4차 전직 시험",desc:"룬 5개를 모아 봉인의 제물로 바쳐라. (소모)"},
+  {tier:5,type:"kill",target:"wyvern",n:15,name:"5차 전직 시험",desc:"폐허 와이번 15마리를 처치해 극의에 이르러라."},
+];
+/* ═══════════════════ 히든 직업 트리거 ('전직하시겠습니까?') ═══════════════════ */
+const HIDDEN_TRIG=[
+  {id:"vampire",name:"뱀파이어",cond:s=>!isDayOf(s)&&(s.tag_undead||0)>=120,hint:"밤에 언데드를 120마리 처치하면… 피의 갈망이 눈을 뜬다.",flavor:"밤마다 언데드의 피를 뒤집어쓴 당신에게서, 붉은 갈망이 솟구친다."},
+  {id:"bloodMage",name:"혈술사",cond:s=>(s.lowHpKills||0)>=40,hint:"HP 20% 이하의 위기에서 40번 막타를 치면… 피의 힘에 눈뜬다.",flavor:"죽음의 문턱에서 피를 대가로 힘을 갈구한 끝에, 혈술의 길이 열렸다."},
+  {id:"dimSniper",name:"차원의 저격수",cond:s=>(s.critCount||0)>=300,hint:"치명타를 300회 성공하면… 차원 너머가 보이기 시작한다.",flavor:"급소만을 노려온 눈이 마침내 차원의 틈을 꿰뚫어 본다."},
+  {id:"magicSword",name:"마검사",cond:s=>s.equip.weapon&&(s.calcOk||0)>=50,hint:"검을 든 채 마법 연산을 50회 성공하면… 검과 마법이 하나가 된다.",flavor:"검을 쥔 손과 수식을 읽는 머리가 마침내 하나로 합쳐진다."},
+  {id:"moonPriest",name:"달의 사제",cond:s=>(s.nightSkills||0)>=200,hint:"밤에 스킬을 200번 시전하면… 달이 당신을 사제로 부른다.",flavor:"달빛 아래 쌓아 올린 수행이 당신을 달의 사제로 이끈다."},
+];
+/* ═══════════════════ 광장 봇 유저 (가짜 서버) ═══════════════════ */
+const BOT_DEFS=[
+  ["잠수함","mage",99,"legend"],
+  ["옆집고인물","sword",50,"pro"],["뇌지컬만렙","mage",48,"analyst"],["헬창아저씨","brawler",49,"pro"],
+  ["정의구현맨","cleric",47,"pro"],["도망의달인","rogue",46,"pro"],["활잘쏘는옆집형","archer",47,"pro"],
+  ["뒷골목칼잡이","rogue",44,"pk"],["어둠의현질러","sword",42,"pk"],["뉴비사냥꾼","archer",40,"pk"],
+  ["0하나더","rogue",35,"scam"],["프로환불러","mage",33,"scam"],
+  ["상점앞노숙","sword",38,"merchant"],["만물상덜렁이","archer",36,"merchant"],
+  ["급식왕김철수","sword",22,"normal"],["와이파이도둑","rogue",25,"normal"],["눕자마자잠듦","mage",18,"normal"],
+  ["어쩔냉장고","brawler",27,"normal"],["치킨은두마리","cleric",24,"normal"],["엄마몰래겜중","archer",15,"normal"],
+  ["소금빵성애자","mage",29,"normal"],["현질의노예","sword",31,"normal"],["렉걸린달팽이","brawler",12,"normal"],
+  ["숙제는내일","rogue",14,"normal"],["겜삭제각","archer",20,"normal"],["버스만타는중","cleric",16,"normal"],
+  ["물약값없음","sword",9,"newbie"],["포션거지","mage",7,"newbie"],["던전미아","archer",6,"newbie"],
+  ["늅늅이","rogue",3,"newbie"],["칠판을든자","blackboard",28,"normal"],["약초나캘까","herbalist",19,"normal"],
+];
+const BOT_CHAT={
+  normal:["아 강화 또 터짐;;","이 망겜 접는다 진짜 (내일 또 접속)","혹시 파티 구해요?","물약 어디서 싸게 팔아요?","방금 레어템 먹음 ㅋㅋㅋ","레벨이 안 올라 진짜 4일째 사냥만…","아 랙 왜이럼","전직 시험 깬 사람?","고인물들은 대체 언제 자는 거임?","히든 직업 뜬 사람 있음?? 나도 보고싶다","고릴라 옷 주웠는데 방어력이 왜이렇게 높지"],
+  newbie:["저기… 토끼는 어디서 잡아요?","뉴비인데 뭐부터 해요?","골드 1개만 주실 분...","이 게임 레벨 왜이렇게 안 올라요 ㅠㅠ","마을 밖에 나가도 돼요?"],
+  pro:["막피 도는 놈들 다 신고함","오늘 5차 전직 마침","랭킹 갱신하러 갑니다","결투 받아줄 사람?","뉴비분들 모르는 거 물어보세요"],
+  pk:["ㅋㅋ 잡히면 죽는 거임","약한 게 죄지","현상금? 그게 뭔데","도망쳐봐야 소용없다"],
+  scam:["개꿀템 팝니다 (진짜임)","전설급 무기 싸게 넘겨요","선입금하면 2배로 드림","이 검 진짜 좋은 거예요"],
+  merchant:["물약 정가 판매합니다","무기 삽니다/팝니다","시세보다 싸게 드려요","오늘의 특가! 서두르세요"],
+  analyst:["금주 전투력 랭킹 발표합니다","1위는 이번에도 그분이네요","0위는 여전히 관측 불가…"],
+  legend:[],
+};
+
 /* ═══════════════════ 절차 생성 스킬 (100개 — 실제 배열 생성) ═══════════════════ */
 const SK_ADJ=["불타는","얼어붙은","현란한","어설픈","우주적인","눈물의","배고픈","분노의","졸린","전설의"];
 const SK_ACT=["찌르기","내려치기","돌리기","던지기","울부짖기","할퀴기","박치기","꼬집기","저글링","발구르기"];
@@ -11260,7 +11364,8 @@ const MAPS=[
 
 /* ═══════════════════ 저장 ═══════════════════ */
 function mkSave(nick,pwh,cls){
-  return {ver:2,nick,pwh,cls,lv:1,xp:0,sp:0,time:0,
+  return {ver:3,nick,pwh,cls,lv:1,xp:0,sp:0,time:0,
+    jobTier:0,advReady:false,advQuest:null,trainPosture:0,
     alloc:{hp:0,mp:0,atk:0,def:0,crit:0},
     hp:1,mp:1,gold:200,
     map:"plain",lastMon:{},
@@ -11268,7 +11373,10 @@ function mkSave(nick,pwh,cls){
     inv:[],runes:[],runeEq:[null,null,null],
     learned:{},fused:[],autoSkill:null,_auto:false,
     kills:{},killTotal:0,armBreaks:0,fuseCount:0,runeBroke:0,
+    critCount:0,calcOk:0,tag_undead:0,lowHpKills:0,nightSkills:0,
+    hiddenDeclined:{},
     iso:null,isoEscapes:0,isoBossKills:0,
+    duelW:0,duelL:0,pk:0,bounty:0,bountyHunted:0,
     status:[],combat:null,dungeon:null,
     seq:1,log:[],created:Date.now()};
 }
@@ -11281,12 +11389,15 @@ function hydrate(o){
   m.inv=o.inv||[]; m.runes=o.runes||[]; m.log=o.log||[]; m.learned=o.learned||{};
   m.fused=Array.isArray(o.fused)?o.fused:[]; m.kills=o.kills||{};
   m.status=Array.isArray(o.status)?o.status:[];
+  m.hiddenDeclined=o.hiddenDeclined||{}; m.jobTier=o.jobTier||0; m.trainPosture=o.trainPosture||0;
   if(!CLS[m.cls])m.cls="sword";
   if(!MAPS.find(x=>x.id===m.map))m.map="plain";
   m.combat=null; m.dungeon=null; m._auto=false;
   if(m.iso&&m.iso.active){ m.iso.t0=Date.now(); }  // 고립 던전은 재접속해도 못 나간다. 타이머만 리셋(악랄)
   return m;
 }
+/* 검사 수련 자세 보너스: 누적 수련 → 공격력 배율(로그 곡선, 소프트캡 ~+60%) */
+function postureBonus(s){ if(!CLS[s.cls].train||!s.trainPosture)return 1; return 1+Math.min(.6,Math.log10(1+s.trainPosture)*.16); }
 /* ═══════════════════ 스탯 계산 (낮밤 · 뱀파이어 · 고릴라 옷 버그 · 룬 · 상태) ═══════════════════ */
 const isDayOf=s=>Math.floor(s.time/15)%2===0;
 function calc(s){
@@ -11305,6 +11416,8 @@ function calc(s){
     if(K.stat==="atk")atk+=v; else if(K.stat==="def")def+=v; else if(K.stat==="hp")hp+=v;
     else if(K.stat==="mp")mp+=v; else if(K.stat==="crit")crit+=v; }
   for(const st of s.status){ if(st.k==="armbreak")atk*=.5; if(st.k==="atkbuff")atk*=1.4; }
+  atk*=postureBonus(s);                                   // 🗡️ 검사 수련 자세 보너스
+  atk*=(1+(s.jobTier||0)*.08); hp*=(1+(s.jobTier||0)*.05); // 전직 차수 보정
   if(s.cls==="vampire"){ const day=isDayOf(s); atk*=day?.5:1.3; def*=day?.5:1.3; }  // 🧛 낮 반토막/밤 강화
   return {hp:Math.round(hp),mp:Math.round(mp),atk:Math.round(atk),def:Math.round(def),crit:+clamp(crit,0,80).toFixed(1)};
 }
@@ -11322,6 +11435,8 @@ function Game(){
   const calcState=useRef(null); const calcTimer=useRef(null); const [,cbump]=useReducer(x=>x+1,0);
   const [calcInput,setCalcInputRaw]=useState(""); const calcInputRef=useRef(""); const setCalcInput=v=>{calcInputRef.current=v;setCalcInputRaw(v);};
   const heavyUntil=useRef(0);
+  const pendingHidden=useRef(null), advModal=useRef(null), duel=useRef(null), trade=useRef(null);
+  const chat=useRef([]), chatSeq=useRef(1), bots=useRef(null);
 
   const say=t=>{ setToast(t); clearTimeout(toastT.current); toastT.current=setTimeout(()=>setToast(null),1900); };
   const persist=()=>{ const s=S.current; if(!s)return; try{ localStorage.setItem(KEY+"_"+s.nick,JSON.stringify(s)); }catch(e){} };
@@ -11353,7 +11468,7 @@ function Game(){
     for(const [id,sk] of Object.entries(SKILLS)){ if(sk.cls===cid&&sk.lv===1&&!sk.proc)S.current.learned[id]=1; }
     scr.current="game"; tab.current="hunt";
     log(`${CLS[cid].icon} [${CLS[cid].name}] ${nick}, 환장의 세계에 접속했다.`,"g"); commit(); };
-  const logout=()=>{ persist(); S.current=null; scr.current="login"; setPw(""); document.body.classList.remove("iso-mode","heavy"); bump(); };
+  const logout=()=>{ persist(); duel.current=null; trade.current=null; pendingHidden.current=null; calcState.current=null; S.current=null; scr.current="login"; setPw(""); document.body.classList.remove("iso-mode","heavy"); bump(); };
 
   /* ── 성장/드랍 ── */
   const gainXp=n=>{ const s=S.current; s.xp+=n; let need=needXp(s.lv);
@@ -11413,8 +11528,10 @@ function Game(){
     if(s.hp<=0)death(); };
   const resolveHit=(skillId,extra)=>{ const s=S.current, c=s.combat; if(!c)return; const m=MONS[c.mid]; const st=calc(s);
     extra=extra||{}; let mult=1,sfx={},usedSkill=null,hits=1;
+    if(extra.calc)s.calcOk=(s.calcOk||0)+1;
     if(skillId){ const sk=getSkill(s,skillId); if(!sk||!s.learned[skillId]&&!sk.fusedItem){ say("습득하지 않은 스킬."); return; }
-      mult=sk.mult; sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1; }
+      mult=sk.mult; sfx=sk.fx||{}; usedSkill=sk; hits=sk.hits||1;
+      if(!isDayOf(s))s.nightSkills=(s.nightSkills||0)+1; }
     s.time++;
     /* 스몰 힐 → 언데드 즉사기 */
     if(usedSkill&&sfx.undeadNuke&&m.undead&&c.hp>0){
@@ -11427,7 +11544,7 @@ function Game(){
       let dmgMul=mult;
       if(extra.calc)dmgMul*=2; if(extra.calcFail)dmgMul*=.5;
       const mDef=Math.max(0,m.def*(1-(c.defDown||0))*(c.mwT>0?0.6:1));
-      for(let i=0;i<hits;i++){ const isCrit=R()*100<critCh; if(isCrit)anyCrit=true;
+      for(let i=0;i<hits;i++){ const isCrit=R()*100<critCh; if(isCrit){anyCrit=true; s.critCount=(s.critCount||0)+1;}
         let dmg=Math.max(1,Math.round((st.atk*dmgMul-mDef)*(.9+R()*.2)));
         if(m.unseen)dmg=Math.round(dmg*(.4+R()*.3));
         if(isCrit)dmg=Math.round(dmg*1.8);
@@ -11469,9 +11586,12 @@ function Game(){
     resolveHit(skillId,{}); };
   const onKill=()=>{ const s=S.current, c=s.combat, m=MONS[c.mid];
     s.killTotal++; s.kills[m.id]=(s.kills[m.id]||0)+1;
+    if(m.undead){ if(!isDayOf(s))s.tag_undead=(s.tag_undead||0)+1; }
+    const st=calc(s); if(s.hp>0&&s.hp<=st.hp*.2)s.lowHpKills=(s.lowHpKills||0)+1;
     const gg=Math.round(m.gold*goldMul(s)); s.gold+=gg;
     log(`☠️ ${m.name} 처치! +${fmt(m.xp)}XP +${fmt(gg)}G`);
     gainXp(m.xp); drops(m); s.combat=null;
+    advKillTick(m); checkAdvReady(); checkHidden();
     if(m.iso){ isoBossDown(); return; }
     if(s.dungeon){ dungeonNext(); } };
   const flee=()=>{ const s=S.current;
@@ -11609,6 +11729,78 @@ function Game(){
     s.gold-=cost; const st=calc(s); s.hp=st.hp; s.mp=st.mp; s.status=s.status.filter(x=>x.k==="luck");
     log(`🛏️ 휴식 완료. (-${fmt(cost)}G)`,"g"); persist(); say("회복 & 저장!"); bump(); };
 
+  /* ═══ 전직 (10레벨마다 · 1~5차 · 전직관 임무) ═══ */
+  const checkAdvReady=()=>{ const s=S.current; if(s.jobTier>=5)return; if(s.lv>=(s.jobTier+1)*10&&!s.advReady&&!s.advQuest){ s.advReady=true; log(`🏛️ ${s.lv}레벨 달성! 전직관에서 [${TIER_TITLE[s.jobTier+1]}] 시험을 받을 수 있습니다.`,"g"); } };
+  const startAdvQuest=()=>{ const s=S.current; if(s.jobTier>=5){say("이미 5차 전직(극의)입니다.");return;} if(s.lv<(s.jobTier+1)*10){say(`${(s.jobTier+1)*10}레벨이 필요합니다.`);return;}
+    const q=ADV_MISSIONS[s.jobTier+1]; s.advQuest={tier:q.tier,type:q.type,target:q.target,n:q.n,prog:0};
+    log(`📜 [${q.name}] 수락: ${q.desc}`,"g"); advModal.current=null; commit(); };
+  const advKillTick=(m)=>{ const s=S.current, q=s.advQuest; if(!q||q.type!=="kill")return; if(m.id===q.target)q.prog=Math.min(q.n,q.prog+1); };
+  const advQuestDone=()=>{ const s=S.current, q=s.advQuest; if(!q)return false;
+    if(q.type==="kill")return q.prog>=q.n; if(q.type==="gold")return s.gold>=q.n; if(q.type==="rune")return s.runes.length>=q.n; return false; };
+  const completeAdv=()=>{ const s=S.current, q=s.advQuest; if(!q||!advQuestDone())return;
+    if(q.type==="gold")s.gold-=q.n; if(q.type==="rune"){ const g=[...s.runes].sort((a,b)=>a.g-b.g); s.runes=g.slice(q.n); s.runeEq=s.runeEq.map(u=>s.runes.some(r=>r.uid===u)?u:null); }
+    s.jobTier++; s.advReady=false; s.advQuest=null;
+    const capId="cap_"+s.cls+"_"+s.jobTier; if(SKILLS[capId]){ s.learned[capId]=1; log(`🌟 [${TIER_TITLE[s.jobTier]}] 성공! 고유기 [${SKILLS[capId].name}] 습득 + 새 스킬트리 해금!`,"c"); }
+    else log(`🌟 [${TIER_TITLE[s.jobTier]}] 성공!`,"c");
+    const stt=calc(s); s.hp=stt.hp; s.mp=stt.mp; advModal.current=null; commit(); };
+
+  /* ═══ 검사 수련관 ═══ */
+  const trainSword=()=>{ const s=S.current; if(!CLS[s.cls].train){say("검사만 수련할 수 있습니다.");return;} if(s.combat){say("전투 중.");return;}
+    const cost=80+s.trainPosture*6; if(s.gold<cost){say(`수련비 ${fmt(cost)}G 부족.`);return;}
+    s.gold-=cost; s.trainPosture++;
+    const b=Math.round((postureBonus(s)-1)*100);
+    const flav=pick(["검을 천 번 휘둘렀다.","자세를 고쳐 잡는다.","호흡을 가다듬는다.","목검이 부러질 때까지 벴다.","스승의 잔소리를 들었다."]);
+    log(`🗡️ 수련 ${s.trainPosture}회차 — ${flav} 자세가 정교해진다! (공격력 +${b}%)`,"g"); commit(); };
+
+  /* ═══ 히든 직업 트리거 → '전직하시겠습니까?' ═══ */
+  const checkHidden=()=>{ const s=S.current; if(pendingHidden.current||CLS[s.cls].hidden)return;
+    for(const h of HIDDEN_TRIG){ if(s.cls===h.id)continue; if(s.hiddenDeclined&&s.hiddenDeclined[h.id])continue;
+      let ok=false; try{ok=h.cond(s);}catch(e){} if(ok){ pendingHidden.current=h; log(`❗ 무언가 각성의 조짐이… (${h.name})`,"c"); bump(); return; } } };
+  const acceptHidden=()=>{ const s=S.current, h=pendingHidden.current; if(!h)return;
+    s.cls=h.id; pendingHidden.current=null;
+    const sig=CLASS_SKILLS[h.id][0]; if(sig)s.learned[sig.id]=1;
+    const stt=calc(s); s.hp=stt.hp; s.mp=stt.mp;
+    log(`${CLS[h.id].icon} [${CLS[h.id].name}]로 각성했다! (히든 직업 전직) 고유 스킬 [${sig?sig.name:""}] 습득!`,"c");
+    commit(); };
+  const declineHidden=()=>{ const s=S.current, h=pendingHidden.current; if(!h)return;
+    s.hiddenDeclined[h.id]=true; pendingHidden.current=null; log(`…끓어오르던 무언가를 애써 억눌렀다. (${h.name} 전직 거절)`,"d"); commit(); };
+
+  /* ═══ 광장 (가짜 서버 · 봇 채팅/랭킹/결투/PK/거래) ═══ */
+  const powerOf=(s)=>{ const st=calc(s); const skN=Object.keys(s.learned).length;
+    return Math.round(st.atk*12+st.hp*.6+st.def*5+st.crit*10+st.mp*.4+s.lv*30+skN*30+s.jobTier*400+(CLS[s.cls].hidden?2500:0)); };
+  const botPower=(b)=>{ if(b.type==="legend")return Infinity; const base=b.lv*b.lv*22+b.lv*80;
+    const tb={pro:1.5,analyst:1.2,pk:1.25,merchant:.7,scam:.8,normal:1,newbie:.6}[b.type]||1; return Math.round(base*tb); };
+  const initBots=()=>{ if(bots.current)return; bots.current=BOT_DEFS.map(([nm,cls,lv,type])=>({nick:nm,cls,lv,type,online:R()<.85})); };
+  const hsay=(from,txt,col)=>{ chat.current.push({id:chatSeq.current++,from,txt,col}); if(chat.current.length>60)chat.current.shift(); };
+  const ranking=()=>{ const s=S.current; initBots();
+    const list=bots.current.filter(b=>b.type!=="legend").map(b=>({name:b.nick,cls:CLS[b.cls].name,lv:b.lv,power:botPower(b),bot:true}));
+    list.push({name:s.nick,cls:CLS[s.cls].name,lv:s.lv,power:powerOf(s),me:true}); list.sort((a,b)=>b.power-a.power); return list; };
+  useEffect(()=>{ initBots(); const iv=setInterval(()=>{ if(scr.current!=="game")return; const on=bots.current.filter(b=>b.online&&b.type!=="legend"); if(!on.length)return;
+    if(R()<.7){ const b=pick(on); const lines=BOT_CHAT[b.type]||BOT_CHAT.normal; if(lines.length){ hsay(b.nick,pick(lines),b.type==="pk"?"pk":b.type==="pro"||b.type==="analyst"?"pro":"norm"); if(tab.current==="plaza")bump(); } }
+    if(R()<.1){ const b=pick(bots.current); b.online=!b.online; } },3400); return ()=>clearInterval(iv); },[]);
+  const startDuel=(b)=>{ const s=S.current; if(s.combat){say("전투 중.");return;} if(s.iso&&s.iso.active){say("고립 중.");return;}
+    const st=calc(s); const bp={hp:Math.round(90+b.lv*b.lv*3.2),atk:Math.round(10+b.lv*2.4),def:Math.round(4+b.lv*1.3)};
+    duel.current={b,bhp:bp.hp,bmax:bp.hp,bp,myHp:st.hp,myMax:st.hp,over:null,log:[`⚔️ ${b.nick}(Lv.${b.lv})와의 결투!`]}; bump(); };
+  const duelAtk=(skillId)=>{ const d=duel.current; if(!d||d.over)return; const s=S.current, st=calc(s);
+    let mult=1,us=null; if(skillId){ const sk=getSkill(s,skillId); if(!sk||!s.learned[skillId])return; if(sk.calc){ /* 결투는 연산 생략 자동성공 */ mult=sk.mult; } else mult=sk.mult; us=sk; }
+    let total=0; const hits=us&&us.hits||1; for(let i=0;i<hits;i++){ const crit=R()*100<st.crit; let dmg=Math.max(1,Math.round((st.atk*mult-d.bp.def)*(.9+R()*.2))); if(crit)dmg=Math.round(dmg*1.8); total+=dmg; }
+    d.bhp-=total; d.log.unshift(`${us?us.icon+" ["+us.name+"]":"⚔️"} → ${d.b.nick}에게 ${fmt(total)}`);
+    if(d.bhp<=0){ d.bhp=0; s.duelW++; const g=80+d.b.lv*15; s.gold+=g; d.over="win"; d.log.unshift(`🏆 승리! +${fmt(g)}G`); log(`⚔️ [결투] ${d.b.nick} 격파! +${fmt(g)}G`,"g"); commit(); bump(); return; }
+    const foe=Math.max(1,Math.round((d.bp.atk-st.def*.5)*(.85+R()*.3))); d.myHp-=foe; d.log.unshift(`🩸 ${d.b.nick} → -${fmt(foe)}`);
+    if(d.myHp<=0){ d.myHp=0; s.duelL++; d.over="lose"; d.log.unshift("💀 패배…"); log(`⚔️ [결투] ${d.b.nick}에게 패배…`,"r"); commit(); }
+    bump(); };
+  const closeDuel=()=>{ duel.current=null; bump(); };
+  const pkBot=(b)=>{ const s=S.current; if(s.iso&&s.iso.active){say("고립 중.");return;}
+    if(b.type==="pk"){ s.bountyHunted++; const g=200+b.lv*20; s.gold+=g; hsay("시스템",`${s.nick}님이 현상수배범 ${b.nick}을(를) 처치!`,"sys"); log(`🎯 현상수배범 [${b.nick}] 처치! +${fmt(g)}G (정의구현)`,"g"); commit(); return; }
+    s.pk++; s.bounty+=1000; hsay("시스템",`⚠️ ${s.nick}님이 ${b.nick}님을 PK! 닉네임이 붉게 물듭니다.`,"sys"); log(`🔪 ${b.nick}을(를) PK했다! 현상금 ${fmt(s.bounty)}G.`,"r"); commit(); };
+  const MERCH_STOCK=["pw40","pa40","pw55"];
+  const openTrade=(b)=>{ const s=S.current; if(b.type==="scam"){ trade.current={b,scam:true,offer:pick(PROC_WEAPONS.filter(w=>w.tier>=4)).id,price:Math.floor(300+R()*400)}; } else { trade.current={b,scam:false,stock:MERCH_STOCK}; } bump(); };
+  const takeScam=()=>{ const s=S.current, t=trade.current; if(!t||!t.scam)return; if(s.gold<t.price){say("골드 부족.");return;} s.gold-=t.price;
+    if(R()<.5){ log(`😈 사기당했다! ${t.b.nick}이(가) '0 하나 빼기' 수법으로 튀었다…`,"r"); } else { addItem(t.offer); log(`😲 어라 진짜였다! ${ITEMS[t.offer].name} 획득!`,"g"); }
+    trade.current=null; commit(); };
+  const buyStock=(id)=>{ const s=S.current, t=ITEMS[id]; if(s.gold<t.price){say("골드 부족.");return;} s.gold-=t.price; addItem(id); log(`🛒 ${t.name} 구매!`,"g"); commit(); };
+  const closeTrade=()=>{ trade.current=null; bump(); };
+
 
   /* ═══════════════════ UI 헬퍼 ═══════════════════ */
   const Bar=(cur,max,col,h)=>(<div className="w-full rounded-full overflow-hidden" style={{background:"rgba(0,0,0,.5)",height:h||10}}>
@@ -11639,12 +11831,12 @@ function Game(){
       </div>
     </div>);
   const renderCreate=()=>{
-    const groups=[["정상","정상 직업","#7dd3fc"],["히든","히든 직업","#c084fc"],["예능","비전투·예능 직업","#fbbf24"]];
+    const groups=[["정상","정상 직업","#7dd3fc"],["예능","비전투·예능 직업","#fbbf24"]];
     return (
     <div className="min-h-screen flex items-start justify-center p-4 fadein overflow-y-auto" style={{background:"radial-gradient(ellipse at 50% 25%,#141d33 0%,#07090f 70%)"}}>
       <div className="w-full max-w-4xl text-center py-4">
         <h1 className="text-xl font-black text-sky-300 mb-1">직업을 선택하라, {pend.current&&pend.current.nick}</h1>
-        <p className="text-xs text-slate-500 mb-4">14개의 길. 정상적인 것부터… 칠판까지.</p>
+        <p className="text-xs text-slate-500 mb-4">9개의 길. 정상적인 것부터… 칠판까지. (히든 직업은 특정 행동으로 각성한다는 소문이…)</p>
         {groups.map(([g,label,col])=>(
           <div key={g} className="mb-4">
             <div className="text-xs font-black mb-2 text-left" style={{color:col}}>◆ {label}</div>
@@ -11755,23 +11947,114 @@ function Game(){
             <button onClick={()=>buySkill(sk.id)} disabled={!!s.learned[sk.id]} className="btn px-2.5 py-1 rounded bg-sky-800 text-[11px]">{fmt(sk.price)}G</button></div>))}</div></div>
     </div>); };
 
-  /* ═══════════════════ 탭: 스킬 ═══════════════════ */
-  const renderSkill=(s)=>{ const classSkills=Object.entries(SKILLS).filter(([id,sk])=>sk.cls===s.cls&&!sk.proc);
+  /* ═══════════════════ 탭: 스킬 트리 ═══════════════════ */
+  const renderSkill=(s)=>{ const tree=(CLASS_SKILLS[s.cls]||[]).slice().sort((a,b)=>(a.tier-b.tier)||(a.lv-b.lv));
     const others=myLearned(s).filter(id=>{const sk=getSkill(s,id); return sk&&(sk.proc||sk.fusedItem);});
+    const byTier={}; tree.forEach(sk=>{ (byTier[sk.tier]=byTier[sk.tier]||[]).push(sk); });
     return (<div className="space-y-3">
-      <div className="text-xs text-slate-400">📜 직업 스킬은 골드로 습득(레벨 제한). 절차 스킬 100종은 상점·드랍으로.</div>
-      <div className="text-xs font-bold text-sky-300">◆ {CLS[s.cls].name} 직업 스킬</div>
-      {classSkills.map(([id,sk])=>{ const owned=!!s.learned[id], locked=s.lv<sk.lv;
-        return (<div key={id} className="panel p-3 flex items-center justify-between gap-2 flex-wrap">
-          <div><div className="text-sm font-bold">{sk.icon} {sk.name}{sk.calc?" 🧮":""} {owned&&<span className="text-emerald-400 text-[10px]">✓습득</span>} {locked&&<span className="text-[10px] text-red-400">🔒Lv.{sk.lv}</span>}</div>
-            <div className="text-[11px] text-slate-500">{sk.desc} · {sk.hpCost?("HP "+Math.round(sk.hpCost*100)+"%"):("MP "+(sk.mp||0))}</div></div>
-          <div className="flex gap-1.5 items-center">{owned&&sk.mult>0&&!sk.calc&&!sk.hpCost&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-slate-700")}>{s.autoSkill===id?"자동✓":"자동"}</button>}
-            {!owned&&<button onClick={()=>learnClassSkill(id)} disabled={locked} className="btn px-3 py-1.5 rounded-lg bg-indigo-800 text-xs font-bold">습득 ({sk.lv*40}G)</button>}</div></div>);})}
+      <div className="text-xs text-slate-400">📜 {CLS[s.cls].name} 스킬트리 (총 {tree.length}). 전직 차수 <b className="text-amber-300">{s.jobTier}/5</b>가 오를수록 상위 스킬이 열립니다. 🌟=전직 고유기(자동 습득)</div>
+      {[0,1,2,3,4,5].map(t=>{ const arr=byTier[t]||[]; if(!arr.length)return null; const tierLocked=s.jobTier<t;
+        return (<div key={t}>
+          <div className="text-xs font-bold mb-1" style={{color:tierLocked?"#64748b":"#7dd3fc"}}>◆ {t===0?"기본":TIER_TITLE[t]} 스킬 {tierLocked&&<span className="text-red-400">🔒 {TIER_TITLE[t]} 필요</span>}</div>
+          <div className="grid md:grid-cols-2 gap-2 mb-2">{arr.map(sk=>{ const owned=!!s.learned[sk.id]; const lvLock=s.lv<sk.lv; const locked=lvLock||tierLocked;
+            return (<div key={sk.id} className={"panel p-2.5 "+(locked&&!owned?"opacity-55":"")}>
+              <div className="flex justify-between items-start gap-2">
+                <div><div className="text-sm font-bold">{sk.adv?"🌟 ":""}{sk.icon} {sk.name}{sk.calc?" 🧮":""} {owned&&<span className="text-emerald-400 text-[9px]">✓</span>} {lvLock&&<span className="text-[9px] text-red-400">Lv.{sk.lv}</span>}</div>
+                  <div className="text-[10px] text-slate-500">{sk.desc} · {sk.hpCost?("HP "+Math.round(sk.hpCost*100)+"%"):("MP "+(sk.mp||0))}</div></div>
+                <div className="flex flex-col gap-1 shrink-0">
+                  {owned&&sk.mult>0&&!sk.calc&&!sk.hpCost&&<button onClick={()=>{s.autoSkill=s.autoSkill===sk.id?null:sk.id;commit();}} className={"btn px-2 py-0.5 rounded text-[10px] "+(s.autoSkill===sk.id?"bg-emerald-600 font-bold":"bg-slate-700")}>{s.autoSkill===sk.id?"자동✓":"자동"}</button>}
+                  {!owned&&(sk.adv?<span className="text-[9px] text-amber-400/70 text-center">전직 시 습득</span>:<button onClick={()=>learnClassSkill(sk.id)} disabled={locked} className="btn px-2.5 py-1 rounded-lg bg-indigo-800 text-[11px] font-bold">습득({sk.lv*40}G)</button>)}
+                </div></div></div>);})}</div>
+        </div>);})}
       {others.length>0&&<div className="text-xs font-bold text-amber-300 mt-2">◆ 습득한 절차·융합 스킬 ({others.length})</div>}
-      {others.map(id=>{const sk=getSkill(s,id); return (<div key={id} className="panel p-3 flex items-center justify-between gap-2">
-        <div><div className="text-sm font-bold">{sk.icon} {sk.name}</div><div className="text-[11px] text-slate-500">{sk.desc||Math.round(sk.mult*100)+"%"} · MP {sk.mp||0}</div></div>
-        {sk.mult>0&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}} className={"btn px-2.5 py-1 rounded-md text-[11px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-slate-700")}>{s.autoSkill===id?"자동✓":"자동"}</button>}</div>);})}
+      {others.map(id=>{const sk=getSkill(s,id); return (<div key={id} className="panel p-2.5 flex items-center justify-between gap-2">
+        <div><div className="text-sm font-bold">{sk.icon} {sk.name}</div><div className="text-[10px] text-slate-500">{sk.desc||Math.round(sk.mult*100)+"%"} · MP {sk.mp||0}</div></div>
+        {sk.mult>0&&<button onClick={()=>{s.autoSkill=s.autoSkill===id?null:id;commit();}} className={"btn px-2 py-0.5 rounded text-[10px] "+(s.autoSkill===id?"bg-emerald-600 font-bold":"bg-slate-700")}>{s.autoSkill===id?"자동✓":"자동"}</button>}</div>);})}
     </div>); };
+
+  /* ═══════════════════ 탭: 전직관 ═══════════════════ */
+  const renderAdvance=(s)=>{ const nextTier=s.jobTier+1; const q=s.advQuest; const done=q&&advQuestDone();
+    const M=nextTier<=5?ADV_MISSIONS[nextTier]:null;
+    return (<div className="space-y-3">
+      <div className="panel p-4 text-center"><div className="text-3xl">🏛️</div><div className="font-black mt-1">{CLS[s.cls].name} 전직관</div>
+        <div className="text-[11px] text-slate-400 mt-1">현재 <b className="text-amber-300">{s.jobTier===0?"전직 전":TIER_TITLE[s.jobTier]}</b> · 10레벨마다 임무를 완수하면 승급 + 고유기 + 새 스킬트리!</div></div>
+      {s.jobTier>=5?(<div className="panel p-5 text-center text-sm text-amber-300">🏆 5차 전직(극의)에 도달했습니다. 더 이상의 길은 없다… 당신이 곧 전설.</div>):
+       (<div className="panel p-4">
+        <div className="text-sm font-bold text-sky-300">{M.name} <span className="text-[10px] text-slate-500">(Lv.{nextTier*10} 필요)</span></div>
+        <div className="text-[11px] text-slate-400 mt-1">{M.desc}</div>
+        {!q?(<button onClick={startAdvQuest} disabled={s.lv<nextTier*10} className="btn mt-3 px-5 py-2 rounded-lg bg-amber-700 text-sm font-bold">{s.lv<nextTier*10?`Lv.${nextTier*10} 필요`:"시험 수락"}</button>):
+         (<div className="mt-3">
+          <div className="text-[11px] text-slate-300">진행: {q.type==="kill"?`${q.prog}/${q.n} 처치`:q.type==="gold"?`${fmt(s.gold)}/${fmt(q.n)}G 보유`:`룬 ${s.runes.length}/${q.n}개 보유`}</div>
+          <div className="mt-1">{Bar(q.type==="kill"?q.prog:q.type==="gold"?s.gold:s.runes.length,q.n,"linear-gradient(90deg,#f59e0b,#b45309)",8)}</div>
+          <button onClick={completeAdv} disabled={!done} className="btn mt-2 px-5 py-2 rounded-lg bg-emerald-700 text-sm font-bold">{done?`🌟 ${TIER_TITLE[nextTier]} 완료!`:"임무 수행 중…"}</button>
+          {(q.type==="gold"||q.type==="rune")&&<div className="text-[9px] text-red-400/70 mt-1">완료 시 {q.type==="gold"?fmt(q.n)+"G":"룬 "+q.n+"개"}가 소모됩니다.</div>}
+        </div>)}
+       </div>)}
+    </div>); };
+
+  /* ═══════════════════ 탭: 수련관 (검사) ═══════════════════ */
+  const renderTrain=(s)=>{ const cost=80+s.trainPosture*6; const b=Math.round((postureBonus(s)-1)*100);
+    return (<div className="space-y-3">
+      <div className="panel p-5 text-center space-y-2"><div className="text-4xl">🗡️</div><div className="font-black">검술 수련관</div>
+        <p className="text-xs text-slate-400">"검은 정직하다. 휘두른 만큼만 강해진다."<br/>수련할수록 자세가 정교해져 <b className="text-emerald-300">공격력이 영구히</b> 오른다. (소프트캡 +60%)</p>
+        <div className="text-sm font-bold text-emerald-300">현재 수련 {s.trainPosture}회차 · 공격력 보너스 +{b}%</div>
+        <button onClick={trainSword} className="btn px-6 py-2.5 rounded-lg bg-emerald-800 text-sm font-black">🗡️ 수련한다 ({fmt(cost)}G)</button>
+        <div className="text-[10px] text-slate-500">수련비는 회차가 오를수록 조금씩 비싸집니다.</div></div>
+    </div>); };
+
+  /* ═══════════════════ 탭: 광장 ═══════════════════ */
+  const renderPlaza=(s)=>{ const rank=ranking(); const myRank=rank.findIndex(x=>x.me)+1; const online=bots.current.filter(b=>b.online&&b.type!=="legend");
+    const tierOf=r=>r<=9?"하늘":r<=15?"땅":"땅바닥";
+    return (<div className="space-y-3">
+      <div className="grid md:grid-cols-2 gap-3">
+        <div className="panel p-3"><div className="text-xs font-bold text-amber-300 mb-2">🏆 전투력 랭킹 <span className="text-slate-500 font-normal">(분석가 집계)</span></div>
+          <div className="text-[11px] mb-1.5 px-2 py-1.5 rounded bg-fuchsia-900/30 border border-fuchsia-500/30"><span className="text-fuchsia-300 font-bold">천외천 · 0위</span> 🌊 잠수함 <span className="text-slate-500">(측정 불가)</span></div>
+          <div className="space-y-1 max-h-60 overflow-y-auto">{rank.slice(0,18).map((r,i)=>(<div key={i} className={"flex justify-between text-[11px] rounded px-2 py-1 "+(r.me?"bg-sky-900/40 border border-sky-500/40":"bg-white/5")}>
+            <span><b className={i<9?"text-sky-300":i<15?"text-emerald-300":"text-slate-400"}>{i+1}위</b> <span className="text-[8px] text-slate-600">[{tierOf(i+1)}]</span> {r.name}{r.me&&<span className="text-[9px] text-cyan-400"> (나)</span>} <span className="text-slate-600">{r.cls} Lv.{r.lv}</span></span>
+            <span className="text-slate-500">{r.power===Infinity?"∞":fmt(r.power)}</span></div>))}</div>
+          <div className="text-[10px] text-slate-500 mt-1.5">내 순위: <b className="text-sky-300">{myRank}위</b> · 전투력 {fmt(powerOf(s))}</div></div>
+        <div className="panel p-3 flex flex-col"><div className="text-xs font-bold text-cyan-300 mb-2">💬 전체 채팅 <span className="text-slate-500 font-normal">(접속 {online.length+1})</span></div>
+          <div className="flex-1 min-h-[200px] max-h-60 overflow-y-auto space-y-0.5 text-[11px]" ref={el=>{if(el)el.scrollTop=el.scrollHeight;}}>
+            {chat.current.slice(-40).map(c=>(<div key={c.id}><b className={c.col==="sys"?"text-amber-400":c.col==="pk"?"text-red-400":c.col==="pro"?"text-sky-300":"text-slate-400"}>{c.from}</b><span className="text-slate-300">: {c.txt}</span></div>))}
+            {chat.current.length===0&&<div className="text-slate-600">채팅이 곧 올라옵니다…</div>}</div></div>
+      </div>
+      <div className="panel p-3"><div className="text-xs font-bold text-slate-300 mb-2">👥 접속 중인 유저 — 결투 · 거래 · (주의) PK</div>
+        <div className="grid md:grid-cols-2 gap-1.5 max-h-64 overflow-y-auto">{online.slice(0,22).map(b=>(<div key={b.nick} className="flex items-center justify-between text-[11px] bg-white/5 rounded-lg px-2.5 py-1.5">
+          <span>{CLS[b.cls].icon} <b className={b.type==="pk"?"text-red-400":""}>{b.nick}</b> <span className="text-slate-500">{CLS[b.cls].name} Lv.{b.lv}</span>{b.type==="pk"&&<span className="text-[8px] text-red-500"> 💀수배</span>}{b.type==="scam"&&<span className="text-[8px] text-amber-500"> ⚠️</span>}</span>
+          <span className="flex gap-1"><button onClick={()=>startDuel(b)} className="btn px-2 py-0.5 rounded bg-indigo-800 text-[10px]">결투</button>
+            {(b.type==="merchant"||b.type==="scam")&&<button onClick={()=>openTrade(b)} className="btn px-2 py-0.5 rounded bg-emerald-800 text-[10px]">거래</button>}
+            <button onClick={()=>pkBot(b)} className="btn px-2 py-0.5 rounded bg-red-900 text-[10px]">{b.type==="pk"?"처단":"PK"}</button></span></div>))}</div></div>
+    </div>); };
+
+  /* ═══════════════════ 모달: 히든 전직 / 결투 / 거래 ═══════════════════ */
+  const renderHidden=()=>{ const h=pendingHidden.current; if(!h||!S.current)return null; const c=CLS[h.id];
+    return (<div className="fixed inset-0 z-[85] flex items-center justify-center p-4" style={{background:"rgba(6,4,14,.9)"}}>
+      <div className="panel p-6 w-full max-w-sm text-center pop" style={{borderColor:"rgba(192,132,252,.6)"}}>
+        <div className="text-5xl mb-2">{c.icon}</div>
+        <div className="text-[11px] text-fuchsia-300 mb-1">━ 각성의 순간 ━</div>
+        <p className="text-xs text-slate-300 leading-relaxed mb-3">{h.flavor}</p>
+        <div className="text-lg font-black text-fuchsia-200 mb-1">[{c.name}]로<br/>전직하시겠습니까?</div>
+        <div className="text-[10px] text-slate-500 mb-4">지금의 직업을 버리고 히든 직업이 됩니다. (되돌릴 수 없음)</div>
+        <div className="flex gap-2"><button onClick={acceptHidden} className="btn flex-1 py-2.5 rounded-lg bg-fuchsia-700 text-white text-sm font-black">전직한다</button>
+          <button onClick={declineHidden} className="btn flex-1 py-2.5 rounded-lg bg-slate-700 text-sm">거절한다</button></div>
+      </div></div>); };
+  const renderDuel=()=>{ const d=duel.current; if(!d||!S.current)return null; const s=S.current; const learned=myLearned(s).filter(id=>{const sk=getSkill(s,id);return sk&&sk.mult>0;});
+    return (<div className="fixed inset-0 z-[75] flex items-center justify-center p-4" style={{background:"rgba(4,8,18,.85)"}}>
+      <div className="panel p-5 w-full max-w-md pop"><div className="text-center text-sm font-black text-sky-300 mb-3">⚔️ 결투장</div>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="panel p-3"><div className="text-xs font-bold">{CLS[s.cls].icon} {s.nick} <span className="text-[9px] text-cyan-400">(나)</span></div><div className="text-[10px] flex justify-between mt-1"><span className="text-red-400">HP</span><span>{fmt(Math.max(0,Math.round(d.myHp)))}/{fmt(d.myMax)}</span></div>{Bar(d.myHp,d.myMax,"linear-gradient(90deg,#dc2626,#991b1b)",8)}</div>
+          <div className="panel p-3"><div className="text-xs font-bold">{CLS[d.b.cls].icon} {d.b.nick} <span className="text-[9px] text-slate-500">Lv.{d.b.lv}</span></div><div className="text-[10px] flex justify-between mt-1"><span className="text-purple-400">HP</span><span>{fmt(Math.max(0,Math.round(d.bhp)))}/{fmt(d.bmax)}</span></div>{Bar(d.bhp,d.bmax,"linear-gradient(90deg,#7c3aed,#4c1d95)",8)}</div></div>
+        {!d.over?(<div className="flex flex-wrap gap-1.5 mb-2"><button onClick={()=>duelAtk(null)} className="btn px-3 py-2 rounded-lg bg-red-700 text-white text-xs font-bold">⚔️ 공격</button>
+          {learned.slice(0,6).map(id=>{const sk=getSkill(s,id);return <button key={id} onClick={()=>duelAtk(id)} className="btn px-2.5 py-2 rounded-lg bg-indigo-800 text-white text-[11px] font-bold">{sk.icon}{sk.name}</button>;})}</div>):
+          (<div className="text-center mb-2"><div className="text-2xl">{d.over==="win"?"🏆":"💀"}</div><button onClick={closeDuel} className="btn mt-1 px-4 py-1.5 rounded-lg bg-sky-800 text-xs font-bold">닫기</button></div>)}
+        <div className="panel p-2 h-24 overflow-y-auto text-[11px]">{d.log.map((l,i)=><div key={i} className="text-slate-300">{l}</div>)}</div></div></div>); };
+  const renderTrade=()=>{ const t=trade.current; if(!t||!S.current)return null;
+    return (<div className="fixed inset-0 z-[75] flex items-center justify-center p-4" style={{background:"rgba(4,8,18,.8)"}}>
+      <div className="panel p-5 w-full max-w-sm pop"><div className="flex justify-between items-center mb-3"><div className="text-sm font-bold">🤝 {t.b.nick}와의 거래</div><button onClick={closeTrade} className="btn text-xs text-slate-400">✕</button></div>
+        {t.scam?(<div className="text-center"><div className="text-[11px] text-amber-300 mb-2">"이 {ITEMS[t.offer].name}, 특별히 {fmt(t.price)}G에! 선입금만 하시면…"</div><div className="text-3xl my-3">{ITEMS[t.offer].icon}</div><div className="text-[10px] text-red-400 mb-3">⚠️ 어딘가 수상하다…</div>
+          <div className="flex gap-2"><button onClick={takeScam} className="btn flex-1 py-2 rounded-lg bg-amber-700 text-xs font-bold">거래 ({fmt(t.price)}G)</button><button onClick={closeTrade} className="btn flex-1 py-2 rounded-lg bg-slate-700 text-xs">거절</button></div></div>):
+         (<div className="space-y-2"><div className="text-[11px] text-slate-400 mb-1">정직한 상인. 정가 판매.</div>{t.stock.map(id=>(<div key={id} className="flex justify-between items-center panel p-2"><span className="text-xs">{ITEMS[id].icon} {ITEMS[id].name} <span className="text-slate-500">({ITEMS[id].atk?"공"+ITEMS[id].atk:"방"+ITEMS[id].def})</span></span><button onClick={()=>buyStock(id)} className="btn px-2.5 py-1 rounded bg-emerald-800 text-[11px]">{fmt(ITEMS[id].price)}G</button></div>))}</div>)}
+      </div></div>); };
 
   /* ═══════════════════ 탭: 융합 (초초보자 전용) ═══════════════════ */
   const renderFuse=(s)=>{ const can=CLS[s.cls].fuse; const learned=myLearned(s);
@@ -11839,9 +12122,14 @@ function Game(){
       <button onClick={logout} className="btn px-4 py-2 rounded-lg bg-red-900/60 text-xs text-red-300 mt-1">🚪 로그아웃</button></div>); };
 
   /* ═══════════════════ 메인 ═══════════════════ */
-  const TABS=[["hunt","⚔️","사냥"],["town","🗺️","마을"],["skill","📜","스킬"],["fuse","⚗️","융합"],["rune","💠","룬"],["inv","🎒","가방"],["inn","🛏️","여관"]];
+  const tabsFor=s=>{ const t=[["hunt","⚔️","사냥"],["town","🗺️","마을"],["advance","🏛️","전직관"]];
+    if(CLS[s.cls].train)t.push(["train","🗡️","수련관"]);
+    t.push(["skill","📜","스킬"]);
+    if(CLS[s.cls].fuse)t.push(["fuse","⚗️","융합"]);
+    t.push(["rune","💠","룬"],["plaza","🏛️","광장"],["inv","🎒","가방"],["inn","🛏️","여관"]); return t; };
   const renderMain=()=>{ const s=S.current, st=calc(s); const need=needXp(s.lv);
-    const iso=s.iso&&s.iso.active; const heavy=Date.now()<heavyUntil.current;
+    const iso=s.iso&&s.iso.active; const heavy=Date.now()<heavyUntil.current; const TABS=tabsFor(s);
+    if((s.cls==="ultraNewbie"?false:tab.current==="fuse"))tab.current="hunt"; if(!CLS[s.cls].train&&tab.current==="train")tab.current="hunt";
     return (<div className="max-w-5xl mx-auto p-3 fadein">
       <div className="panel p-3 mb-3"><div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2"><span className="text-2xl">{CLS[s.cls].icon}</span><div>
@@ -11852,8 +12140,8 @@ function Game(){
           <div><div className="flex justify-between"><span className="text-red-400">HP</span><span>{fmt(Math.max(0,Math.round(s.hp)))}/{fmt(st.hp)}</span></div>{Bar(s.hp,st.hp,"linear-gradient(90deg,#dc2626,#991b1b)")}</div>
           <div><div className="flex justify-between"><span className="text-blue-400">MP</span><span>{fmt(Math.max(0,Math.round(s.mp)))}/{fmt(st.mp)}</span></div>{Bar(s.mp,st.mp,"linear-gradient(90deg,#2563eb,#1e40af)")}</div>
           <div><div className="flex justify-between"><span className="text-amber-400">XP</span><span>{s.lv>=50?"MAX":fmt(s.xp)+"/"+fmt(need)}</span></div>{Bar(s.lv>=50?1:s.xp,s.lv>=50?1:need,"linear-gradient(90deg,#f59e0b,#b45309)")}</div></div></div>
-      <div className="flex flex-wrap gap-1.5 mb-3">{TABS.map(([id,ic,l])=>(<button key={id} onClick={()=>{tab.current=id;bump();}} className={"btn px-3 py-2 rounded-lg text-xs font-bold "+(tab.current===id?"bg-sky-700 text-white":"bg-slate-800/80 text-slate-400")}>{ic} {l}</button>))}</div>
-      {tab.current==="hunt"&&renderHunt(s,st)}{tab.current==="town"&&renderTown(s)}{tab.current==="skill"&&renderSkill(s)}{tab.current==="fuse"&&renderFuse(s)}{tab.current==="rune"&&renderRune(s)}{tab.current==="inv"&&renderInv(s,st)}{tab.current==="inn"&&renderInn(s)}
+      <div className="flex flex-wrap gap-1.5 mb-3">{TABS.map(([id,ic,l])=>(<button key={id} onClick={()=>{tab.current=id;bump();}} className={"btn px-3 py-2 rounded-lg text-xs font-bold relative "+(tab.current===id?"bg-sky-700 text-white":"bg-slate-800/80 text-slate-400")}>{ic} {l}{id==="advance"&&s.advReady&&<span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 pop"/>}</button>))}</div>
+      {tab.current==="hunt"&&renderHunt(s,st)}{tab.current==="town"&&renderTown(s)}{tab.current==="advance"&&renderAdvance(s)}{tab.current==="train"&&renderTrain(s)}{tab.current==="skill"&&renderSkill(s)}{tab.current==="fuse"&&renderFuse(s)}{tab.current==="rune"&&renderRune(s)}{tab.current==="plaza"&&renderPlaza(s)}{tab.current==="inv"&&renderInv(s,st)}{tab.current==="inn"&&renderInn(s)}
     </div>); };
 
   const iso=S.current&&S.current.iso&&S.current.iso.active;
@@ -11865,7 +12153,7 @@ function Game(){
     {scr.current==="login"&&renderLogin()}
     {scr.current==="create"&&renderCreate()}
     {scr.current==="game"&&S.current&&renderMain()}
-    {renderCalc()}
+    {renderCalc()}{renderHidden()}{renderDuel()}{renderTrade()}
   </div>);
 }
 class ErrorBoundary extends React.Component{ constructor(p){super(p);this.state={err:null};} static getDerivedStateFromError(e){return {err:e};}
@@ -11881,7 +12169,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Game
 
 def mmo_page():
     st.title("🎮 환장 RPG: 완전판")
-    st.caption("환장 RPG 오마주 팬게임 완전판! 직업 14종(정상/히든/예능 — 뱀파이어·혈술사·달의 사제·칠판·무도가) · 🧮마법 연산 · 절차생성 장비 200종+스킬 100종 · 초초보자 스킬 융합 · 룬 합성(실패 시 파괴) · ⛓️고립 던전(3% 납치·무한부활·현실 3분 탈출) · 계정 저장")
+    st.caption("환장 RPG 오마주 팬게임! 직업 9종 선택(정상·예능) + 히든 5종은 특정 행동으로 각성 · 직업당 30스킬 트리 · 10레벨마다 1~5차 전직(전직관 임무) · 검사 수련관 · 초초보자 융합 · 룬 합성 · ⛓️고립 던전 · 🏛️광장(랭킹·결투·PK·거래) · 극악 레벨링(만렙 50)")
     components.html(MMO_HTML, height=900, scrolling=True)
 
 
