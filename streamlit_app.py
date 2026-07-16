@@ -12174,6 +12174,1010 @@ def mmo_page():
 
 
 # ==========================================
+# 7-10. 🔺 삼분할 지도 정복 — 3인 전용 전략 (React 임베드)
+# ==========================================
+TRISECT_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
+</script>
+<style>
+  html,body{margin:0;padding:0;background:#0b0e14;overflow-x:hidden;font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif;color:#e8eaf0;}
+  #root{min-height:100vh;}
+  .glass{background:rgba(20,25,38,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.09);}
+  canvas{display:block;border-radius:14px;}
+  .btng{transition:transform .1s, filter .1s;}
+  .btng:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.15);}
+  .btng:active:not(:disabled){transform:translateY(1px);}
+  .btng:disabled{opacity:.35;cursor:not-allowed;}
+  .pop{animation:pop .28s cubic-bezier(.2,1.5,.4,1);}
+  @keyframes pop{from{transform:scale(.75);opacity:0}to{transform:scale(1);opacity:1}}
+  .fadein{animation:fadein .3s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .shake{animation:shake .4s;}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  .glow{animation:glow 1.6s ease-in-out infinite;}
+  @keyframes glow{0%,100%{box-shadow:0 0 8px rgba(250,204,21,.4)}50%{box-shadow:0 0 22px rgba(250,204,21,.85)}}
+  ::-webkit-scrollbar{height:7px;width:7px}::-webkit-scrollbar-thumb{background:#3a4460;border-radius:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="classic-react">
+const { useRef, useReducer, useEffect } = React;
+
+/* ==================== 육각 좌표 (axial q,r / cube x,y,z) ==================== */
+const N = 4;
+const DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+const K = (q,r) => q + "," + r;
+const cd = (q,r) => { const x=q, z=r, y=-q-r; return (Math.abs(x)+Math.abs(y)+Math.abs(z))/2; };
+// 3분할: 순수 정수 비교 → 경계 모호성 없음. 18/18/18 균등 + 120° 회전대칭 + 각 구역 연결됨(검증 완료)
+const sectorOf = (q,r) => { const x=q, z=r, y=-q-r;
+  if (x>0 && y<=0) return 0;
+  if (z>0 && x<=0) return 1;
+  if (y>0 && z<=0) return 2;
+  return -1; };
+// 120° 회전: cube (x,y,z)->(y,z,x)  =>  axial q'=y, r'=x
+const rot120 = (q,r) => { const y = -q-r; return [y, q]; };
+
+const ALL = [];
+for (let q=-N; q<=N; q++) for (let r=-N; r<=N; r++) if (cd(q,r) <= N) ALL.push([q,r]);
+
+/* ==================== 진영 · 지형 ==================== */
+const FACTIONS = [
+  { id:0, name:"청록 삼림 동맹", short:"삼림", icon:"🌲", col:"#34d399", dim:"#0f5132", spec:"wood",
+    perk:"🪵숲 산출 +1 · 건설 -1 · 방어 +2 · 공격 +0", tip:"수비형. 요새로 걸어 잠그고 영토 점수로 이긴다" },
+  { id:1, name:"흑철 광산 연맹", short:"광산", icon:"⛏️", col:"#f87171", dim:"#7f1d1d", spec:"ore",
+    perk:"⛏️광산 산출 +1 · 공격 -1 · 공격 +3 · 방어 +1", tip:"공격형. 성지 수호군을 뚫고 중앙을 힘으로 차지한다" },
+  { id:2, name:"황금 평야 국가", short:"평야", icon:"🌾", col:"#60a5fa", dim:"#1e3a8a", spec:"food",
+    perk:"🌾농지 산출 +1 · 확장 -1 · 공격 +1 · 방어 +1", tip:"균형형. 넓게 펴서 인접 병력으로 밀어붙인다" },
+];
+const GUARD = { id:-2, name:"성지 수호군", short:"수호군", icon:"👁️", col:"#a78bfa", dim:"#3b2f5e", spec:"none" };
+const FAC = o => o === -2 ? GUARD : FACTIONS[o];   // -2=수호군, -1=빈 땅(FAC 호출 금지)
+const GUARD_DEF = 5;
+const TERR = {
+  wood: { name:"숲",   icon:"🌲", res:"wood", col:"#163d2e" },
+  ore:  { name:"광산", icon:"⛏️", res:"ore",  col:"#3f2424" },
+  food: { name:"농지", icon:"🌾", res:"food", col:"#3e3a1c" },
+  holy: { name:"성지", icon:"✨", res:"all",  col:"#54431a" },
+};
+const RES = [["wood","🪵","목재"], ["ore","⛏️","광석"], ["food","🌾","식량"]];
+const TACTICS = [
+  { id:"charge", name:"돌격", icon:"⚔️", beats:"flank", desc:"포위를 제압" },
+  { id:"flank",  name:"포위", icon:"🏹", beats:"hold",  desc:"방어를 제압" },
+  { id:"hold",   name:"방어", icon:"🛡️", beats:"charge", desc:"돌격을 제압" },
+];
+const TAC = id => TACTICS.find(t => t.id === id);
+// 한글 조사: 마지막 글자의 받침 유무로 이/가, 과/와 를 고른다 (삼림이·광산과 / 평야가·평야와)
+const jong = w => { const c = w.charCodeAt(w.length-1) - 0xAC00; return c >= 0 && c <= 11171 && c % 28 !== 0; };
+const J = (w, a, b) => w + (jong(w) ? a : b);
+const ROUNDS = 10;
+const PACT_LEN = 3;
+const BREAK_PENALTY = 5;
+
+/* ==================== 지형 생성 (3중 회전대칭 → 완전 공정) ==================== */
+function genTerrain() {
+  const s0 = ALL.filter(([q,r]) => cd(q,r) > 1 && sectorOf(q,r) === 0);
+  let seed = 20260716;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  // 역할: 0=주력(9) 1=보조(5) 2=희소(4)
+  const roles = [...Array(9).fill(0), ...Array(5).fill(1), ...Array(4).fill(2)];
+  for (let i = roles.length-1; i > 0; i--) { const j = Math.floor(rnd()*(i+1)); const t=roles[i]; roles[i]=roles[j]; roles[j]=t; }
+  // 구역별 역할→지형 매핑 (기하는 동일, 자원만 순환 → 공정하면서 진영색이 다름)
+  const MAP = [ ["wood","food","ore"], ["ore","wood","food"], ["food","ore","wood"] ];
+  const T = {};
+  s0.forEach(([q,r], i) => {
+    let a = [q,r];
+    for (let s = 0; s < 3; s++) { T[K(a[0],a[1])] = MAP[s][roles[i]]; a = rot120(a[0], a[1]); }
+  });
+  ALL.forEach(([q,r]) => { if (cd(q,r) <= 1) T[K(q,r)] = "holy"; });
+  return T;
+}
+
+/* ==================== 게임 상태 ==================== */
+function mkGame(mode) {
+  const T = genTerrain();
+  const tiles = {};
+  ALL.forEach(([q,r]) => {
+    const k = K(q,r), d = cd(q,r), s = sectorOf(q,r);
+    tiles[k] = { q, r, d, sec:s, terr:T[k], owner:(d === 4 ? s : (d <= 1 ? -2 : -1)), fort:false, fac:false };
+  });
+  return {
+    mode, tiles, round:1, turn:0, actions:2,
+    P: [0,1,2].map(i => ({ id:i, wood:5, ore:5, food:5, tokens:0, broke:0 })),
+    pacts: [], fought: [], log: [{ t:"🏳️ 전쟁 개시! 세 진영이 중앙 성지를 노린다.", c:"#fbbf24" }],
+    over: null, sel: null, lastCard: [null,null,null],
+  };
+}
+const HOLY = ALL.filter(([q,r]) => cd(q,r) <= 1).map(([q,r]) => K(q,r));
+const homeTiles = (g,pid) => ALL.filter(([q,r]) => cd(q,r) === 4 && sectorOf(q,r) === pid && g.tiles[K(q,r)].owner === pid).length;
+const holyCount = (g,pid) => HOLY.filter(k => g.tiles[k].owner === pid).length;
+const tilesOf = (g,pid) => Object.values(g.tiles).filter(t => t.owner === pid);
+
+function yieldOf(g,pid) {
+  const y = { wood:0, ore:0, food:0 };
+  const spec = FACTIONS[pid].spec;
+  tilesOf(g,pid).forEach(t => {
+    const mul = t.fac ? 2 : 1;
+    if (t.terr === "holy") { y.wood += mul; y.ore += mul; y.food += mul; }
+    else { y[TERR[t.terr].res] += (t.terr === spec ? 2 : 1) * mul; }
+  });
+  return y;
+}
+function scoreOf(g,pid) {
+  let s = 0;
+  tilesOf(g,pid).forEach(t => { s += (t.terr === "holy" ? 3 : 1) + (t.fort?1:0) + (t.fac?1:0); });
+  return s - g.P[pid].broke * BREAK_PENALTY;
+}
+const costExpand = pid => FACTIONS[pid].spec === "food" ? 2 : 3;
+const costAttack = pid => FACTIONS[pid].spec === "ore"  ? 2 : 3;
+const costBuild  = pid => FACTIONS[pid].spec === "wood" ? 3 : 4;
+const adjOf = (g,k) => { const t = g.tiles[k]; const o = [];
+  DIRS.forEach(([dq,dr]) => { const n = g.tiles[K(t.q+dq, t.r+dr)]; if (n) o.push(n); }); return o; };
+const adjFriendly = (g,k,pid) => adjOf(g,k).filter(t => t.owner === pid).length;
+const hasPact = (g,a,b) => g.pacts.some(p => p.until >= g.round && ((p.a===a&&p.b===b)||(p.a===b&&p.b===a)));
+const canExpand = (g,k,pid) => g.tiles[k].owner === -1 && adjFriendly(g,k,pid) > 0;
+const canAttack = (g,k,pid) => { const t = g.tiles[k];
+  return t.owner !== -1 && t.owner !== pid && adjFriendly(g,k,pid) > 0; };
+// 불가침 상대도 칠 수 있다 — 단, 파기 대가를 치른다 (이 게임의 핵심 드라마)
+const isBetrayal = (g,k,pid) => { const t = g.tiles[k]; return t.owner >= 0 && hasPact(g,pid,t.owner); };
+
+// 진영별 전투 성향 — 광산=공격형, 삼림=방어형, 평야=균형형
+const ATKB = { wood:0, ore:3, food:1, none:0 };
+const DEFB = { wood:2, ore:1, food:1, none:0 };
+function powers(g, fromK, toK, atkCard, defCard) {
+  const A = g.tiles[fromK].owner, D = g.tiles[toK].owner;
+  let ab = 0, db = 0;
+  if (TAC(atkCard).beats === defCard) ab = 3;
+  else if (TAC(defCard).beats === atkCard) db = 3;
+  const ap = 2 + ATKB[FACTIONS[A].spec] + adjFriendly(g, fromK, A) + ab;
+  const dp = D === -2 ? GUARD_DEF + db
+    : 3 + DEFB[FACTIONS[D].spec] + adjFriendly(g, toK, D) + (g.tiles[toK].fort ? 3 : 0) + db;
+  return { A, D, ap, dp, ab, db };
+}
+// 전술 카드는 가위바위보라 기대값 0 → 카드 뺀 전력차 = 기대 우위
+function baseEdge(g, fromK, toK) {
+  const A = g.tiles[fromK].owner, D = g.tiles[toK].owner;
+  const ap = 2 + ATKB[FACTIONS[A].spec] + adjFriendly(g, fromK, A);
+  const dp = D === -2 ? GUARD_DEF
+    : 3 + DEFB[FACTIONS[D].spec] + adjFriendly(g, toK, D) + (g.tiles[toK].fort ? 3 : 0);
+  return ap - dp;
+}
+
+/* ==================== 캔버스 렌더 ==================== */
+const HS = 33;                       // 육각 크기
+const PX = (q,r) => [Math.sqrt(3)*HS*(q + r/2), 1.5*HS*r];
+const BW = 560, BH = 540;
+const CX = BW/2, CY = BH/2;
+function hexPath(ctx, cx, cy, s) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI/180 * (60*i - 90);
+    const x = cx + s*Math.cos(a), y = cy + s*Math.sin(a);
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  }
+  ctx.closePath();
+}
+function pickTile(mx, my) {
+  let best = null, bd = 1e9;
+  ALL.forEach(([q,r]) => {
+    const [x,y] = PX(q,r); const dx = mx-(x+CX), dy = my-(y+CY); const d = dx*dx+dy*dy;
+    if (d < bd) { bd = d; best = [q,r]; }
+  });
+  return bd <= (HS*0.92)**2 ? K(best[0],best[1]) : null;
+}
+function drawBoard(cv, g, me, fx) {
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0,0,BW,BH);
+  // 배경 방사선 (구역 경계)
+  ctx.save(); ctx.translate(CX,CY);
+  ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = 2;
+  [90, 210, 330].forEach(deg => {
+    ctx.beginPath(); ctx.moveTo(0,0);
+    ctx.lineTo(Math.cos(deg*Math.PI/180)*300, Math.sin(deg*Math.PI/180)*300); ctx.stroke();
+  });
+  ctx.restore();
+
+  const sel = g.sel ? g.tiles[g.sel] : null;
+  const canAct = g.over === null && g.actions > 0;
+  ALL.forEach(([q,r]) => {
+    const k = K(q,r), t = g.tiles[k];
+    const [px,py] = PX(q,r); const cx = px+CX, cy = py+CY;
+    const own = t.owner === -1 ? null : FAC(t.owner);
+    // 채우기
+    hexPath(ctx, cx, cy, HS-1.5);
+    const grd = ctx.createLinearGradient(cx, cy-HS, cx, cy+HS);
+    if (own) { grd.addColorStop(0, own.dim); grd.addColorStop(1, "#0d1119"); }
+    else { grd.addColorStop(0, TERR[t.terr].col); grd.addColorStop(1, "#0a0d13"); }
+    ctx.fillStyle = grd; ctx.fill();
+    // 성지 강조
+    if (t.terr === "holy") {
+      ctx.strokeStyle = "rgba(250,204,21,.75)"; ctx.lineWidth = 2.5; ctx.stroke();
+    }
+    // 소유 테두리
+    if (own) { ctx.strokeStyle = own.col; ctx.lineWidth = 2.5; ctx.stroke(); }
+    else { ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 1.5; ctx.stroke(); }
+    // 행동 가능 하이라이트
+    if (canAct && me === g.turn) {
+      let hl = null;
+      if (canExpand(g,k,me)) hl = "rgba(96,165,250,.5)";
+      if (canAttack(g,k,me)) hl = isBetrayal(g,k,me) ? "rgba(244,63,94,.9)" : "rgba(248,113,113,.5)";
+      if (hl) { hexPath(ctx, cx, cy, HS-4); ctx.strokeStyle = hl; ctx.lineWidth = 2; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]); }
+    }
+    // 선택
+    if (sel && sel.q === q && sel.r === r) {
+      hexPath(ctx, cx, cy, HS+1); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+    }
+    // 지형 아이콘
+    ctx.font = "15px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.globalAlpha = own ? .5 : .9;
+    ctx.fillText(TERR[t.terr].icon, cx, cy - 8);
+    ctx.globalAlpha = 1;
+    // 소유 아이콘
+    if (own) { ctx.font = "13px serif"; ctx.fillText(own.icon, cx, cy + 9); }
+    // 건물
+    if (t.fort) { ctx.font = "11px serif"; ctx.fillText("🏰", cx - 12, cy + 18); }
+    if (t.fac)  { ctx.font = "11px serif"; ctx.fillText("🏭", cx + 12, cy + 18); }
+  });
+  // 전투 이펙트
+  if (fx && fx.k) {
+    const t = g.tiles[fx.k]; if (t) {
+      const [px,py] = PX(t.q,t.r);
+      hexPath(ctx, px+CX, py+CY, HS + 4*Math.sin(fx.p*Math.PI));
+      ctx.strokeStyle = fx.win ? "#fbbf24" : "#94a3b8"; ctx.lineWidth = 4; ctx.stroke();
+    }
+  }
+}
+
+/* ==================== 로그 ==================== */
+function push(g, t, c) { g.log.unshift({ t, c: c || "#cbd5e1" }); if (g.log.length > 60) g.log.pop(); }
+
+/* ==================== 행동 ==================== */
+function doExpand(g, k) {
+  const pid = g.turn, P = g.P[pid], c = costExpand(pid);
+  const free = P.tokens > 0;
+  if (!free && P.food < c) return "식량 부족";
+  if (!canExpand(g,k,pid)) return "확장할 수 없는 타일";
+  if (free) P.tokens--; else P.food -= c;
+  g.tiles[k].owner = pid;
+  push(g, `${FACTIONS[pid].icon} ${FACTIONS[pid].short} 확장 → ${TERR[g.tiles[k].terr].name}${free?" (우선권 사용)":""}`, FACTIONS[pid].col);
+  g.actions--; g.sel = null;
+  return null;
+}
+function doBuild(g, k, kind) {
+  const pid = g.turn, P = g.P[pid], c = costBuild(pid), t = g.tiles[k];
+  if (t.owner !== pid) return "내 타일이 아님";
+  if (kind === "fort" && t.fort) return "이미 요새가 있음";
+  if (kind === "fac"  && t.fac)  return "이미 생산시설이 있음";
+  if (P.wood < c) return "목재 부족";
+  P.wood -= c;
+  if (kind === "fort") t.fort = true; else t.fac = true;
+  push(g, `${FACTIONS[pid].icon} ${FACTIONS[pid].short} ${kind==="fort"?"🏰 요새":"🏭 생산시설"} 건설`, FACTIONS[pid].col);
+  g.actions--; g.sel = null;
+  return null;
+}
+function applyCombat(g, fromK, toK, atkCard, defCard) {
+  const { A, D, ap, dp } = powers(g, fromK, toK, atkCard, defCard);
+  if (hasPact(g,A,D)) {   // 불가침 파기
+    g.pacts = g.pacts.filter(p => !((p.a===A&&p.b===D)||(p.a===D&&p.b===A)));
+    g.P[A].broke++;
+    RES.forEach(([r]) => { g.P[A][r] = Math.floor(g.P[A][r]/2); });
+    push(g, `💔 ${J(FACTIONS[A].short,"이","가")} ${J(FACTIONS[D].short,"과","와")}의 불가침을 파기했다! 점수 -${BREAK_PENALTY} · 자원 절반`, "#f43f5e");
+  }
+  g.P[A].ore -= costAttack(A);
+  g.actions--;
+  // 제3자 이득은 '플레이어끼리' 싸울 때만 — 수호군 공략(PvE)은 남을 살찌우지 않는다
+  if (D >= 0) {
+    if (!g.fought.includes(A)) g.fought.push(A);
+    if (!g.fought.includes(D)) g.fought.push(D);
+    g.lastCard[D] = defCard;
+  }
+  g.lastCard[A] = atkCard;
+  const win = ap > dp;
+  const line = `${TAC(atkCard).icon}${TAC(atkCard).name}(${ap}) vs ${TAC(defCard).icon}${TAC(defCard).name}(${dp})`;
+  if (win) {
+    const t = g.tiles[toK];
+    t.owner = A; t.fort = false; t.fac = false;
+    if (D >= 0) { const r = RES[Math.floor(Math.random()*3)][0]; g.P[D][r] = Math.max(0, g.P[D][r] - 2); }
+    push(g, `⚔️ ${FACTIONS[A].short} → ${FAC(D).short} ${D === -2 ? "성지 탈환" : "점령"} 성공! ${line}`, FACTIONS[A].col);
+    if (holyCount(g,A) >= 5) push(g, `⚠️ ${J(FACTIONS[A].short,"이","가")} 성지 5개 장악! 다음 차례까지 뺏지 못하면 패배한다`, "#fbbf24");
+  } else {
+    g.P[A].ore = Math.max(0, g.P[A].ore - 2);
+    push(g, `🛡️ ${FAC(D).short} 방어 성공! ${FACTIONS[A].short} 퇴각 (광석 -2) ${line}`, FAC(D).col);
+  }
+  g.sel = null;
+  return { win, ap, dp };
+}
+function proposePact(g, from, to) {
+  g.actions--;
+  push(g, `🕊️ ${FACTIONS[from].short} → ${FACTIONS[to].short} 불가침 제안 (공개)`, "#fbbf24");
+}
+function acceptPact(g, from, to) {
+  g.pacts = g.pacts.filter(p => !((p.a===from&&p.b===to)||(p.a===to&&p.b===from)));
+  g.pacts.push({ a:from, b:to, until: g.round + PACT_LEN });
+  push(g, `🤝 ${FACTIONS[from].short} ↔ ${FACTIONS[to].short} 불가침 체결 (${PACT_LEN}라운드) — 제3자는 지금이 기회다`, "#4ade80");
+}
+
+/* ==================== 승리 판정 ==================== */
+// 성지 5개는 '자기 차례가 다시 돌아올 때까지' 지켜야 승리 → 뺏을 기회가 한 바퀴 주어진다
+function checkTurnStartWin(g) {
+  if (holyCount(g, g.turn) >= 5) return { who:g.turn, why:"중앙 지배 — 성지 5개를 한 바퀴 지켜냈다!" };
+  return null;
+}
+function checkWin(g) {
+  for (let p = 0; p < 3; p++) {
+    const others = [0,1,2].filter(o => o !== p);
+    if (others.every(o => homeTiles(g,o) <= 4)) return { who:p, why:"항복 승리 — 두 적국의 본토가 절반 이하로 붕괴!" };
+  }
+  if (g.round > ROUNDS) {
+    const sc = [0,1,2].map(p => ({ p, s: scoreOf(g,p) })).sort((a,b) => b.s - a.s);
+    return { who: sc[0].p, why: `${ROUNDS}라운드 종료 — 영토 점수 ${sc[0].s}점으로 1위`, scores: sc };
+  }
+  return null;
+}
+
+/* ==================== 라운드 진행 ==================== */
+function endTurn(g) {
+  g.sel = null;
+  g.turn++;
+  if (g.turn > 2) {
+    // 제3자 이득 규칙
+    if (g.fought.length > 0) {
+      [0,1,2].forEach(p => {
+        if (!g.fought.includes(p)) {
+          g.P[p].wood++; g.P[p].ore++; g.P[p].food++; g.P[p].tokens++;
+          push(g, `🍀 ${FACTIONS[p].short}: 어부지리! 남들이 싸우는 동안 자원 +1/+1/+1 · 확장 우선권 +1`, "#fbbf24");
+        }
+      });
+    }
+    g.fought = [];
+    g.turn = 0; g.round++;
+    const w = checkWin(g);
+    if (w) { g.over = w; return; }
+    // 수확
+    [0,1,2].forEach(p => {
+      const y = yieldOf(g,p);
+      g.P[p].wood += y.wood; g.P[p].ore += y.ore; g.P[p].food += y.food;
+    });
+    push(g, `── 라운드 ${g.round} 시작 · 전 진영 수확 ──`, "#94a3b8");
+  }
+  g.actions = 2;
+  const w2 = checkTurnStartWin(g) || checkWin(g);
+  if (w2) g.over = w2;
+}
+
+/* ==================== AI ==================== */
+const guardCard = () => TACTICS[Math.floor(Math.random()*3)].id;
+function aiCard(g, pid, enemy) {
+  if (pid === -2 || enemy === -2) return guardCard();
+  // 상대가 직전에 낸 카드를 40% 확률로 카운터, 아니면 랜덤
+  const last = g.lastCard[enemy];
+  if (last && Math.random() < 0.4) {
+    const counter = TACTICS.find(t => t.beats === last);
+    if (counter) return counter.id;
+  }
+  return TACTICS[Math.floor(Math.random()*3)].id;
+}
+// AI 한 수를 계획 → {type,...} 또는 null
+function aiPlan(g, pid) {
+  const P = g.P[pid];
+  const myHoly = holyCount(g, pid);
+  const canPay = () => P.ore >= costAttack(pid);
+  const atkOpt = k => {
+    const f = adjOf(g,k).filter(t => t.owner === pid)
+      .sort((a,b) => adjFriendly(g,K(b.q,b.r),pid) - adjFriendly(g,K(a.q,a.r),pid))[0];
+    return f ? { k, from:K(f.q,f.r), edge: baseEdge(g,K(f.q,f.r),k) } : null;
+  };
+
+  // 0) 긴급 저지 — 성지 4개 이상 쥔 적은 조약을 깨서라도 막는다
+  const threat = [0,1,2].find(o => o !== pid && holyCount(g,o) >= 4);
+  if (threat !== undefined && canPay()) {
+    const stop = HOLY.filter(k => g.tiles[k].owner === threat && canAttack(g,k,pid))
+      .map(atkOpt).filter(Boolean).sort((a,b) => b.edge - a.edge)[0];
+    if (stop) return { type:"attack", from:stop.from, k:stop.k };
+  }
+  // 1) 내가 성지 4개 → 5번째를 노린다
+  if (myHoly === 4 && canPay()) {
+    const fifth = HOLY.filter(k => g.tiles[k].owner !== pid && canAttack(g,k,pid))
+      .map(atkOpt).filter(Boolean).sort((a,b) => b.edge - a.edge)[0];
+    if (fifth) return { type:"attack", from:fifth.from, k:fifth.k };
+  }
+  // 2) 수호군 공략
+  if (canPay()) {
+    const guard = HOLY.filter(k => g.tiles[k].owner === -2 && canAttack(g,k,pid))
+      .map(atkOpt).filter(Boolean).sort((a,b) => b.edge - a.edge)[0];
+    if (guard && guard.edge >= (myHoly >= 2 ? -1 : 0)) return { type:"attack", from:guard.from, k:guard.k };
+  }
+  // 3) 유리한 침공 (배신은 하지 않음)
+  if (canPay()) {
+    const best = Object.keys(g.tiles)
+      .filter(k => g.tiles[k].owner >= 0 && canAttack(g,k,pid) && !isBetrayal(g,k,pid))
+      .map(atkOpt).filter(Boolean)
+      .map(o => { let e = o.edge;
+        if (g.tiles[o.k].terr === "holy") e += 2;
+        if (scoreOf(g, g.tiles[o.k].owner) > scoreOf(g, pid)) e += 1.5;   // 선두 견제
+        return { k:o.k, from:o.from, e }; })
+      .sort((a,b) => b.e - a.e)[0];
+    if (best && best.e >= 1) return { type:"attack", from:best.from, k:best.k };
+  }
+  // 4) 확장 — 성지는 수호군 소유라 확장 불가. 중앙 인접 교두보를 확보한다
+  const open = Object.keys(g.tiles).filter(k => canExpand(g,k,pid));
+  if (open.length && (P.food >= costExpand(pid) || P.tokens > 0)) {
+    const spec = FACTIONS[pid].spec;
+    const best = open.map(k => { const t = g.tiles[k];
+      let v = (t.terr === spec ? 4 : 2) + (4 - t.d) * 1.5 + adjFriendly(g,k,pid) * .6;
+      if (adjOf(g,k).some(n => n.owner === -2)) v += 3;
+      return { k, v }; }).sort((a,b) => b.v - a.v)[0];
+    return { type:"expand", k: best.k };
+  }
+  // 5) 건설
+  if (P.wood >= costBuild(pid)) {
+    const mine = tilesOf(g, pid);
+    const border = mine.filter(t => !t.fort && adjOf(g,K(t.q,t.r)).some(n => n.owner >= 0 && n.owner !== pid))
+      .sort((a,b) => (b.terr === "holy" ? 1 : 0) - (a.terr === "holy" ? 1 : 0))[0];
+    if (border) return { type:"build", k:K(border.q,border.r), kind:"fort" };
+    const spec = FACTIONS[pid].spec;
+    const farm = mine.filter(t => !t.fac && (t.terr === spec || t.terr === "holy"))[0];
+    if (farm) return { type:"build", k:K(farm.q,farm.r), kind:"fac" };
+    const any = mine.filter(t => !t.fac)[0];
+    if (any) return { type:"build", k:K(any.q,any.r), kind:"fac" };
+  }
+  return null;
+}
+
+function aiPactDecide(g, from, to) {
+  const third = [0,1,2].find(p => p !== from && p !== to);
+  const sF = scoreOf(g,from), sT = scoreOf(g,to), s3 = scoreOf(g,third);
+  if (sF > sT + 8) return false;        // 폭주하는 선두와는 화친하지 않는다
+  if (holyCount(g,from) >= 3) return false;
+  if (s3 >= sF) return true;            // 제3자가 더 위협적 → 수락
+  return Math.random() < 0.45;
+}
+
+/* ==================== 게임 컴포넌트 ==================== */
+function Game() {
+  const S = useRef(null);
+  const scr = useRef("menu");
+  const cvRef = useRef(null);
+  const combat = useRef(null);   // {from,to,atkCard,defCard,phase,ai}
+  const pact = useRef(null);     // {from,to,phase}
+  const betray = useRef(null);   // 파기 확인 대기 타일
+  const fx = useRef(null);
+  const toast = useRef(null);
+  const busy = useRef(false);
+  const [, bump] = useReducer(x => x + 1, 0);
+
+  const g = S.current;
+  const isHuman = pid => !g ? false : (g.mode === "solo" ? pid === 0 : true);
+  const me = !g ? 0 : (g.mode === "solo" ? 0 : g.turn);
+
+  const say = (m, c) => { toast.current = { m, c: c || "#f87171" }; bump();
+    setTimeout(() => { toast.current = null; bump(); }, 1800); };
+
+  /* ---------- 캔버스 ---------- */
+  useEffect(() => {
+    const cv = cvRef.current;
+    if (!cv || !S.current || scr.current !== "play") return;
+    drawBoard(cv, S.current, me, fx.current);
+  });
+
+  /* ---------- 진행 드라이버 (AI 자동 진행) ---------- */
+  useEffect(() => {
+    const gg = S.current;
+    if (!gg || scr.current !== "play" || gg.over) return;
+    if (combat.current || pact.current || betray.current || busy.current) return;
+    if (isHuman(gg.turn)) return;
+    busy.current = true;
+    const id = setTimeout(() => { busy.current = false; aiStep(); }, 620);
+    return () => { clearTimeout(id); busy.current = false; };
+  });
+
+  function aiStep() {
+    const gg = S.current;
+    if (!gg || gg.over || isHuman(gg.turn)) return;
+    const pid = gg.turn;
+    if (gg.actions <= 0) { endTurn(gg); bump(); return; }
+    const plan = aiPlan(gg, pid);
+    if (!plan) { endTurn(gg); bump(); return; }
+    if (plan.type === "expand") { doExpand(gg, plan.k); bump(); return; }
+    if (plan.type === "build")  { doBuild(gg, plan.k, plan.kind); bump(); return; }
+    if (plan.type === "attack") {
+      const def = gg.tiles[plan.k].owner;
+      const atkCard = aiCard(gg, pid, def);
+      if (isHuman(def)) {
+        combat.current = { from: plan.from, to: plan.k, atkP: pid, defP: def, atkCard, defCard: null, phase: "defPick", ai: true };
+        bump();
+      } else {
+        const defCard = aiCard(gg, def, pid);
+        const res = applyCombat(gg, plan.from, plan.k, atkCard, defCard);
+        flash(plan.k, res.win);
+        const w = checkWin(gg); if (w) gg.over = w;
+        bump();
+      }
+    }
+  }
+  function flash(k, win) {
+    fx.current = { k, p: 0, win };
+    const t0 = performance.now();
+    const step = () => {
+      const p = (performance.now() - t0) / 600;
+      if (p >= 1 || !S.current) { fx.current = null; bump(); return; }
+      fx.current = { k, p, win }; bump(); requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  /* ---------- 인간 행동 ---------- */
+  function onCanvas(e) {
+    const gg = S.current;
+    if (!gg || gg.over || combat.current || pact.current || betray.current) return;
+    if (!isHuman(gg.turn)) return;
+    const rc = cvRef.current.getBoundingClientRect();
+    const k = pickTile((e.clientX - rc.left) * (BW / rc.width), (e.clientY - rc.top) * (BH / rc.height));
+    gg.sel = (k && gg.sel !== k) ? k : null;
+    bump();
+  }
+  function act(fn) {
+    const gg = S.current; const err = fn(gg);
+    if (err) say(err); else { const w = checkWin(gg); if (w) gg.over = w; else if (gg.actions <= 0) endTurn(gg); }
+    bump();
+  }
+  function humanAttack() {
+    const gg = S.current, k = gg.sel, pid = gg.turn;
+    if (gg.P[pid].ore < costAttack(pid)) return say("광석 부족");
+    if (isBetrayal(gg, k, pid)) { betray.current = k; bump(); return; }
+    startAttack(k);
+  }
+  function startAttack(k) {
+    const gg = S.current, pid = gg.turn;
+    const from = adjOf(gg,k).find(t => t.owner === pid);
+    combat.current = { from: K(from.q,from.r), to: k, atkP: pid, defP: gg.tiles[k].owner,
+                       atkCard: null, defCard: null, phase: "atkPick" };
+    betray.current = null;
+    bump();
+  }
+  function pickAtk(card) {
+    const gg = S.current, c = combat.current;
+    c.atkCard = card;
+    if (isHuman(c.defP)) { c.phase = "handoff"; }
+    else { c.defCard = aiCard(gg, c.defP, gg.turn); c.phase = "reveal"; resolveNow(); }
+    bump();
+  }
+  function pickDef(card) {
+    const c = combat.current; c.defCard = card; c.phase = "reveal"; resolveNow(); bump();
+  }
+  function resolveNow() {
+    const gg = S.current, c = combat.current;
+    const res = applyCombat(gg, c.from, c.to, c.atkCard, c.defCard);
+    c.res = res; flash(c.to, res.win);
+    const w = checkWin(gg); if (w) gg.over = w; else if (gg.actions <= 0) endTurn(gg);
+    bump();
+  }
+  function closeCombat() { combat.current = null; bump(); }
+
+  function openPact(to) {
+    const gg = S.current, from = gg.turn;
+    proposePact(gg, from, to);
+    if (isHuman(to)) { pact.current = { from, to, phase: "decide" }; }
+    else {
+      const ok = aiPactDecide(gg, from, to);
+      if (ok) acceptPact(gg, from, to);
+      else push(gg, `❌ ${FACTIONS[to].short}: "지금은 곤란하군." 불가침 거절`, "#94a3b8");
+      pact.current = { from, to, phase: "result", ok };
+      setTimeout(() => { pact.current = null; bump(); }, 1600);
+    }
+    if (gg.actions <= 0 && !pact.current) endTurn(gg);
+    bump();
+  }
+  function answerPact(ok) {
+    const gg = S.current, p = pact.current;
+    if (ok) acceptPact(gg, p.from, p.to);
+    else push(gg, `❌ ${FACTIONS[p.to].short} 불가침 거절`, "#94a3b8");
+    pact.current = null;
+    if (gg.actions <= 0) endTurn(gg);
+    bump();
+  }
+
+  /* ---------- 화면: 메뉴 ---------- */
+  if (scr.current === "menu") {
+    const start = mode => { S.current = mkGame(mode); scr.current = "play"; bump(); };
+    return (
+      <div className="max-w-5xl mx-auto p-5 fadein">
+        <div className="text-center mb-5">
+          <h1 className="text-4xl font-black tracking-tight" style={{background:"linear-gradient(90deg,#34d399,#f87171,#60a5fa)",WebkitBackgroundClip:"text",color:"transparent"}}>
+            삼분할 지도 정복
+          </h1>
+          <p className="text-slate-400 mt-2 text-sm">3인 전용 전략 게임 · 보드는 정확히 120°씩 3등분되어 있다</p>
+        </div>
+
+        <div className="glass rounded-2xl p-5 mb-4">
+          <div className="text-violet-300 font-bold mb-2">👁️ 중앙 성지는 수호군이 지킨다</div>
+          <p className="text-sm text-slate-300 leading-relaxed mb-4">
+            성지 7칸은 빈 땅이 아니라 <b className="text-violet-300">수호군(방어 {GUARD_DEF})</b>이 점거하고 있다. 걸어들어가 먹을 수 없고 <b>반드시 전투로 뚫어야</b> 한다.<br/>
+            <span className="text-slate-400">→ 중앙은 달리기 시합이 아니라 전장이다. 수호군을 뚫느라 소모하는 사이 옆 진영이 성지를 채간다.</span>
+          </p>
+          <div className="text-amber-300 font-bold mb-2">🍀 핵심 규칙 — 제3자 이득</div>
+          <p className="text-sm text-slate-300 leading-relaxed">
+            두 진영이 <b className="text-red-300">서로 싸우면</b>, 그 라운드에 싸우지 않은 <b className="text-amber-300">제3자가 자원 +1/+1/+1과 확장 우선권</b>을 공짜로 챙긴다.<br/>
+            그래서 “쟤 약해 보이니 둘이 치자”는 담합은 <b>항상 나머지 한 명을 살찌운다</b>. 하지만 아무도 안 싸우면 중앙 성지가 비어 승부가 안 난다.<br/>
+            <span className="text-slate-400">→ 언제 싸우고 언제 방관할지가 이 게임의 전부다.</span>
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-3 mb-4">
+          {FACTIONS.map(f => (
+            <div key={f.id} className="glass rounded-xl p-4 border-t-4" style={{borderTopColor:f.col}}>
+              <div className="text-2xl mb-1">{f.icon}</div>
+              <div className="font-bold" style={{color:f.col}}>{f.name}</div>
+              <div className="text-xs text-slate-300 mt-2">{f.perk}</div>
+              <div className="text-xs text-slate-500 mt-2 italic">{f.tip}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="glass rounded-2xl p-5 mb-4 text-sm text-slate-300">
+          <div className="font-bold text-slate-100 mb-2">승리 조건 (먼저 달성하는 쪽)</div>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div><span className="text-amber-300 font-bold">✨ 중앙 지배</span><br/><span className="text-xs">성지 7칸 중 5칸을 확보한 뒤 <b>내 차례가 다시 올 때까지 지켜내면</b> 승리. 뺏길 기회가 한 바퀴 주어진다</span></div>
+            <div><span className="text-sky-300 font-bold">📊 영토 점수</span><br/><span className="text-xs">{ROUNDS}라운드 종료 시 최고점 (일반 1점 · 성지 3점 · 건물 각 1점 · 조약 파기 -{BREAK_PENALTY}점)</span></div>
+            <div><span className="text-red-300 font-bold">🏳️ 항복 승리</span><br/><span className="text-xs">적 두 진영의 본토를 <b>모두</b> 4칸 이하로 붕괴시키면 즉시 승리 — 극단적 전면전에서만 나오는 희귀 결말</span></div>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <button onClick={() => start("solo")} className="btng rounded-xl py-4 font-bold text-lg"
+            style={{background:"linear-gradient(90deg,#059669,#0891b2)"}}>
+            🤖 1인 플레이<div className="text-xs font-normal opacity-80">삼림 동맹을 맡고 AI 2진영과 대결</div>
+          </button>
+          <button onClick={() => start("hot")} className="btng rounded-xl py-4 font-bold text-lg"
+            style={{background:"linear-gradient(90deg,#7c3aed,#db2777)"}}>
+            👥 3인 핫시트<div className="text-xs font-normal opacity-80">한 화면에서 셋이 번갈아 (전술 카드 비공개)</div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!g) return null;
+  const P = g.P[g.turn], F = FACTIONS[g.turn];
+  const sel = g.sel ? g.tiles[g.sel] : null;
+  const myTurn = isHuman(g.turn) && !g.over;
+
+  /* ---------- 화면: 플레이 ---------- */
+  const Res = ({ p, big }) => (
+    <div className={"flex gap-2 " + (big ? "text-sm" : "text-xs")}>
+      {RES.map(([r,ic,nm]) => (
+        <span key={r} className="tabular-nums" title={nm}>{ic}{g.P[p][r]}</span>
+      ))}
+      {g.P[p].tokens > 0 && <span className="text-amber-300" title="확장 우선권">🎫{g.P[p].tokens}</span>}
+    </div>
+  );
+
+  return (
+    <div className="max-w-6xl mx-auto p-3">
+      {/* 상단 바 */}
+      <div className="glass rounded-xl px-4 py-2 mb-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <span className="font-black text-lg">삼분할 지도 정복</span>
+          <span className="text-xs px-2 py-1 rounded bg-slate-700/60">라운드 {Math.min(g.round,ROUNDS)}/{ROUNDS}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {g.pacts.filter(p => p.until >= g.round).map((p,i) => (
+            <span key={i} className="text-xs px-2 py-1 rounded bg-emerald-900/60 border border-emerald-500/40">
+              🤝 {FACTIONS[p.a].short}↔{FACTIONS[p.b].short} (~{p.until}R)
+            </span>
+          ))}
+          <button onClick={() => { scr.current="menu"; S.current=null; combat.current=null; pact.current=null; betray.current=null; fx.current=null; bump(); }}
+            className="btng text-xs px-3 py-1 rounded bg-slate-700">메뉴</button>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-[560px_1fr] gap-3">
+        {/* 보드 */}
+        <div className="glass rounded-2xl p-2">
+          <canvas ref={cvRef} width={BW} height={BH} onClick={onCanvas}
+            style={{width:"100%",height:"auto",cursor: myTurn ? "pointer" : "default"}} />
+        </div>
+
+        {/* 우측 패널 */}
+        <div className="flex flex-col gap-3">
+          {/* 진영 현황 */}
+          <div className="glass rounded-xl p-3">
+            {FACTIONS.map(f => {
+              const cur = f.id === g.turn;
+              return (
+                <div key={f.id} className={"flex items-center justify-between px-2 py-1.5 rounded " + (cur ? "bg-white/10" : "")}
+                  style={cur ? { boxShadow:`inset 3px 0 0 ${f.col}` } : {}}>
+                  <div className="flex items-center gap-2">
+                    <span>{f.icon}</span>
+                    <span className="text-sm font-bold" style={{color:f.col}}>{f.short}</span>
+                    {g.mode === "solo" && f.id === 0 && <span className="text-[10px] px-1 rounded bg-emerald-600">나</span>}
+                    {g.mode === "solo" && f.id !== 0 && <span className="text-[10px] px-1 rounded bg-slate-600">AI</span>}
+                    {cur && <span className="text-[10px] text-amber-300">← 현재</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Res p={f.id} />
+                    <span className="text-xs text-slate-400">✨{holyCount(g,f.id)}</span>
+                    <span className="text-xs font-bold tabular-nums w-8 text-right">{scoreOf(g,f.id)}점</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 행동 */}
+          <div className="glass rounded-xl p-3 flex-1">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-bold" style={{color:F.col}}>{F.icon} {F.name}</div>
+              <div className="text-xs">행동 {"●".repeat(g.actions)}{"○".repeat(Math.max(0,2-g.actions))}</div>
+            </div>
+
+            {!myTurn && !g.over && <div className="text-sm text-slate-400 py-3 text-center">🤖 {F.short} 진영이 수를 두는 중…</div>}
+
+            {myTurn && (
+              <div className="space-y-2">
+                {!sel && <div className="text-xs text-slate-400 py-2">보드에서 타일을 클릭하세요. <span className="text-sky-300">점선 파랑</span>=확장 가능, <span className="text-red-300">점선 빨강</span>=공격 가능</div>}
+                {sel && (
+                  <div className="text-xs bg-black/30 rounded p-2">
+                    <b>{TERR[sel.terr].icon} {TERR[sel.terr].name}</b>
+                    {sel.terr === "holy" && <span className="text-amber-300"> (성지 · 3점 · 전 자원 산출)</span>}
+                    <span className="text-slate-400"> · {sel.owner === -1 ? "중립" : FAC(sel.owner).short + " 영토"}</span>
+                    {sel.fort && <span className="text-amber-300"> · 🏰요새(방어+3)</span>}
+                    {sel.fac && <span className="text-emerald-300"> · 🏭생산시설(산출×2)</span>}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <button disabled={!sel || !canExpand(g,g.sel,g.turn) || (P.food < costExpand(g.turn) && P.tokens < 1)}
+                    onClick={() => act(gg => doExpand(gg, gg.sel))}
+                    className="btng rounded-lg py-2 text-sm font-bold bg-sky-700">
+                    🚩 확장<div className="text-[10px] font-normal opacity-80">{P.tokens>0?"🎫 우선권 무료":`🌾 ${costExpand(g.turn)}`}</div>
+                  </button>
+                  <button disabled={!sel || !canAttack(g,g.sel,g.turn)}
+                    onClick={humanAttack}
+                    className="btng rounded-lg py-2 text-sm font-bold"
+                    style={{background: sel && isBetrayal(g,g.sel,g.turn) ? "#9f1239" : "#991b1b"}}>
+                    {sel && isBetrayal(g,g.sel,g.turn) ? "💔 조약 파기 공격" : "⚔️ 공격"}
+                    <div className="text-[10px] font-normal opacity-80">⛏️ {costAttack(g.turn)}</div>
+                  </button>
+                  <button disabled={!sel || sel.owner !== g.turn || sel.fort || P.wood < costBuild(g.turn)}
+                    onClick={() => act(gg => doBuild(gg, gg.sel, "fort"))}
+                    className="btng rounded-lg py-2 text-sm font-bold bg-amber-800">
+                    🏰 요새<div className="text-[10px] font-normal opacity-80">🪵 {costBuild(g.turn)} · 방어+3</div>
+                  </button>
+                  <button disabled={!sel || sel.owner !== g.turn || sel.fac || P.wood < costBuild(g.turn)}
+                    onClick={() => act(gg => doBuild(gg, gg.sel, "fac"))}
+                    className="btng rounded-lg py-2 text-sm font-bold bg-emerald-800">
+                    🏭 생산시설<div className="text-[10px] font-normal opacity-80">🪵 {costBuild(g.turn)} · 산출×2</div>
+                  </button>
+                </div>
+                <div className="pt-1">
+                  <div className="text-[10px] text-slate-400 mb-1">🕊️ 외교 — 불가침 제안 (공개 · 행동 1 소모 · {PACT_LEN}라운드)</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {FACTIONS.filter(f => f.id !== g.turn).map(f => (
+                      <button key={f.id} disabled={hasPact(g, g.turn, f.id)}
+                        onClick={() => openPact(f.id)}
+                        className="btng rounded-lg py-1.5 text-xs font-bold bg-slate-700">
+                        {f.icon} {f.short}에게 {hasPact(g,g.turn,f.id) ? "(체결중)" : "제안"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={() => { endTurn(g); bump(); }} className="btng w-full rounded-lg py-2 text-sm font-bold bg-slate-600 mt-1">
+                  턴 넘기기 ▶
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 로그 */}
+          <div className="glass rounded-xl p-2 h-40 overflow-y-auto text-xs space-y-1">
+            {g.log.map((l,i) => <div key={i} style={{color:l.c}}>{l.t}</div>)}
+          </div>
+        </div>
+      </div>
+
+      {/* ===== 전투 모달 ===== */}
+      {combat.current && (() => {
+        const c = combat.current, gg = g;
+        const A = c.atkP, D = c.defP;   // 전투 시작 시점 고정 (점령 후 타일 주인이 바뀌므로)
+        const FD = FAC(D);
+        const Card = ({ t, onClick, dim }) => (
+          <button onClick={onClick} className="btng rounded-xl p-4 bg-slate-800 border-2 border-slate-600 hover:border-amber-400"
+            style={dim ? { opacity:.4 } : {}}>
+            <div className="text-3xl">{t.icon}</div>
+            <div className="font-bold mt-1">{t.name}</div>
+            <div className="text-[10px] text-slate-400">{t.desc}</div>
+          </button>
+        );
+        return (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="glass rounded-2xl p-6 max-w-lg w-full pop">
+              <div className="text-center mb-3">
+                <div className="text-lg font-black">
+                  <span style={{color:FACTIONS[A].col}}>{FACTIONS[A].icon}{FACTIONS[A].short}</span>
+                  <span className="text-slate-400"> → </span>
+                  <span style={{color:FD.col}}>{FD.icon}{FD.short}</span>
+                  <span className="text-slate-400 text-sm"> · {TERR[gg.tiles[c.to].terr].icon}{TERR[gg.tiles[c.to].terr].name}</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">⚔️돌격 › 🏹포위 › 🛡️방어 › ⚔️돌격 (제압 시 +3)</div>
+              </div>
+
+              {c.phase === "atkPick" && (<>
+                <div className="text-center text-sm text-amber-300 mb-3">공격자 <b>{FACTIONS[A].short}</b> — 전술을 고르세요</div>
+                <div className="grid grid-cols-3 gap-2">{TACTICS.map(t => <Card key={t.id} t={t} onClick={() => pickAtk(t.id)} />)}</div>
+              </>)}
+
+              {c.phase === "handoff" && (<>
+                <div className="text-center py-6">
+                  <div className="text-4xl mb-2">🙈</div>
+                  <div className="text-sm text-slate-300">공격자가 카드를 냈습니다.<br/>
+                    <b style={{color:FACTIONS[D].col}}>{FACTIONS[D].short}</b> 플레이어에게 화면을 넘기세요.</div>
+                </div>
+                <button onClick={() => { combat.current.phase = "defPick"; bump(); }}
+                  className="btng w-full rounded-lg py-3 font-bold bg-indigo-700">확인했습니다 · 방어 카드 고르기</button>
+              </>)}
+
+              {c.phase === "defPick" && (<>
+                <div className="text-center text-sm text-sky-300 mb-3">
+                  방어자 <b>{FD.short}</b> — 전술을 고르세요
+                  {gg.tiles[c.to].fort && D >= 0 && <span className="text-amber-300"> · 🏰요새 방어 +3</span>}
+                </div>
+                <div className="grid grid-cols-3 gap-2">{TACTICS.map(t => <Card key={t.id} t={t} onClick={() => pickDef(t.id)} />)}</div>
+              </>)}
+
+              {c.phase === "reveal" && c.res && (<>
+                <div className="flex items-center justify-center gap-4 my-4">
+                  <div className="text-center">
+                    <div className="text-4xl">{TAC(c.atkCard).icon}</div>
+                    <div className="text-xs mt-1">{TAC(c.atkCard).name}</div>
+                    <div className="text-2xl font-black tabular-nums" style={{color:FACTIONS[A].col}}>{c.res.ap}</div>
+                  </div>
+                  <div className="text-2xl text-slate-500">VS</div>
+                  <div className="text-center">
+                    <div className="text-4xl">{TAC(c.defCard).icon}</div>
+                    <div className="text-xs mt-1">{TAC(c.defCard).name}</div>
+                    <div className="text-2xl font-black tabular-nums" style={{color:FD.col}}>{c.res.dp}</div>
+                  </div>
+                </div>
+                <div className={"text-center text-lg font-black mb-3 " + (c.res.win ? "" : "shake")}
+                  style={{ color: c.res.win ? FACTIONS[A].col : FD.col }}>
+                  {c.res.win ? "🎯 점령 성공!" : "🛡️ 방어 성공! (동점은 방어자 승)"}
+                </div>
+                {!c.ai && <button onClick={closeCombat} className="btng w-full rounded-lg py-2 font-bold bg-slate-600">확인</button>}
+              </>)}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ===== 배신 확인 ===== */}
+      {betray.current && (() => {
+        const D = g.tiles[betray.current].owner;
+        return (
+          <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
+            <div className="glass rounded-2xl p-6 max-w-md w-full pop text-center" style={{borderColor:"#f43f5e"}}>
+              <div className="text-5xl mb-2">💔</div>
+              <div className="text-lg font-black text-rose-400 mb-2">불가침 조약을 파기하시겠습니까?</div>
+              <div className="text-sm text-slate-300 mb-1">
+                <b style={{color:FACTIONS[D].col}}>{FACTIONS[D].short}</b>{jong(FACTIONS[D].short) ? "과의" : "와의"} 약속을 깨고 기습합니다.
+              </div>
+              <div className="text-xs text-rose-300/90 mb-4">
+                대가: 최종 점수 <b>-{BREAK_PENALTY}점</b> · 보유 자원 <b>절반</b> 소실 · 조약 즉시 파기
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => startAttack(betray.current)} className="btng rounded-lg py-2.5 font-bold bg-rose-700">💔 배신한다</button>
+                <button onClick={() => { betray.current = null; bump(); }} className="btng rounded-lg py-2.5 font-bold bg-slate-600">취소</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ===== 외교 모달 ===== */}
+      {pact.current && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="glass rounded-2xl p-6 max-w-md w-full pop text-center">
+            <div className="text-4xl mb-2">🕊️</div>
+            {pact.current.phase === "decide" ? (<>
+              <div className="font-bold mb-1">
+                <span style={{color:FACTIONS[pact.current.from].col}}>{FACTIONS[pact.current.from].short}</span>
+                {" → "}
+                <span style={{color:FACTIONS[pact.current.to].col}}>{FACTIONS[pact.current.to].short}</span>
+              </div>
+              <div className="text-sm text-slate-300 mb-1">{PACT_LEN}라운드 불가침 조약을 제안합니다.</div>
+              <div className="text-[11px] text-amber-300/80 mb-4">체결하면 서로 공격 불가 — 하지만 제3자가 그 틈을 노립니다.</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => answerPact(true)} className="btng rounded-lg py-2 font-bold bg-emerald-700">🤝 수락</button>
+                <button onClick={() => answerPact(false)} className="btng rounded-lg py-2 font-bold bg-slate-600">❌ 거절</button>
+              </div>
+            </>) : (
+              <div className={"text-lg font-bold " + (pact.current.ok ? "text-emerald-300" : "text-slate-400")}>
+                {pact.current.ok ? "🤝 수락되었습니다" : "❌ 거절당했습니다"}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===== 종료 ===== */}
+      {g.over && (
+        <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4">
+          <div className="glass rounded-2xl p-7 max-w-lg w-full pop text-center">
+            <div className="text-5xl mb-2">{FACTIONS[g.over.who].icon}</div>
+            <div className="text-2xl font-black mb-1" style={{color:FACTIONS[g.over.who].col}}>{FACTIONS[g.over.who].name} 승리!</div>
+            <div className="text-sm text-slate-300 mb-4">{g.over.why}</div>
+            <div className="space-y-1 mb-5">
+              {[0,1,2].map(p => ({p, s:scoreOf(g,p)})).sort((a,b)=>b.s-a.s).map((x,i) => (
+                <div key={x.p} className="flex items-center justify-between text-sm px-3 py-1.5 rounded bg-black/30">
+                  <span>{i+1}위 {FACTIONS[x.p].icon} <b style={{color:FACTIONS[x.p].col}}>{FACTIONS[x.p].short}</b></span>
+                  <span className="text-slate-400 text-xs">
+                    영토 {tilesOf(g,x.p).length} · 성지 {holyCount(g,x.p)} · 본토 {homeTiles(g,x.p)}
+                    {g.P[x.p].broke > 0 && <span className="text-red-400"> · 파기 -{g.P[x.p].broke*BREAK_PENALTY}</span>}
+                  </span>
+                  <b className="tabular-nums">{x.s}점</b>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => { S.current = mkGame(g.mode); combat.current=null; pact.current=null; betray.current=null; bump(); }}
+                className="btng rounded-lg py-2.5 font-bold bg-emerald-700">🔄 다시 하기</button>
+              <button onClick={() => { scr.current="menu"; S.current=null; combat.current=null; pact.current=null; betray.current=null; bump(); }}
+                className="btng rounded-lg py-2.5 font-bold bg-slate-600">메뉴로</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 토스트 */}
+      {toast.current && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg font-bold text-sm z-50 pop"
+          style={{background:"rgba(15,20,32,.95)",border:`1px solid ${toast.current.c}`,color:toast.current.c}}>
+          {toast.current.m}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ==================== 에러 경계 ==================== */
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err:null }; }
+  static getDerivedStateFromError(e) { return { err:e }; }
+  componentDidCatch(e, i) { console.error("삼분할 정복 렌더 오류:", e, i); }
+  render() {
+    if (this.state.err) return (
+      <div className="max-w-md mx-auto mt-20 glass rounded-2xl p-6 text-center">
+        <div className="text-4xl mb-2">⚠️</div>
+        <div className="font-bold mb-1">화면을 그리는 중 문제가 생겼습니다</div>
+        <div className="text-xs text-slate-400 mb-4">{String(this.state.err && this.state.err.message)}</div>
+        <button onClick={() => location.reload()} className="btng rounded-lg px-5 py-2 font-bold bg-emerald-700">🔄 다시 불러오기</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Game/></ErrorBoundary>);
+</script>
+</body>
+</html>
+'''
+
+
+def trisect_page():
+    st.title("🔺 삼분할 지도 정복")
+    st.caption("3인 전용 전략 게임! 육각 보드를 정확히 120°씩 3등분 · 👁️중앙 성지는 수호군이 지켜 전투로만 뚫린다 · 🍀제3자 이득(둘이 싸우면 나머지가 이득) · ⚔️전술 카드 눈치싸움(돌격›포위›방어) · 🕊️공개 불가침과 💔배신 · 진영 3종 비대칭(삼림 수비형·광산 공격형·평야 균형형) · 🤖 1인(AI 2진영) / 👥 3인 핫시트")
+    components.html(TRISECT_HTML, height=900, scrolling=True)
+
+
+# ==========================================
 # 8. 메인 네비게이션 진입 게이트웨이
 # ==========================================
 st.set_page_config(
@@ -12196,10 +13200,11 @@ ant = st.Page(ant_war_page, title="개미굴 대전", icon="🐜")
 gladiator = st.Page(gladiator_page, title="검투사 아레나", icon="⚔️")
 abyss = st.Page(abyss_rpg_page, title="나락의 심연 RPG", icon="🩸")
 mmo = st.Page(mmo_page, title="환장 RPG: 완전판", icon="🎮")
+trisect = st.Page(trisect_page, title="삼분할 지도 정복", icon="🔺")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
 adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
 typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
 
-pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, ant, gladiator, abyss, mmo, wordle, adventure, typing_game])
+pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, ant, gladiator, abyss, mmo, trisect, wordle, adventure, typing_game])
 pg.run()
 
