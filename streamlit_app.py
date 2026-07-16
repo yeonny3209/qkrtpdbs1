@@ -12693,7 +12693,7 @@ function Game() {
       const def = gg.tiles[plan.k].owner;
       const atkCard = aiCard(gg, pid, def);
       if (isHuman(def)) {
-        combat.current = { from: plan.from, to: plan.k, atkP: pid, defP: def, atkCard, defCard: null, phase: "defPick", ai: true };
+        combat.current = { from: plan.from, to: plan.k, atkP: pid, defP: def, atkCard, defCard: null, phase: "defPick" };
         bump();
       } else {
         const defCard = aiCard(gg, def, pid);
