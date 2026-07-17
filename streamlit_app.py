@@ -4,6 +4,7 @@ import random
 import json
 import os
 import time
+from datetime import datetime, date, timezone, timedelta
 
 # ==========================================
 # 1. 홈 화면 페이지
@@ -15701,7 +15702,170 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Card
 '''
 
 
+# ---- 생일 전/후에 보여줄 위장 페이지 ----
+WIP_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html,body{margin:0;padding:0;background:#0e1116;color:#c9d1d9;overflow-x:hidden;
+    font-family:ui-monospace,SFMono-Regular,'Cascadia Code',Consolas,'D2Coding',monospace;}
+  .card{background:#161b22;border:1px solid #30363d;border-radius:10px;}
+  .bar{background:#21262d;border-radius:99px;overflow:hidden;height:8px;}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#2f81f7,#3fb950);
+    animation:crawl 6s ease-in-out infinite;}
+  @keyframes crawl{0%,100%{width:71%}50%{width:74%}}
+  .blink{animation:blink 1.4s steps(1) infinite;}
+  @keyframes blink{50%{opacity:.25}}
+  canvas{display:block;width:100%;height:180px;background:#0d1117;border-radius:8px;}
+  .tag{font-size:10px;padding:1px 7px;border-radius:99px;border:1px solid #30363d;color:#7d8590;}
+</style>
+</head>
+<body>
+<div class="max-w-3xl mx-auto p-5">
+
+  <div class="flex items-center gap-3 mb-1">
+    <span class="text-2xl">🚧</span>
+    <h1 class="text-xl font-bold text-[#e6edf3]">개발중인 게임</h1>
+    <span class="tag">v0.0.3-alpha</span>
+  </div>
+  <p class="text-xs text-[#7d8590] mb-5">아직 만드는 중이라 제대로 안 돌아갑니다. 나중에 다시 와주세요.</p>
+
+  <!-- 진행률 -->
+  <div class="card p-4 mb-4">
+    <div class="flex justify-between text-xs mb-2">
+      <span class="text-[#7d8590]">전체 진행률</span>
+      <span class="text-[#3fb950] font-bold">73%<span class="blink">…</span></span>
+    </div>
+    <div class="bar"><i></i></div>
+    <div class="text-[11px] text-[#7d8590] mt-2">남은 작업: 생각보다 많음</div>
+  </div>
+
+  <!-- 물리 테스트 -->
+  <div class="card p-4 mb-4">
+    <div class="text-xs text-[#7d8590] mb-2">물리 엔진 테스트 <span class="tag ml-1">임시</span></div>
+    <canvas id="cv"></canvas>
+    <div class="text-[11px] text-[#7d8590] mt-2">※ 아직 네모밖에 없습니다. 캐릭터는 나중에 넣을 예정</div>
+  </div>
+
+  <!-- 할 일 -->
+  <div class="card p-4 mb-4">
+    <div class="text-xs text-[#7d8590] mb-3">TODO</div>
+    <ul class="text-[13px] space-y-1.5">
+      <li><span class="text-[#3fb950]">[x]</span> <span class="text-[#7d8590] line-through">프로젝트 세팅</span></li>
+      <li><span class="text-[#3fb950]">[x]</span> <span class="text-[#7d8590] line-through">렌더 루프</span></li>
+      <li><span class="text-[#3fb950]">[x]</span> <span class="text-[#7d8590] line-through">충돌 판정 (대충)</span></li>
+      <li><span class="text-[#7d8590]">[ ]</span> 캐릭터 스프라이트</li>
+      <li><span class="text-[#7d8590]">[ ]</span> 사운드</li>
+      <li><span class="text-[#7d8590]">[ ]</span> 스테이지 1~8</li>
+      <li><span class="text-[#7d8590]">[ ]</span> 저장 기능</li>
+      <li><span class="text-[#7d8590]">[ ]</span> 밸런스 조정</li>
+      <li><span class="text-[#7d8590]">[ ]</span> 버그 47개 고치기</li>
+    </ul>
+  </div>
+
+  <!-- 빌드 로그 -->
+  <div class="card p-4">
+    <div class="text-xs text-[#7d8590] mb-3">최근 빌드</div>
+    <div class="text-[12px] space-y-1 leading-relaxed">
+      <div><span class="text-[#7d8590]">#47</span> <span class="text-[#3fb950]">✓</span> 충돌 판정 다시 씀 (세 번째)</div>
+      <div><span class="text-[#7d8590]">#46</span> <span class="text-[#f85149]">✗</span> 네모가 바닥을 뚫고 나감</div>
+      <div><span class="text-[#7d8590]">#45</span> <span class="text-[#f85149]">✗</span> 네모가 하늘로 날아감</div>
+      <div><span class="text-[#7d8590]">#44</span> <span class="text-[#3fb950]">✓</span> 네모 추가</div>
+    </div>
+    <div class="text-[11px] text-[#484f58] mt-4 pt-3 border-t border-[#21262d]">
+      출시 예정일: 미정
+    </div>
+  </div>
+
+</div>
+
+<script>
+// 아주 단순한 물리 데모 — "만들다 만" 느낌
+(function () {
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  function resize() {
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener("resize", resize);
+
+  var box = { x: 40, y: 20, vx: 1.6, vy: 0, s: 22 };
+  var G = 0.35, BOUNCE = 0.72, FLOOR_PAD = 14;
+
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    // 바닥 격자
+    ctx.strokeStyle = "#161b22"; ctx.lineWidth = 1;
+    for (var gx = 0; gx < W; gx += 24) {
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+    }
+    var floor = H - FLOOR_PAD;
+    ctx.strokeStyle = "#30363d"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, floor); ctx.lineTo(W, floor); ctx.stroke();
+
+    box.vy += G;
+    box.x += box.vx; box.y += box.vy;
+    if (box.y + box.s > floor) { box.y = floor - box.s; box.vy *= -BOUNCE; if (Math.abs(box.vy) < 1.2) box.vy = -7.5; }
+    if (box.x < 0) { box.x = 0; box.vx *= -1; }
+    if (box.x + box.s > W) { box.x = W - box.s; box.vx *= -1; }
+
+    ctx.fillStyle = "#2f81f7";
+    ctx.fillRect(box.x, box.y, box.s, box.s);
+    ctx.strokeStyle = "#58a6ff"; ctx.lineWidth = 1;
+    ctx.strokeRect(box.x + .5, box.y + .5, box.s - 1, box.s - 1);
+
+    ctx.fillStyle = "#484f58";
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText("placeholder", box.x - 6, box.y - 6);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
+'''
+
+
+# ======== 생일 카드 날짜 게이트 ========
+# 이 날 하루(한국 시간 00:00~23:59)에만 카드가 열리고, 그 전·후엔 '개발중인 게임'으로 보인다.
+# 끝난 뒤 페이지를 아예 없애려면: 아래 birthday_page 정의와
+# `birthday = st.Page(...)` 한 줄, 그리고 st.navigation 목록의 `birthday`만 지우면 된다.
+BD_DATE = date(2026, 7, 27)
+KST = timezone(timedelta(hours=9))     # 배포 서버가 UTC여도 한국 날짜 기준으로 연다
+
+def _bd_is_open():
+    # 미리보기용 뒷문: URL 뒤에 ?bd=open (카드) / ?bd=dev (위장) 를 붙이면 강제로 볼 수 있다.
+    # 네비게이션이 페이지를 옮기면 URL이 /birthday_page 로 바뀌며 쿼리가 사라지므로,
+    # 한 번 받은 값은 세션에 기억해 둔다. (안 그러면 메뉴만 바뀌고 본문은 위장으로 남는다)
+    try:
+        q = st.query_params.get("bd")
+    except Exception:
+        q = None
+    if q in ("open", "dev"):
+        st.session_state["_bd_override"] = q
+    ov = st.session_state.get("_bd_override")
+    if ov == "open":
+        return True
+    if ov == "dev":
+        return False
+    return datetime.now(KST).date() == BD_DATE
+
+
 def birthday_page():
+    if not _bd_is_open():
+        st.title("🚧 개발중인 게임")
+        st.caption("아직 만드는 중입니다. 언젠가 완성되면 공개할 예정이에요.")
+        components.html(WIP_HTML, height=760, scrolling=True)
+        return
     st.title("🌸 시연 누나, 생일 축하해")
     st.caption("영혼의 꽃 테마 생일 카드 — 끊임없이 내리는 벚꽃잎과 여우불, 타이핑되는 축하 편지, 아리·룰루·세라핀 카드, 소원 빌기. 챔피언 이미지는 라이엇 공식 Data Dragon CDN")
     components.html(BIRTHDAY_HTML, height=1000, scrolling=True)
@@ -15732,7 +15896,10 @@ abyss = st.Page(abyss_rpg_page, title="나락의 심연 RPG", icon="🩸")
 mmo = st.Page(mmo_page, title="환장 RPG: 완전판", icon="🎮")
 trisect = st.Page(trisect_page, title="삼분할 지도 정복", icon="🔺")
 rhythm = st.Page(rhythm_page, title="리듬 세카이", icon="🎵")
-birthday = st.Page(birthday_page, title="시연 누나 생일 축하", icon="🌸")
+_bd_open = _bd_is_open()
+birthday = st.Page(birthday_page,
+                   title="시연 누나 생일 축하" if _bd_open else "개발중인 게임",
+                   icon="🌸" if _bd_open else "🚧")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
 adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
 typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
