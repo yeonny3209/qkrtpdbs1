@@ -12188,6 +12188,13 @@ TRISECT_HTML = r'''<!DOCTYPE html>
 <script>
   Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
 </script>
+<script type="module">
+  // Trystero: 서버·계정 없이 브라우저끼리 직접 연결(P2P). 방 코드로 3명을 묶는 데 쓴다.
+  // 이 버전은 makeAction이 {send, onMessage} 객체를 돌려주고, onPeerJoin/Leave는 프로퍼티 대입식이다.
+  import { joinRoom } from 'https://esm.run/@trystero-p2p/torrent';
+  window.__trystero = { joinRoom };
+  window.dispatchEvent(new Event('trystero-ready'));
+</script>
 <style>
   html,body{margin:0;padding:0;background:#0b0e14;overflow-x:hidden;font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif;color:#e8eaf0;}
   #root{min-height:100vh;}
@@ -12259,6 +12266,25 @@ const TAC = id => TACTICS.find(t => t.id === id);
 // 한글 조사: 마지막 글자의 받침 유무로 이/가, 과/와 를 고른다 (삼림이·광산과 / 평야가·평야와)
 const jong = w => { const c = w.charCodeAt(w.length-1) - 0xAC00; return c >= 0 && c <= 11171 && c % 28 !== 0; };
 const J = (w, a, b) => w + (jong(w) ? a : b);
+/* ==================== 온라인 P2P 유틸 ==================== */
+function ensureTrystero(cb) {
+  if (window.__trystero) { cb(window.__trystero); return; }
+  const h = () => { window.removeEventListener("trystero-ready", h); cb(window.__trystero); };
+  window.addEventListener("trystero-ready", h);
+}
+const APP_ID = "yunny-trisect-v1";
+const mkCode = () => Math.random().toString(36).slice(2,7).toUpperCase();
+// 호스트가 브로드캐스트할 게임 상태 (sel은 각자 로컬이라 제외)
+const packGame = g => g && ({ mode:"online", tiles:g.tiles, round:g.round, turn:g.turn, actions:g.actions,
+  P:g.P, pacts:g.pacts, fought:g.fought, log:g.log, over:g.over, lastCard:g.lastCard });
+// 전술 카드는 양쪽이 낼 때까지 숨긴다 — 브로드캐스트에 담으면 상대가 콘솔로 볼 수 있다
+const packCombat = c => {
+  if (!c) return null;
+  if (c.phase === "pick") return { from:c.from, to:c.to, atkP:c.atkP, defP:c.defP, phase:"pick",
+                                   atkIn: !!c.atkCard, defIn: !!c.defCard };
+  return c;
+};
+
 const ROUNDS = 10;
 const PACT_LEN = 3;
 const BREAK_PENALTY = 5;
@@ -12650,17 +12676,33 @@ function Game() {
   const combat = useRef(null);   // {from,to,atkCard,defCard,phase,ai}
   const pact = useRef(null);     // {from,to,phase}
   const betray = useRef(null);   // 파기 확인 대기 타일
+  const net = useRef(null);      // 온라인: {room, code, isHost, send*, players, err}
+  const myFac = useRef(0);       // 온라인: 내 진영 id
+  const chat = useRef([]);       // 온라인: 채팅 로그
+  const nick = useRef("");
+  const myId = useRef(Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4));
+  const joinCode = useRef("");
   const fx = useRef(null);
   const toast = useRef(null);
   const busy = useRef(false);
   const [, bump] = useReducer(x => x + 1, 0);
 
   const g = S.current;
+  const online = () => !!(g && g.mode === "online") || scr.current === "lobby";
+  // 온라인/핫시트는 전원이 사람 → AI 드라이버가 돌지 않는다
   const isHuman = pid => !g ? false : (g.mode === "solo" ? pid === 0 : true);
-  const me = !g ? 0 : (g.mode === "solo" ? 0 : g.turn);
+  const me = !g ? 0 : (g.mode === "solo" ? 0 : (g.mode === "online" ? myFac.current : g.turn));
+  const myTurn = !g || g.over ? false : (g.mode === "online" ? g.turn === myFac.current : isHuman(g.turn));
 
   const say = (m, c) => { toast.current = { m, c: c || "#f87171" }; bump();
     setTimeout(() => { toast.current = null; bump(); }, 1800); };
+  // 토스트는 메뉴·로비·플레이 어느 화면에서든 보여야 한다 (각 화면이 early return이라 공용 조각으로 뺀다)
+  const ToastEl = () => toast.current ? (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg font-bold text-sm z-50 pop"
+      style={{background:"rgba(15,20,32,.95)",border:`1px solid ${toast.current.c}`,color:toast.current.c}}>
+      {toast.current.m}
+    </div>
+  ) : null;
 
   /* ---------- 캔버스 ---------- */
   useEffect(() => {
@@ -12719,7 +12761,8 @@ function Game() {
   function onCanvas(e) {
     const gg = S.current;
     if (!gg || gg.over || combat.current || pact.current || betray.current) return;
-    if (!isHuman(gg.turn)) return;
+    if (gg.mode === "online") { if (gg.turn !== myFac.current) return; }
+    else if (!isHuman(gg.turn)) return;
     const rc = cvRef.current.getBoundingClientRect();
     const k = pickTile((e.clientX - rc.left) * (BW / rc.width), (e.clientY - rc.top) * (BH / rc.height));
     gg.sel = (k && gg.sel !== k) ? k : null;
@@ -12731,20 +12774,22 @@ function Game() {
     bump();
   }
   function humanAttack() {
-    const gg = S.current, k = gg.sel, pid = gg.turn;
+    const gg = S.current, k = gg.sel, pid = online() ? myFac.current : gg.turn;
     if (gg.P[pid].ore < costAttack(pid)) return say("광석 부족");
     if (isBetrayal(gg, k, pid)) { betray.current = k; bump(); return; }
     startAttack(k);
   }
   function startAttack(k) {
+    betray.current = null;
+    if (online()) { req({ t:"attack", k }); bump(); return; }
     const gg = S.current, pid = gg.turn;
     const from = adjOf(gg,k).find(t => t.owner === pid);
     combat.current = { from: K(from.q,from.r), to: k, atkP: pid, defP: gg.tiles[k].owner,
                        atkCard: null, defCard: null, phase: "atkPick" };
-    betray.current = null;
     bump();
   }
   function pickAtk(card) {
+    if (online()) { req({ t:"atkCard", card }); return; }
     const gg = S.current, c = combat.current;
     c.atkCard = card;
     if (isHuman(c.defP)) { c.phase = "handoff"; }
@@ -12752,6 +12797,7 @@ function Game() {
     bump();
   }
   function pickDef(card) {
+    if (online()) { req({ t:"defCard", card }); return; }
     const c = combat.current; c.defCard = card; c.phase = "reveal"; resolveNow(); bump();
   }
   function resolveNow() {
@@ -12785,6 +12831,215 @@ function Game() {
     if (gg.actions <= 0) endTurn(gg);
     bump();
   }
+
+  /* ==================== 온라인 (호스트 권한 모델) ====================
+     호스트가 게임 로직의 유일한 주인이다. 클라이언트는 화면만 그리고,
+     행동은 전부 '의도(intent)'로 호스트에 보내 검증받는다. 호스트는 매 변경마다
+     전체 상태를 브로드캐스트한다(타일 61개 + 로그 ≈ 10KB로 충분히 가볍다). */
+
+  function broadcast() {
+    const n = net.current; if (!n || !n.isHost) return;
+    n.sendState({ g: packGame(S.current), lobby: n.players, started: !!S.current,
+                  combat: packCombat(combat.current), pact: pact.current });
+  }
+  function netErr(m) { if (net.current) { net.current.err = m; bump(); } }
+
+  function joinRoom(code, isHost, myNick) {
+    ensureTrystero(t => {
+      let room;
+      try { room = t.joinRoom({ appId: APP_ID }, "tri-" + code); }
+      catch (e) { netErr("연결 실패: " + e.message); return; }
+      // 이 버전의 trystero는 makeAction이 {send, onMessage} 객체를 돌려주고,
+      // onMessage/onPeerJoin은 프로퍼티 대입으로 등록한다.
+      const st = room.makeAction("state");   // 호스트 → 전체: 게임 상태
+      const it = room.makeAction("intent");  // 참가자 → 호스트: 행동 의도
+      const hi = room.makeAction("hello");   // 참가자 → 호스트: 입장 + 하트비트
+      const as = room.makeAction("assign");  // 호스트 → 전체: 진영 배정 (id로 골라 받음)
+      const ch = room.makeAction("chat");    // 전체 → 전체: 협상 채팅
+      const pg = room.makeAction("ping");    // 호스트 → 전체: 생존 신호
+
+      net.current = { room, code, isHost, err: null, full: false, hostSeen: Date.now(),
+        players: isHost ? [{ id: myId.current, nick: myNick, fac: 0, seen: Date.now() }] : [],
+        sendState: st.send, sendIntent: it.send, sendHello: hi.send,
+        sendAssign: as.send, sendChat: ch.send, sendPing: pg.send };
+      myFac.current = isHost ? 0 : -1;
+      chat.current = [];
+      scr.current = "lobby";
+      bump();
+
+      ch.onMessage = (d) => {
+        if (!d || !d.msg) return;
+        if (d.id === myId.current) return;              // 내가 보낸 건 이미 로컬에 넣었다
+        chat.current = [...chat.current.slice(-40), d]; bump();
+      };
+
+      if (isHost) {
+        hi.onMessage = (d) => {
+          const n = net.current; if (!n || !n.isHost || !d || !d.id) return;
+          const p = n.players.find(x => x.id === d.id);
+          if (p) { p.seen = Date.now(); return; }        // 이미 자리를 가진 참가자의 하트비트
+          if (S.current) return;                         // 게임 시작 후 난입 금지
+          const used = n.players.map(x => x.fac);
+          const fac = [0,1,2].find(f => !used.includes(f));
+          if (fac === undefined) { as.send({ id: d.id, full: true }); return; }
+          n.players = [...n.players, { id: d.id, nick: (d.nick || "손님").slice(0,10), fac, seen: Date.now() }];
+          as.send({ id: d.id, fac });
+          broadcast(); bump();
+        };
+        it.onMessage = (d) => {
+          const n = net.current; if (!n || !n.isHost || !d || !d.id) return;
+          const p = n.players.find(x => x.id === d.id);
+          if (!p) return;                                // 방에 없는 사람의 의도는 무시
+          hostApply(p.fac, d);
+        };
+      } else {
+        as.onMessage = (d) => {
+          const n = net.current; if (!n || !d || d.id !== myId.current) return;   // 내 배정만 받는다
+          n.hostSeen = Date.now();
+          if (d.full) { n.full = true; netErr("방이 가득 찼습니다 (3인 정원)."); bump(); return; }
+          myFac.current = d.fac; n.err = null; bump();
+        };
+        st.onMessage = (d) => {
+          const n = net.current; if (!n || !d) return;
+          n.hostSeen = Date.now(); n.err = null;
+          if (d.g) {
+            const keepSel = S.current ? S.current.sel : null;
+            S.current = { ...d.g, sel: keepSel };
+            if (scr.current !== "play") scr.current = "play";
+          } else if (!d.started) {
+            S.current = null; if (scr.current !== "lobby") scr.current = "lobby";
+          }
+          n.players = d.lobby || [];
+          combat.current = d.combat;
+          pact.current = d.pact;
+          bump();
+        };
+        pg.onMessage = () => { const n = net.current; if (n) { n.hostSeen = Date.now(); if (n.err) { n.err = null; bump(); } } };
+      }
+    });
+  }
+
+  /* ---------- 하트비트 (접속 판정을 peerId 매핑 없이 처리한다) ---------- */
+  useEffect(() => {
+    const t = setInterval(() => {
+      const n = net.current; if (!n) return;
+      const now = Date.now();
+      if (n.isHost) {
+        n.sendPing({ t: now });
+        // 7초 넘게 소식이 없으면 이탈로 본다 (호스트 자신은 제외)
+        const alive = n.players.filter(p => p.fac === 0 || now - p.seen < 7000);
+        if (alive.length !== n.players.length) {
+          const gone = n.players.filter(p => !alive.includes(p));
+          n.players = alive;
+          if (S.current) gone.forEach(p =>
+            push(S.current, `🔌 ${FACTIONS[p.fac].short}(${p.nick}) 연결이 끊겼습니다`, "#f87171"));
+          broadcast(); bump();
+        }
+      } else {
+        if (!n.full) n.sendHello({ id: myId.current, nick: nick.current });
+        if (now - n.hostSeen > 9000 && !n.err) {
+          n.err = "호스트와 연결이 끊겼습니다. 재연결을 시도하는 중…"; bump();
+        }
+      }
+    }, 1500);
+    return () => clearInterval(t);
+  }, []);
+
+  function leaveRoom() {
+    const n = net.current;
+    if (n && n.room) { try { n.room.leave(); } catch (e) {} }
+    net.current = null; myFac.current = 0; chat.current = [];
+    S.current = null; combat.current = null; pact.current = null; betray.current = null;
+    scr.current = "menu"; bump();
+  }
+  function sendChat(msg) {
+    const n = net.current; if (!n || !msg.trim()) return;
+    const line = { id: myId.current, nick: nick.current, fac: myFac.current, msg: msg.trim().slice(0,120) };
+    chat.current = [...chat.current.slice(-40), line];
+    n.sendChat(line); bump();
+  }
+  function hostStart() {
+    const n = net.current; if (!n || !n.isHost) return;
+    if (n.players.length < 3) return;
+    S.current = mkGame("online");
+    scr.current = "play";
+    broadcast(); bump();
+  }
+
+  // 클라이언트 → 호스트 의도 전달 (호스트는 자기 자신에게 바로 적용)
+  function req(intent) {
+    const n = net.current; if (!n) return;
+    if (n.isHost) hostApply(myFac.current, intent);
+    else n.sendIntent({ ...intent, id: myId.current });   // 호스트가 보낸 사람을 식별할 수 있게
+  }
+
+  // 호스트만 실행: 의도를 검증하고 적용한다
+  function hostApply(pid, it) {
+    const gg = S.current; if (!gg) return;
+    const c = combat.current;
+
+    // 전투 카드 제출 — 턴 소유자가 아니어도(방어자) 낼 수 있다
+    if (it.t === "atkCard" && c && c.phase === "pick" && c.atkP === pid && !c.atkCard) {
+      c.atkCard = it.card; tryResolve(); return;
+    }
+    if (it.t === "defCard" && c && c.phase === "pick" && c.defP === pid && !c.defCard) {
+      c.defCard = it.card; tryResolve(); return;
+    }
+    // 조약 응답 — 제안받은 쪽이 답한다
+    if (it.t === "pactAns" && pact.current && pact.current.phase === "decide" && pact.current.to === pid) {
+      if (it.ok) acceptPact(gg, pact.current.from, pact.current.to);
+      else push(gg, `❌ ${FACTIONS[pact.current.to].short} 불가침 거절`, "#94a3b8");
+      pact.current = null;
+      if (gg.actions <= 0) endTurn(gg);
+      broadcast(); bump(); return;
+    }
+
+    // 이하 턴 소유자 전용 + 모달이 떠 있으면 차단
+    if (gg.over || gg.turn !== pid || combat.current || pact.current) return;
+
+    if (it.t === "attack") {
+      const t = gg.tiles[it.k]; if (!t) return;
+      if (!canAttack(gg, it.k, pid)) return;
+      if (gg.P[pid].ore < costAttack(pid)) return;
+      const from = adjOf(gg, it.k).find(x => x.owner === pid); if (!from) return;
+      combat.current = { from: K(from.q,from.r), to: it.k, atkP: pid, defP: t.owner,
+                         atkCard: null, defCard: null, phase: "pick" };
+      // 수호군은 사람이 없으니 카드를 즉시 무작위로 확정 (공격자만 고르면 된다)
+      if (t.owner === -2) combat.current.defCard = guardCard();
+      broadcast(); bump(); return;
+    }
+    if (it.t === "pact") {
+      if (it.to === pid || hasPact(gg, pid, it.to)) return;
+      proposePact(gg, pid, it.to);
+      pact.current = { from: pid, to: it.to, phase: "decide" };
+      broadcast(); bump(); return;
+    }
+    if (it.t === "expand") doExpand(gg, it.k);
+    else if (it.t === "build") doBuild(gg, it.k, it.kind);
+    else if (it.t === "end") endTurn(gg);
+    else return;
+    const w = checkWin(gg); if (w) gg.over = w; else if (gg.actions <= 0) endTurn(gg);
+    broadcast(); bump();
+  }
+
+  function tryResolve() {
+    const c = combat.current, gg = S.current;
+    if (!c || !c.atkCard || !c.defCard) { broadcast(); bump(); return; }   // 아직 한쪽 대기
+    const res = applyCombat(gg, c.from, c.to, c.atkCard, c.defCard);
+    c.res = res; c.phase = "reveal";
+    flash(c.to, res.win);
+    const w = checkWin(gg); if (w) gg.over = w; else if (gg.actions <= 0) endTurn(gg);
+    broadcast(); bump();
+    // 온라인은 '확인' 버튼 대신 전원이 같은 시간 동안 결과를 본 뒤 자동으로 닫는다
+    setTimeout(() => { if (combat.current && combat.current.phase === "reveal") { combat.current = null; broadcast(); bump(); } }, 3000);
+  }
+
+  /* ---------- 행동 라우팅 (오프라인=직접 실행, 온라인=의도 전송) ---------- */
+  function uiExpand() { if (online()) req({ t:"expand", k:g.sel }); else act(gg => doExpand(gg, gg.sel)); }
+  function uiBuild(kind) { if (online()) req({ t:"build", k:g.sel, kind }); else act(gg => doBuild(gg, gg.sel, kind)); }
+  function uiEnd() { if (online()) req({ t:"end" }); else { endTurn(g); bump(); } }
+  function uiPact(to) { if (online()) req({ t:"pact", to }); else openPact(to); }
+  function uiPactAns(ok) { if (online()) { req({ t:"pactAns", ok }); pact.current = null; bump(); } else answerPact(ok); }
 
   /* ---------- 화면: 메뉴 ---------- */
   if (scr.current === "menu") {
@@ -12832,7 +13087,7 @@ function Game() {
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid sm:grid-cols-2 gap-3 mb-3">
           <button onClick={() => start("solo")} className="btng rounded-xl py-4 font-bold text-lg"
             style={{background:"linear-gradient(90deg,#059669,#0891b2)"}}>
             🤖 1인 플레이<div className="text-xs font-normal opacity-80">삼림 동맹을 맡고 AI 2진영과 대결</div>
@@ -12842,6 +13097,104 @@ function Game() {
             👥 3인 핫시트<div className="text-xs font-normal opacity-80">한 화면에서 셋이 번갈아 (전술 카드 비공개)</div>
           </button>
         </div>
+
+        {/* ===== 온라인 3인 ===== */}
+        <div className="glass rounded-2xl p-5" style={{borderColor:"rgba(56,189,248,.35)"}}>
+          <div className="font-bold text-sky-300 mb-1">🌐 온라인 3인 — 다른 기기끼리 연동</div>
+          <p className="text-xs text-slate-400 mb-3">
+            방을 만들어 <b className="text-sky-300">방 코드</b>를 친구 2명에게 알려주세요. 서버·가입 없이 브라우저끼리 직접 연결됩니다(P2P).<br/>
+            전술 카드는 <b>각자 기기에서 동시에</b> 고르므로 핫시트의 화면 넘기기가 필요 없습니다. 협상용 채팅도 있습니다.
+          </p>
+          <input id="nickIn" defaultValue={nick.current} placeholder="닉네임 (2~10자)" maxLength={10}
+            onChange={e => nick.current = e.target.value}
+            className="w-full mb-2 px-3 py-2 rounded-lg bg-black/40 border border-white/15 text-sm outline-none focus:border-sky-400" />
+          <div className="grid sm:grid-cols-2 gap-3">
+            <button onClick={() => {
+                const nk = (nick.current||"").trim(); if (nk.length < 2) return say("닉네임을 2자 이상 입력하세요");
+                nick.current = nk; joinRoom(mkCode(), true, nk);
+              }}
+              className="btng rounded-xl py-3 font-bold" style={{background:"linear-gradient(90deg,#0369a1,#0e7490)"}}>
+              🏠 방 만들기<div className="text-[10px] font-normal opacity-80">내가 호스트 (삼림 진영)</div>
+            </button>
+            <div className="flex gap-2">
+              <input placeholder="방 코드" maxLength={5} defaultValue={joinCode.current}
+                onChange={e => joinCode.current = e.target.value.toUpperCase()}
+                className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-black/40 border border-white/15 text-sm uppercase tracking-widest outline-none focus:border-sky-400" />
+              <button onClick={() => {
+                  const nk = (nick.current||"").trim(); if (nk.length < 2) return say("닉네임을 2자 이상 입력하세요");
+                  const cd = (joinCode.current||"").trim().toUpperCase(); if (!cd) return say("방 코드를 입력하세요");
+                  nick.current = nk; joinRoom(cd, false, nk);
+                }}
+                className="btng rounded-xl px-4 font-bold whitespace-nowrap" style={{background:"linear-gradient(90deg,#7c3aed,#4f46e5)"}}>
+                🚪 참가
+              </button>
+            </div>
+          </div>
+        </div>
+        <ToastEl/>
+      </div>
+    );
+  }
+
+  /* ---------- 화면: 온라인 로비 ---------- */
+  if (scr.current === "lobby") {
+    const n = net.current;
+    if (!n) { scr.current = "menu"; return null; }
+    const ps = n.players || [];
+    const meP = ps.find(p => p.fac === myFac.current);
+    return (
+      <div className="max-w-2xl mx-auto p-5 fadein">
+        <div className="glass rounded-2xl p-6">
+          <div className="text-center mb-4">
+            <div className="text-sm text-slate-400 mb-1">방 코드 — 친구 2명에게 알려주세요</div>
+            <div className="text-5xl font-black tracking-[0.3em] text-sky-300 mb-2">{n.code}</div>
+            <button onClick={() => { try { navigator.clipboard.writeText(n.code); say("복사했습니다", "#4ade80"); } catch(e){ say("복사 실패 — 직접 입력해주세요"); } }}
+              className="btng text-xs px-3 py-1 rounded bg-slate-700">📋 코드 복사</button>
+          </div>
+
+          {n.err && <div className="mb-3 text-center text-sm text-red-300 bg-red-950/50 border border-red-500/40 rounded-lg py-2 px-3">{n.err}</div>}
+
+          <div className="space-y-2 mb-4">
+            {[0,1,2].map(f => {
+              const p = ps.find(x => x.fac === f);
+              const F = FACTIONS[f];
+              return (
+                <div key={f} className="flex items-center justify-between px-3 py-2 rounded-lg border"
+                  style={{borderColor: p ? F.col : "rgba(255,255,255,.1)", background: p ? "rgba(255,255,255,.05)" : "transparent"}}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{F.icon}</span>
+                    <div>
+                      <div className="text-sm font-bold" style={{color:F.col}}>{F.name}</div>
+                      <div className="text-[10px] text-slate-400">{F.perk}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {p ? (<>
+                      <div className="text-sm font-bold">{p.nick}{p.fac === myFac.current && <span className="text-[10px] ml-1 px-1 rounded bg-emerald-600">나</span>}</div>
+                      <div className="text-[10px] text-slate-400">{f === 0 ? "호스트" : "참가자"}</div>
+                    </>) : <div className="text-xs text-slate-500 animate-pulse">비어 있음…</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="text-center text-xs text-slate-400 mb-4">
+            {myFac.current < 0 ? "호스트에 연결하는 중…" : `${ps.length}/3 접속 · 진영은 입장 순서로 배정됩니다`}
+          </div>
+
+          {n.isHost ? (
+            <button onClick={hostStart} disabled={ps.length < 3}
+              className="btng w-full rounded-xl py-3 font-bold text-lg"
+              style={{background: ps.length < 3 ? "#334155" : "linear-gradient(90deg,#059669,#0891b2)"}}>
+              {ps.length < 3 ? `친구를 기다리는 중… (${ps.length}/3)` : "⚔️ 게임 시작"}
+            </button>
+          ) : (
+            <div className="text-center text-sm text-slate-300 py-3">호스트가 시작하기를 기다리는 중…</div>
+          )}
+          <button onClick={leaveRoom} className="btng w-full rounded-lg py-2 mt-2 text-sm bg-slate-700">방 나가기</button>
+        </div>
+        <ToastEl/>
       </div>
     );
   }
@@ -12849,7 +13202,6 @@ function Game() {
   if (!g) return null;
   const P = g.P[g.turn], F = FACTIONS[g.turn];
   const sel = g.sel ? g.tiles[g.sel] : null;
-  const myTurn = isHuman(g.turn) && !g.over;
 
   /* ---------- 화면: 플레이 ---------- */
   const Res = ({ p, big }) => (
@@ -12868,6 +13220,7 @@ function Game() {
         <div className="flex items-center gap-3">
           <span className="font-black text-lg">삼분할 지도 정복</span>
           <span className="text-xs px-2 py-1 rounded bg-slate-700/60">라운드 {Math.min(g.round,ROUNDS)}/{ROUNDS}</span>
+          {online() && net.current && <span className="text-xs px-2 py-1 rounded bg-sky-900/70 border border-sky-500/40">🌐 {net.current.code}</span>}
         </div>
         <div className="flex items-center gap-2">
           {g.pacts.filter(p => p.until >= g.round).map((p,i) => (
@@ -12875,8 +13228,8 @@ function Game() {
               🤝 {FACTIONS[p.a].short}↔{FACTIONS[p.b].short} (~{p.until}R)
             </span>
           ))}
-          <button onClick={() => { scr.current="menu"; S.current=null; combat.current=null; pact.current=null; betray.current=null; fx.current=null; bump(); }}
-            className="btng text-xs px-3 py-1 rounded bg-slate-700">메뉴</button>
+          <button onClick={() => { if (online()) leaveRoom(); else { scr.current="menu"; S.current=null; combat.current=null; pact.current=null; betray.current=null; fx.current=null; bump(); } }}
+            className="btng text-xs px-3 py-1 rounded bg-slate-700">{online() ? "방 나가기" : "메뉴"}</button>
         </div>
       </div>
 
@@ -12901,6 +13254,11 @@ function Game() {
                     <span className="text-sm font-bold" style={{color:f.col}}>{f.short}</span>
                     {g.mode === "solo" && f.id === 0 && <span className="text-[10px] px-1 rounded bg-emerald-600">나</span>}
                     {g.mode === "solo" && f.id !== 0 && <span className="text-[10px] px-1 rounded bg-slate-600">AI</span>}
+                    {g.mode === "online" && (() => {
+                      const p = net.current && (net.current.players||[]).find(x => x.fac === f.id);
+                      if (!p) return <span className="text-[10px] px-1 rounded bg-red-900 text-red-300">🔌 끊김</span>;
+                      return <span className={"text-[10px] px-1 rounded " + (f.id === myFac.current ? "bg-emerald-600" : "bg-slate-600")}>{p.nick}</span>;
+                    })()}
                     {cur && <span className="text-[10px] text-amber-300">← 현재</span>}
                   </div>
                   <div className="flex items-center gap-3">
@@ -12920,7 +13278,9 @@ function Game() {
               <div className="text-xs">행동 {"●".repeat(g.actions)}{"○".repeat(Math.max(0,2-g.actions))}</div>
             </div>
 
-            {!myTurn && !g.over && <div className="text-sm text-slate-400 py-3 text-center">🤖 {F.short} 진영이 수를 두는 중…</div>}
+            {!myTurn && !g.over && <div className="text-sm text-slate-400 py-3 text-center">
+              {g.mode === "online" ? `⏳ ${F.short} 진영의 차례입니다…` : `🤖 ${F.short} 진영이 수를 두는 중…`}
+            </div>}
 
             {myTurn && (
               <div className="space-y-2">
@@ -12936,7 +13296,7 @@ function Game() {
                 )}
                 <div className="grid grid-cols-2 gap-2">
                   <button disabled={!sel || !canExpand(g,g.sel,g.turn) || (P.food < costExpand(g.turn) && P.tokens < 1)}
-                    onClick={() => act(gg => doExpand(gg, gg.sel))}
+                    onClick={uiExpand}
                     className="btng rounded-lg py-2 text-sm font-bold bg-sky-700">
                     🚩 확장<div className="text-[10px] font-normal opacity-80">{P.tokens>0?"🎫 우선권 무료":`🌾 ${costExpand(g.turn)}`}</div>
                   </button>
@@ -12948,12 +13308,12 @@ function Game() {
                     <div className="text-[10px] font-normal opacity-80">⛏️ {costAttack(g.turn)}</div>
                   </button>
                   <button disabled={!sel || sel.owner !== g.turn || sel.fort || P.wood < costBuild(g.turn)}
-                    onClick={() => act(gg => doBuild(gg, gg.sel, "fort"))}
+                    onClick={() => uiBuild("fort")}
                     className="btng rounded-lg py-2 text-sm font-bold bg-amber-800">
                     🏰 요새<div className="text-[10px] font-normal opacity-80">🪵 {costBuild(g.turn)} · 방어+3</div>
                   </button>
                   <button disabled={!sel || sel.owner !== g.turn || sel.fac || P.wood < costBuild(g.turn)}
-                    onClick={() => act(gg => doBuild(gg, gg.sel, "fac"))}
+                    onClick={() => uiBuild("fac")}
                     className="btng rounded-lg py-2 text-sm font-bold bg-emerald-800">
                     🏭 생산시설<div className="text-[10px] font-normal opacity-80">🪵 {costBuild(g.turn)} · 산출×2</div>
                   </button>
@@ -12963,14 +13323,14 @@ function Game() {
                   <div className="grid grid-cols-2 gap-2">
                     {FACTIONS.filter(f => f.id !== g.turn).map(f => (
                       <button key={f.id} disabled={hasPact(g, g.turn, f.id)}
-                        onClick={() => openPact(f.id)}
+                        onClick={() => uiPact(f.id)}
                         className="btng rounded-lg py-1.5 text-xs font-bold bg-slate-700">
                         {f.icon} {f.short}에게 {hasPact(g,g.turn,f.id) ? "(체결중)" : "제안"}
                       </button>
                     ))}
                   </div>
                 </div>
-                <button onClick={() => { endTurn(g); bump(); }} className="btng w-full rounded-lg py-2 text-sm font-bold bg-slate-600 mt-1">
+                <button onClick={uiEnd} className="btng w-full rounded-lg py-2 text-sm font-bold bg-slate-600 mt-1">
                   턴 넘기기 ▶
                 </button>
               </div>
@@ -12981,6 +13341,27 @@ function Game() {
           <div className="glass rounded-xl p-2 h-40 overflow-y-auto text-xs space-y-1">
             {g.log.map((l,i) => <div key={i} style={{color:l.c}}>{l.t}</div>)}
           </div>
+
+          {/* 협상 채팅 (온라인 전용) */}
+          {online() && (
+            <div className="glass rounded-xl p-2">
+              <div className="text-[10px] text-slate-400 mb-1">💬 협상 채팅 — 동맹을 맺든 배신을 유도하든</div>
+              <div className="h-24 overflow-y-auto text-xs space-y-1 mb-2">
+                {chat.current.length === 0 && <div className="text-slate-500 text-[11px]">아직 대화가 없습니다.</div>}
+                {chat.current.map((c,i) => (
+                  <div key={i}>
+                    <b style={{color: FACTIONS[c.fac] ? FACTIONS[c.fac].col : "#94a3b8"}}>{c.nick}</b>
+                    <span className="text-slate-300"> {c.msg}</span>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={e => { e.preventDefault(); const i = e.target.msg; sendChat(i.value); i.value = ""; }} className="flex gap-1">
+                <input name="msg" maxLength={120} placeholder="메시지…" autoComplete="off"
+                  className="flex-1 min-w-0 px-2 py-1 rounded bg-black/40 border border-white/15 text-xs outline-none focus:border-sky-400" />
+                <button type="submit" className="btng px-3 rounded bg-sky-700 text-xs font-bold">전송</button>
+              </form>
+            </div>
+          )}
         </div>
       </div>
 
@@ -13009,6 +13390,41 @@ function Game() {
                 </div>
                 <div className="text-[11px] text-slate-400 mt-1">⚔️돌격 › 🏹포위 › 🛡️방어 › ⚔️돌격 (제압 시 +3)</div>
               </div>
+
+              {/* 온라인: 공격자·방어자가 각자 기기에서 '동시에' 고른다 → 핸드오프 불필요, 진짜 눈치싸움 */}
+              {c.phase === "pick" && (() => {
+                const iAtk = A === myFac.current;
+                const iDef = D === myFac.current;   // 수호군(-2)이면 방어자는 사람이 아니다
+                const mySubmitted = iAtk ? c.atkIn : (iDef ? c.defIn : true);
+                const waitingOn = [];
+                if (!c.atkIn) waitingOn.push(FACTIONS[A].short);
+                if (!c.defIn && D >= 0) waitingOn.push(FACTIONS[D].short);
+                if ((iAtk || iDef) && !mySubmitted) return (<>
+                  <div className="text-center text-sm mb-3" style={{color: iAtk ? "#fbbf24" : "#7dd3fc"}}>
+                    {iAtk ? "공격자" : "방어자"} <b>{FACTIONS[myFac.current].short}</b> — 전술을 고르세요
+                    <div className="text-[10px] text-slate-400 mt-1">상대는 당신의 선택을 볼 수 없습니다 (동시 공개)</div>
+                    {iDef && gg.tiles[c.to].fort && <span className="text-amber-300 text-xs"> · 🏰요새 방어 +3</span>}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {TACTICS.map(t => <Card key={t.id} t={t} onClick={() => iAtk ? pickAtk(t.id) : pickDef(t.id)} />)}
+                  </div>
+                </>);
+                return (
+                  <div className="text-center py-8">
+                    <div className="text-4xl mb-3 animate-pulse">⏳</div>
+                    <div className="text-sm text-slate-300">
+                      {mySubmitted && (iAtk || iDef) ? "전술을 제출했습니다." : "전투가 벌어지고 있습니다."}<br/>
+                      <span className="text-slate-400 text-xs">
+                        {waitingOn.length ? waitingOn.join(" · ") + " 의 선택을 기다리는 중…" : "결과를 집계하는 중…"}
+                      </span>
+                    </div>
+                    <div className="flex justify-center gap-6 mt-4 text-xs">
+                      <div className={c.atkIn ? "text-emerald-300" : "text-slate-500"}>{c.atkIn ? "✅" : "⬜"} {FACTIONS[A].short} 공격</div>
+                      <div className={c.defIn ? "text-emerald-300" : "text-slate-500"}>{c.defIn ? "✅" : "⬜"} {FD.short} 방어</div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {c.phase === "atkPick" && (<>
                 <div className="text-center text-sm text-amber-300 mb-3">공격자 <b>{FACTIONS[A].short}</b> — 전술을 고르세요</div>
@@ -13051,7 +13467,9 @@ function Game() {
                   style={{ color: c.res.win ? FACTIONS[A].col : FD.col }}>
                   {c.res.win ? "🎯 점령 성공!" : "🛡️ 방어 성공! (동점은 방어자 승)"}
                 </div>
-                {!c.ai && <button onClick={closeCombat} className="btng w-full rounded-lg py-2 font-bold bg-slate-600">확인</button>}
+                {online()
+                  ? <div className="text-center text-[11px] text-slate-400">잠시 후 자동으로 닫힙니다…</div>
+                  : <button onClick={closeCombat} className="btng w-full rounded-lg py-2 font-bold bg-slate-600">확인</button>}
               </>)}
             </div>
           </div>
@@ -13086,7 +13504,18 @@ function Game() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="glass rounded-2xl p-6 max-w-md w-full pop text-center">
             <div className="text-4xl mb-2">🕊️</div>
-            {pact.current.phase === "decide" ? (<>
+            {pact.current.phase === "decide" && online() && pact.current.to !== myFac.current ? (
+              <div className="py-4">
+                <div className="font-bold mb-2">
+                  <span style={{color:FACTIONS[pact.current.from].col}}>{FACTIONS[pact.current.from].short}</span>
+                  {" → "}
+                  <span style={{color:FACTIONS[pact.current.to].col}}>{FACTIONS[pact.current.to].short}</span>
+                </div>
+                <div className="text-sm text-slate-300">불가침 제안이 공개되었습니다.</div>
+                <div className="text-xs text-slate-400 mt-1 animate-pulse">{FACTIONS[pact.current.to].short}의 답을 기다리는 중…</div>
+                <div className="text-[11px] text-amber-300/80 mt-3">둘이 손을 잡으면 — 당신에겐 기회입니다.</div>
+              </div>
+            ) : pact.current.phase === "decide" ? (<>
               <div className="font-bold mb-1">
                 <span style={{color:FACTIONS[pact.current.from].col}}>{FACTIONS[pact.current.from].short}</span>
                 {" → "}
@@ -13095,8 +13524,8 @@ function Game() {
               <div className="text-sm text-slate-300 mb-1">{PACT_LEN}라운드 불가침 조약을 제안합니다.</div>
               <div className="text-[11px] text-amber-300/80 mb-4">체결하면 서로 공격 불가 — 하지만 제3자가 그 틈을 노립니다.</div>
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => answerPact(true)} className="btng rounded-lg py-2 font-bold bg-emerald-700">🤝 수락</button>
-                <button onClick={() => answerPact(false)} className="btng rounded-lg py-2 font-bold bg-slate-600">❌ 거절</button>
+                <button onClick={() => uiPactAns(true)} className="btng rounded-lg py-2 font-bold bg-emerald-700">🤝 수락</button>
+                <button onClick={() => uiPactAns(false)} className="btng rounded-lg py-2 font-bold bg-slate-600">❌ 거절</button>
               </div>
             </>) : (
               <div className={"text-lg font-bold " + (pact.current.ok ? "text-emerald-300" : "text-slate-400")}>
@@ -13126,23 +13555,27 @@ function Game() {
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => { S.current = mkGame(g.mode); combat.current=null; pact.current=null; betray.current=null; bump(); }}
-                className="btng rounded-lg py-2.5 font-bold bg-emerald-700">🔄 다시 하기</button>
-              <button onClick={() => { scr.current="menu"; S.current=null; combat.current=null; pact.current=null; betray.current=null; bump(); }}
-                className="btng rounded-lg py-2.5 font-bold bg-slate-600">메뉴로</button>
-            </div>
+            {online() ? (
+              <div className="grid grid-cols-2 gap-2">
+                {net.current && net.current.isHost
+                  ? <button onClick={() => { S.current = mkGame("online"); combat.current=null; pact.current=null; betray.current=null; broadcast(); bump(); }}
+                      className="btng rounded-lg py-2.5 font-bold bg-emerald-700">🔄 다시 하기</button>
+                  : <div className="rounded-lg py-2.5 text-xs text-slate-400 bg-black/30">호스트가 다시 시작할 수 있습니다</div>}
+                <button onClick={leaveRoom} className="btng rounded-lg py-2.5 font-bold bg-slate-600">방 나가기</button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { S.current = mkGame(g.mode); combat.current=null; pact.current=null; betray.current=null; bump(); }}
+                  className="btng rounded-lg py-2.5 font-bold bg-emerald-700">🔄 다시 하기</button>
+                <button onClick={() => { scr.current="menu"; S.current=null; combat.current=null; pact.current=null; betray.current=null; bump(); }}
+                  className="btng rounded-lg py-2.5 font-bold bg-slate-600">메뉴로</button>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 토스트 */}
-      {toast.current && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg font-bold text-sm z-50 pop"
-          style={{background:"rgba(15,20,32,.95)",border:`1px solid ${toast.current.c}`,color:toast.current.c}}>
-          {toast.current.m}
-        </div>
-      )}
+      <ToastEl/>
     </div>
   );
 }
@@ -13173,7 +13606,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Game
 
 def trisect_page():
     st.title("🔺 삼분할 지도 정복")
-    st.caption("3인 전용 전략 게임! 육각 보드를 정확히 120°씩 3등분 · 👁️중앙 성지는 수호군이 지켜 전투로만 뚫린다 · 🍀제3자 이득(둘이 싸우면 나머지가 이득) · ⚔️전술 카드 눈치싸움(돌격›포위›방어) · 🕊️공개 불가침과 💔배신 · 진영 3종 비대칭(삼림 수비형·광산 공격형·평야 균형형) · 🤖 1인(AI 2진영) / 👥 3인 핫시트")
+    st.caption("3인 전용 전략 게임! 육각 보드를 정확히 120°씩 3등분 · 🌐 온라인 3인(방 코드로 다른 기기끼리 연동 · 협상 채팅 · 전술 카드 동시 선택) / 🤖 1인(AI 2진영) / 👥 3인 핫시트 · 👁️중앙 성지는 수호군이 지켜 전투로만 뚫린다 · 🍀제3자 이득(둘이 싸우면 나머지가 이득) · ⚔️전술 눈치싸움(돌격›포위›방어) · 🕊️공개 불가침과 💔배신 · 진영 3종 비대칭(삼림 수비형·광산 공격형·평야 균형형)")
     components.html(TRISECT_HTML, height=900, scrolling=True)
 
 
