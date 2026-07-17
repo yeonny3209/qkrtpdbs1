@@ -15308,6 +15308,406 @@ def rhythm_page():
 
 
 # ==========================================
+# 7-12. 🌸 시연 누나 생일 축하 (React 임베드)
+# ==========================================
+BIRTHDAY_HTML = r'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  Babel.registerPreset('classic-react', { presets: [[Babel.availablePresets['react'], { runtime: 'classic' }]] });
+</script>
+<style>
+  html,body{margin:0;padding:0;background:#08050f;overflow-x:hidden;color:#f4eef8;
+    font-family:ui-sans-serif,system-ui,'Segoe UI','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+    -webkit-tap-highlight-color:transparent;}
+  #root{min-height:100vh;}
+  canvas.petals{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;}
+  .glass{background:rgba(24,14,38,.62);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+         border:1px solid rgba(255,180,225,.18);}
+  .btng{transition:transform .12s, filter .12s, box-shadow .12s;}
+  .btng:hover{transform:translateY(-2px);filter:brightness(1.12);}
+  .btng:active{transform:translateY(1px);}
+  .fadein{animation:fadein .9s cubic-bezier(.2,.8,.3,1) both;}
+  @keyframes fadein{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+  .breathe{animation:breathe 3.4s ease-in-out infinite;}
+  @keyframes breathe{0%,100%{transform:scale(1);filter:drop-shadow(0 0 18px rgba(255,158,199,.5))}
+                     50%{transform:scale(1.045);filter:drop-shadow(0 0 34px rgba(255,158,199,.85))}}
+  .driftin{animation:driftin 1.2s cubic-bezier(.2,.9,.25,1) both;}
+  @keyframes driftin{from{opacity:0;transform:translateY(30px) scale(.96)}to{opacity:1;transform:none}}
+  .shimmer{background-size:220% auto;animation:shimmer 5s linear infinite;}
+  @keyframes shimmer{to{background-position:220% center}}
+  .glowline{box-shadow:0 0 22px rgba(255,158,199,.45), inset 0 0 22px rgba(94,234,212,.12);}
+  .caret::after{content:"";display:inline-block;width:2px;height:1em;margin-left:2px;
+    background:#ff9ec7;vertical-align:-.12em;animation:blink .9s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0}}
+  ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#4a2f5e;border-radius:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="classic-react">
+const { useRef, useReducer, useEffect } = React;
+
+/* ==================================================================
+   에셋 — 라이엇이 커뮤니티용으로 공개한 Data Dragon CDN
+   (스킨 번호는 ko_KR 데이터에서 실제로 조회해 확인했다: 영혼의 꽃 아리 = Ahri_27)
+   ================================================================== */
+const DD = "https://ddragon.leagueoflegends.com/cdn";
+const IMG = {
+  hero:  DD + "/img/champion/splash/Ahri_27.jpg",         // 영혼의 꽃 아리
+  ahri:  DD + "/img/champion/loading/Ahri_27.jpg",        // 영혼의 꽃 아리
+  lulu:  DD + "/img/champion/loading/Lulu_2.jpg",         // 마녀 룰루
+  sera:  DD + "/img/champion/loading/Seraphine_24.jpg",   // 요정 왕국 세라핀
+};
+
+const NAME = "시연";
+const CHAMPS = [
+  { key:"ahri", img:IMG.ahri, name:"아리", title:"구미호", skin:"영혼의 꽃",
+    line:"사람을 끌어당기는 사람", col:"#ff9ec7" },
+  { key:"lulu", img:IMG.lulu, name:"룰루", title:"요정 마법사", skin:"마녀",
+    line:"곁에 있으면 세상이 반짝이는 사람", col:"#c4a5ff" },
+  { key:"sera", img:IMG.sera, name:"세라핀", title:"노래하는 별", skin:"요정 왕국",
+    line:"흩어진 마음을 이어주는 사람", col:"#5eead4" },
+];
+
+// 100단어 이내 축하 메시지
+const MESSAGE = [
+  "시연 누나, 생일 축하해!",
+  "",
+  "누나가 좋아하는 챔피언들을 보면 누나가 어떤 사람인지 보여.",
+  "아리처럼 사람을 끌어당기고, 룰루처럼 곁에 있으면 세상이 조금 더 반짝이고,",
+  "세라핀처럼 흩어진 마음을 이어주는 사람.",
+  "",
+  "셋 다 남을 지키고 살려주는 챔피언이라는 게, 우연은 아닌 것 같아.",
+  "",
+  "올해는 누나가 남들 챙긴 만큼 누나도 실컷 챙김받았으면 좋겠어.",
+  "오늘만큼은 누나가 주인공이야. 🌸",
+];
+const MSG_TEXT = MESSAGE.join("\n");
+
+/* ==================================================================
+   벚꽃잎 + 여우불 파티클
+   ================================================================== */
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function makePetal(W, H, burst) {
+  const cx = W / 2, cy = H * 0.42;
+  if (burst) {
+    const a = rnd(0, Math.PI * 2), sp = rnd(3, 11);
+    return { x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2,
+      s: rnd(7, 15), rot: rnd(0, 6.3), vr: rnd(-.12, .12), ph: rnd(0, 6.3),
+      sway: rnd(.4, 1.4), life: 1, decay: rnd(.004, .009), burst: true,
+      spr: PETAL_SPRITES[(Math.random() * PETAL_SPRITES.length) | 0] };
+  }
+  return { x: rnd(-40, W + 40), y: rnd(-H * 0.3, -20), vx: rnd(-.35, .35), vy: rnd(.7, 1.9),
+    s: rnd(6, 14), rot: rnd(0, 6.3), vr: rnd(-.03, .03), ph: rnd(0, 6.3),
+    sway: rnd(.5, 1.6), life: 1, decay: 0, burst: false,
+    spr: PETAL_SPRITES[(Math.random() * PETAL_SPRITES.length) | 0] };
+}
+function makeWisp(W, H) {
+  return { x: rnd(0, W), y: rnd(H * 0.5, H + 60), vy: rnd(-.5, -1.3), vx: rnd(-.2, .2),
+    r: rnd(1.4, 3.4), ph: rnd(0, 6.3), life: rnd(.5, 1), teal: Math.random() < .6 };
+}
+// 벚꽃잎 스프라이트 — 색상별로 딱 한 번만 그려서 캐싱한다.
+// (매 프레임 그라디언트를 새로 만들면 꽃잎 수 × fps 만큼 쌓여 래스터화가 밀린다)
+const SPR = 48;                       // 스프라이트 한 변
+const PETAL_SPRITES = (() => {
+  const out = [];
+  for (let i = 0; i < 6; i++) {
+    const hue = 330 + i * 5;
+    const c = document.createElement("canvas");
+    c.width = SPR; c.height = SPR;
+    const x = c.getContext("2d");
+    const s = SPR / 2 - 2, cx = SPR / 2, cy = SPR / 2;
+    const g = x.createLinearGradient(0, cy - s, 0, cy + s);
+    g.addColorStop(0, `hsl(${hue},100%,88%)`);
+    g.addColorStop(1, `hsl(${hue},85%,68%)`);
+    x.beginPath();
+    x.moveTo(cx, cy - s);
+    x.bezierCurveTo(cx + s * .62, cy - s * .55, cx + s * .52, cy + s * .55, cx, cy + s);
+    x.bezierCurveTo(cx - s * .52, cy + s * .55, cx - s * .62, cy - s * .55, cx, cy - s);
+    x.closePath();
+    x.fillStyle = g; x.fill();
+    x.strokeStyle = `hsla(${hue},100%,95%,.55)`; x.lineWidth = 1.2; x.stroke();
+    out.push(c);
+  }
+  return out;
+})();
+function drawPetal(ctx, p) {
+  ctx.save();
+  ctx.globalAlpha = p.life;
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.rot);
+  ctx.scale(Math.cos(p.ph) * 0.6 + 0.75, 1);   // 팔랑이는 느낌
+  const d = p.s * 2;
+  ctx.drawImage(p.spr, -d / 2, -d / 2, d, d);
+  ctx.restore();
+}
+
+/* ==================================================================
+   컴포넌트
+   ================================================================== */
+function Card() {
+  const scr = useRef("letter");      // letter → main
+  const cvRef = useRef(null);
+  const P = useRef([]);              // 꽃잎
+  const Wsp = useRef([]);            // 여우불
+  const raf = useRef(0);
+  const typed = useRef(0);           // 타이핑 진행
+  const typing = useRef(false);
+  const wishes = useRef(0);
+  const [, bump] = useReducer(x => x + 1, 0);
+
+  /* ---------- 파티클 루프 ---------- */
+  useEffect(() => {
+    const cv = cvRef.current; if (!cv) return;
+    const ctx = cv.getContext("2d");
+    let W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => {
+      W = cv.clientWidth; H = cv.clientHeight;
+      cv.width = W * dpr; cv.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    // 초기 꽃잎
+    P.current = Array.from({ length: 34 }, () => {
+      const p = makePetal(W, H, false); p.y = rnd(-H, H); return p;
+    });
+    Wsp.current = Array.from({ length: 16 }, () => makeWisp(W, H));
+
+    const tick = () => {
+      ctx.clearRect(0, 0, W, H);
+      // 여우불 (아리의 영혼 여우 느낌)
+      for (const w of Wsp.current) {
+        w.y += w.vy; w.x += w.vx + Math.sin(w.ph) * .3; w.ph += .02;
+        if (w.y < -20) Object.assign(w, makeWisp(W, H), { y: H + 20 });
+        const a = (0.35 + Math.sin(w.ph * 1.7) * 0.3) * w.life;
+        const col = w.teal ? "94,234,212" : "255,158,199";
+        const g = ctx.createRadialGradient(w.x, w.y, 0, w.x, w.y, w.r * 7);
+        g.addColorStop(0, `rgba(${col},${a})`);
+        g.addColorStop(1, `rgba(${col},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(w.x, w.y, w.r * 7, 0, 6.3); ctx.fill();
+      }
+      // 꽃잎
+      const keep = [];
+      for (const p of P.current) {
+        p.ph += 0.045;
+        if (p.burst) {
+          p.vy += 0.14; p.vx *= 0.985; p.vy *= 0.985;
+          p.life -= p.decay;
+        } else {
+          p.x += Math.sin(p.ph) * p.sway * 0.55;
+        }
+        p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        if (p.life > 0 && p.y < H + 60) keep.push(p);
+        else if (!p.burst) keep.push(Object.assign(makePetal(W, H, false)));
+        if (p.life > 0 && p.y < H + 60) drawPetal(ctx, p);
+      }
+      // 상한을 넘으면 오래된 것부터 버린다 (앞에서 자르면 방금 터뜨린 꽃잎이 잘려 안 보인다)
+      P.current = keep.length > 150 ? keep.slice(keep.length - 150) : keep;
+      raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf.current); window.removeEventListener("resize", resize); };
+  }, []);
+
+  const burst = (n) => {
+    const cv = cvRef.current; if (!cv) return;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    for (let i = 0; i < n; i++) P.current.push(makePetal(W, H, true));
+  };
+
+  /* ---------- 편지 열기 ---------- */
+  function open() {
+    scr.current = "main"; bump();
+    burst(90);
+    setTimeout(() => burst(50), 260);
+    // 메시지 타이핑
+    typing.current = true; typed.current = 0;
+    const step = () => {
+      if (typed.current >= MSG_TEXT.length) { typing.current = false; bump(); return; }
+      // 줄바꿈은 한 번에 넘겨서 자연스럽게
+      typed.current += MSG_TEXT[typed.current] === "\n" ? 1 : 1;
+      bump();
+      setTimeout(step, MSG_TEXT[typed.current - 1] === "\n" ? 220 : 42);
+    };
+    setTimeout(step, 900);
+  }
+  function skipType() {
+    if (!typing.current) return;
+    typed.current = MSG_TEXT.length; typing.current = false; bump();
+  }
+  function wish() {
+    wishes.current++;
+    burst(70);
+    bump();
+  }
+
+  /* ================= 편지 화면 ================= */
+  if (scr.current === "letter") {
+    return (
+      <div className="relative min-h-screen flex items-center justify-center p-6">
+        <canvas ref={cvRef} className="petals" />
+        <div className="absolute inset-0 pointer-events-none"
+          style={{background:"radial-gradient(ellipse at 50% 40%, rgba(120,50,120,.5), rgba(8,5,15,.96) 70%)"}} />
+        <div className="relative z-10 text-center fadein">
+          <div className="text-[13px] tracking-[0.5em] text-pink-200/60 mb-6">SPIRIT&nbsp;BLOSSOM</div>
+          <button onClick={open} className="btng breathe mx-auto block" aria-label="편지 열기">
+            <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full flex items-center justify-center glowline"
+              style={{background:"radial-gradient(circle at 40% 35%, rgba(255,190,225,.35), rgba(90,40,110,.55) 60%, rgba(20,10,30,.9))",
+                      border:"1px solid rgba(255,180,225,.5)"}}>
+              <span className="text-7xl sm:text-8xl select-none">🌸</span>
+            </div>
+          </button>
+          <div className="mt-9 text-2xl sm:text-3xl font-black tracking-tight">
+            <span className="shimmer" style={{background:"linear-gradient(90deg,#ff9ec7,#c4a5ff,#5eead4,#ff9ec7)",
+              WebkitBackgroundClip:"text", color:"transparent"}}>{NAME} 누나에게</span>
+          </div>
+          <div className="mt-2 text-sm text-pink-100/50">꽃을 누르면 열려요</div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ================= 메인 화면 ================= */
+  const shown = MSG_TEXT.slice(0, typed.current);
+  return (
+    <div className="relative min-h-screen">
+      <canvas ref={cvRef} className="petals" />
+
+      {/* ---- 히어로: 영혼의 꽃 아리 ---- */}
+      <div className="relative h-[62vh] min-h-[380px] overflow-hidden">
+        <img src={IMG.hero} alt="영혼의 꽃 아리"
+          onError={e => { e.target.style.display = "none"; }}
+          className="absolute inset-0 w-full h-full object-cover object-[50%_28%]"
+          style={{ filter:"saturate(1.08) contrast(1.03)" }} />
+        <div className="absolute inset-0"
+          style={{background:"linear-gradient(to bottom, rgba(8,5,15,.45) 0%, rgba(8,5,15,.15) 35%, rgba(8,5,15,.85) 82%, #08050f 100%)"}} />
+        <div className="absolute inset-0"
+          style={{background:"radial-gradient(ellipse at 50% 60%, transparent 30%, rgba(8,5,15,.55) 100%)"}} />
+
+        <div className="relative z-10 h-full flex flex-col items-center justify-end pb-10 text-center px-4">
+          <div className="text-[11px] sm:text-xs tracking-[0.55em] text-pink-200/75 mb-3 driftin"
+            style={{animationDelay:".15s"}}>HAPPY&nbsp;BIRTHDAY</div>
+          <h1 className="text-6xl sm:text-8xl font-black leading-none driftin"
+            style={{animationDelay:".3s", textShadow:"0 4px 40px rgba(0,0,0,.8), 0 0 60px rgba(255,158,199,.35)"}}>
+            <span className="shimmer" style={{background:"linear-gradient(90deg,#fff0f7,#ff9ec7,#c4a5ff,#5eead4,#fff0f7)",
+              WebkitBackgroundClip:"text", color:"transparent"}}>{NAME}</span>
+          </h1>
+          <div className="mt-4 flex items-center gap-3 text-pink-100/60 text-xs driftin" style={{animationDelay:".45s"}}>
+            <span className="h-px w-10 sm:w-16" style={{background:"linear-gradient(90deg,transparent,#ff9ec7)"}} />
+            <span className="tracking-[0.3em]">영혼의 꽃이 피는 날</span>
+            <span className="h-px w-10 sm:w-16" style={{background:"linear-gradient(90deg,#ff9ec7,transparent)"}} />
+          </div>
+        </div>
+      </div>
+
+      {/* ---- 메시지 ---- */}
+      <div className="relative z-10 max-w-2xl mx-auto px-5 -mt-4">
+        <div className="glass rounded-3xl p-7 sm:p-10 driftin" style={{animationDelay:".6s"}} onClick={skipType}>
+          <div className="flex items-center gap-2 mb-5">
+            <span className="text-lg">🌸</span>
+            <span className="h-px flex-1" style={{background:"linear-gradient(90deg,rgba(255,158,199,.6),transparent)"}} />
+          </div>
+          <div className={"whitespace-pre-line text-[15px] sm:text-[17px] leading-[2] text-pink-50/90 min-h-[19em] sm:min-h-[16em] " + (typing.current ? "caret" : "")}>
+            {shown}
+          </div>
+          {typing.current && <div className="mt-3 text-[11px] text-pink-200/35">눌러서 건너뛰기</div>}
+        </div>
+      </div>
+
+      {/* ---- 챔피언 3인 ---- */}
+      <div className="relative z-10 max-w-4xl mx-auto px-5 mt-14">
+        <div className="text-center mb-6">
+          <div className="text-xs tracking-[0.4em] text-pink-200/50">누나의 챔피언</div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {CHAMPS.map((c, i) => (
+            <div key={c.key} className="group relative rounded-2xl overflow-hidden driftin"
+              style={{ animationDelay: (0.15 * i + 0.2) + "s", border:`1px solid ${c.col}44` }}>
+              <div className="relative aspect-[3/4] overflow-hidden bg-[#160c22]">
+                <img src={c.img} alt={c.skin + " " + c.name}
+                  onError={e => { e.target.style.display = "none"; }}
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.07]" />
+                <div className="absolute inset-0"
+                  style={{background:`linear-gradient(to top, rgba(10,6,18,.96) 0%, rgba(10,6,18,.35) 45%, transparent 70%)`}} />
+                <div className="absolute inset-x-0 bottom-0 p-4">
+                  <div className="text-[10px] tracking-[0.25em] mb-1" style={{color:c.col}}>{c.skin}</div>
+                  <div className="text-2xl font-black leading-none">{c.name}</div>
+                  <div className="text-[11px] text-white/45 mt-1">{c.title}</div>
+                  <div className="mt-3 pt-3 text-[12px] leading-snug text-white/75"
+                    style={{borderTop:`1px solid ${c.col}33`}}>{c.line}</div>
+                </div>
+              </div>
+              <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                style={{boxShadow:`inset 0 0 40px ${c.col}33`}} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ---- 소원 빌기 ---- */}
+      <div className="relative z-10 max-w-2xl mx-auto px-5 mt-14 mb-20 text-center">
+        <button onClick={wish} className="btng glass rounded-full px-8 py-4 glowline">
+          <span className="text-2xl mr-2">🕯️</span>
+          <span className="font-bold text-pink-50">소원 빌기</span>
+        </button>
+        <div className="mt-4 text-[12px] text-pink-100/45 h-5">
+          {wishes.current === 0 ? "눌러서 꽃잎을 날려보세요"
+            : wishes.current < 3 ? `소원 ${wishes.current}개 — 더 빌어도 돼요`
+            : wishes.current < 8 ? `소원 ${wishes.current}개 — 욕심쟁이 🌸`
+            : `소원 ${wishes.current}개 — 다 이루어질 거예요 ✨`}
+        </div>
+        <div className="mt-12 text-[10px] text-white/20 leading-relaxed">
+          챔피언 이미지 © Riot Games — Data Dragon<br/>
+          시연 누나의 생일을 축하하며 🌸
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==================== 에러 경계 ==================== */
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(e) { return { err: e }; }
+  componentDidCatch(e, i) { console.error("생일 카드 렌더 오류:", e, i); }
+  render() {
+    if (this.state.err) return (
+      <div className="max-w-md mx-auto mt-24 glass rounded-2xl p-6 text-center">
+        <div className="text-4xl mb-2">🌸</div>
+        <div className="font-bold mb-1">화면을 그리는 중 문제가 생겼습니다</div>
+        <div className="text-xs text-white/40 mb-4">{String(this.state.err && this.state.err.message)}</div>
+        <button onClick={() => location.reload()} className="btng rounded-lg px-5 py-2 font-bold"
+          style={{background:"linear-gradient(90deg,#db2777,#7c3aed)"}}>🔄 다시 불러오기</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Card/></ErrorBoundary>);
+</script>
+</body>
+</html>
+'''
+
+
+def birthday_page():
+    st.title("🌸 시연 누나, 생일 축하해")
+    st.caption("영혼의 꽃 테마 생일 카드 — 끊임없이 내리는 벚꽃잎과 여우불, 타이핑되는 축하 편지, 아리·룰루·세라핀 카드, 소원 빌기. 챔피언 이미지는 라이엇 공식 Data Dragon CDN")
+    components.html(BIRTHDAY_HTML, height=1000, scrolling=True)
+
+
+# ==========================================
 # 8. 메인 네비게이션 진입 게이트웨이
 # ==========================================
 st.set_page_config(
@@ -15332,10 +15732,11 @@ abyss = st.Page(abyss_rpg_page, title="나락의 심연 RPG", icon="🩸")
 mmo = st.Page(mmo_page, title="환장 RPG: 완전판", icon="🎮")
 trisect = st.Page(trisect_page, title="삼분할 지도 정복", icon="🔺")
 rhythm = st.Page(rhythm_page, title="리듬 세카이", icon="🎵")
+birthday = st.Page(birthday_page, title="시연 누나 생일 축하", icon="🌸")
 wordle = st.Page(wordle_page, title="워들 퍼즐 게임", icon="🔠")
 adventure = st.Page(adventure_page, title="마법학교 신입생의 하루", icon="🗺️")
 typing_game = st.Page(typing_game_page, title="스피드 타자 워리어", icon="⌨️")
 
-pg = st.navigation([home, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, ant, gladiator, abyss, mmo, trisect, rhythm, wordle, adventure, typing_game])
+pg = st.navigation([home, birthday, game, board, quoridor, rpg, multiplayer_rpg, dragon, rider, monggle, zombie, ant, gladiator, abyss, mmo, trisect, rhythm, wordle, adventure, typing_game])
 pg.run()
 
