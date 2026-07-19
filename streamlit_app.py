@@ -15329,8 +15329,10 @@ BIRTHDAY_HTML = r'''<!DOCTYPE html>
     -webkit-tap-highlight-color:transparent;}
   #root{min-height:100vh;}
   canvas.petals{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;}
-  .glass{background:rgba(24,14,38,.62);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-         border:1px solid rgba(255,180,225,.18);}
+  /* backdrop-filter(blur)는 뒤에서 꽃잎이 움직이는 동안 매 프레임 블러를 다시 계산한다.
+     편지가 길어져 카드가 화면을 가득 채우자 1fps까지 떨어졌다(끄면 61fps).
+     반투명 배경만으로도 유리 느낌은 충분하므로 blur는 쓰지 않는다. */
+  .glass{background:rgba(24,14,38,.82);border:1px solid rgba(255,180,225,.18);}
   .btng{transition:transform .12s, filter .12s, box-shadow .12s;}
   .btng:hover{transform:translateY(-2px);filter:brightness(1.12);}
   .btng:active{transform:translateY(1px);}
@@ -15341,11 +15343,13 @@ BIRTHDAY_HTML = r'''<!DOCTYPE html>
                      50%{transform:scale(1.045);filter:drop-shadow(0 0 34px rgba(255,158,199,.85))}}
   .driftin{animation:driftin 1.2s cubic-bezier(.2,.9,.25,1) both;}
   @keyframes driftin{from{opacity:0;transform:translateY(30px) scale(.96)}to{opacity:1;transform:none}}
+  .lineup{animation:lineup .5s cubic-bezier(.2,.9,.3,1) both;}
+  @keyframes lineup{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
   .shimmer{background-size:220% auto;animation:shimmer 5s linear infinite;}
   @keyframes shimmer{to{background-position:220% center}}
   .glowline{box-shadow:0 0 22px rgba(255,158,199,.45), inset 0 0 22px rgba(94,234,212,.12);}
-  .caret::after{content:"";display:inline-block;width:2px;height:1em;margin-left:2px;
-    background:#ff9ec7;vertical-align:-.12em;animation:blink .9s steps(1) infinite;}
+  .caret::after{content:"";display:inline-block;width:2px;height:1.05em;margin-left:1px;
+    background:#ff9ec7;vertical-align:-.16em;animation:blink .9s steps(1) infinite;}
   @keyframes blink{50%{opacity:0}}
   ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#4a2f5e;border-radius:8px}
   ::-webkit-scrollbar-track{background:transparent}
@@ -15378,20 +15382,58 @@ const CHAMPS = [
     line:"흩어진 마음을 이어주는 사람", col:"#5eead4" },
 ];
 
-// 100단어 이내 축하 메시지
+// 축하 편지 (약 500단어)
 const MESSAGE = [
-  "시연 누나, 생일 축하해!",
+  "시연 누나에게",
   "",
-  "누나가 좋아하는 챔피언들을 보면 누나가 어떤 사람인지 보여.",
-  "아리처럼 사람을 끌어당기고, 룰루처럼 곁에 있으면 세상이 조금 더 반짝이고,",
-  "세라핀처럼 흩어진 마음을 이어주는 사람.",
+  "누나, 생일 축하해.",
   "",
-  "셋 다 남을 지키고 살려주는 챔피언이라는 게, 우연은 아닌 것 같아.",
+  "매년 이맘때가 되면 뭘 해줘야 하나 한참 고민하는데, 올해는 좀 다르게 해보고 싶었어. 사서 주는 건 결국 언젠가 서랍 속으로 들어가버리잖아. 그래서 이번엔 그냥 직접 만들었어. 누나가 좋아하는 것들로, 하나씩.",
   "",
-  "올해는 누나가 남들 챙긴 만큼 누나도 실컷 챙김받았으면 좋겠어.",
+  "누나 요즘 롤 진짜 열심히 하더라. 옆에서 보면 가끔 신기해. 게임 하나에 저렇게까지 진심일 수 있구나 싶어서. 그러다 문득 누나가 고르는 챔피언들을 보게 됐어.",
+  "",
+  "아리, 룰루, 세라핀.",
+  "",
+  "세 명을 하나씩 떠올려봤어.",
+  "",
+  "아리는 사람을 끌어당겨. 매혹 한 방이면 아무리 도망가던 사람도 결국 이쪽으로 와. 누나 주변에 사람 끊긴 적 없잖아. 누나가 뭘 특별히 하는 것도 아닌데 다들 누나 옆에 있고 싶어 해.",
+  "",
+  "룰루는 옆에 있는 사람을 커지게 만들어. 자기가 커지는 게 아니라. 누구랑 있느냐에 따라 내가 더 나은 사람이 되는 때가 있는데, 누나가 그런 사람이야.",
+  "",
+  "세라핀은 흩어진 팀을 노래로 다시 묶어. 다 무너진 것 같을 때 한 번 더 해보자고 하는 사람. 누나가 딱 그래.",
+  "",
+  "생각해보면 나도 누나한테 그거 여러 번 받았어. 티는 안 냈지만.",
+  "",
+  "셋 다 혼자 캐리하는 챔피언이 아니더라. 하나같이 \"내가 잘하는 것\"보다 \"옆 사람이 잘되게 하는 것\"에 특화된 애들이야. 그게 우연은 아닌 것 같았어.",
+  "",
+  "누나가 원래 그런 사람이잖아. 뭐 하나 생기면 자기가 먼저 챙기기보다 주변부터 살피고, 누가 힘들어 보이면 굳이 티 안 내고 그냥 옆에 있어주고. 게임에서 손이 가는 챔피언까지 그 모양인 걸 보면, 그건 취향이 아니라 그냥 누나 자체인 것 같아.",
+  "",
+  "근데 그런 사람들이 제일 자주 놓치는 게 하나 있어. 자기 자신.",
+  "",
+  "남 챙기는 게 습관이 된 사람은 자기 차례가 와도 그냥 넘겨. 괜찮다고 하고, 나중에 하겠다고 하고, 그러다 결국 안 해. 누나 그러는 거 나 알아. 누나는 티 안 낸다고 생각하겠지만.",
+  "",
+  "누나는 남한테는 그렇게 잘해주면서 왜 자기한테는 그렇게 인색한지 모르겠어. 남이 누나한테 누나가 남한테 하듯이 대하면, 누나는 아마 그 사람 엄청 좋아할걸.",
+  "",
+  "그래서 오늘 하루만큼은 좀 반대로 갔으면 좋겠어.",
+  "",
+  "오늘은 누나가 서포터 말고 원딜이야. 남 살려주는 날 말고, 누나가 받는 날. 먹고 싶은 거 다 먹고, 하고 싶은 거 다 하고, 누가 뭐 해준다고 하면 사양하지 말고 그냥 받아. 미안해할 일 아니야. 누나가 그동안 남한테 해준 거 생각하면 이 정도는 한참 모자라니까.",
+  "",
+  "그리고 올해는, 누나가 남들 챙긴 만큼 누나도 실컷 챙김받았으면 좋겠어. 누나 옆에도 룰루 같은 사람이 있었으면 좋겠고, 다 무너진 것 같을 때 세라핀처럼 다시 묶어주는 사람이 있었으면 좋겠어. 없으면 내가 할게. 잘은 못해도 옆엔 있을게. 그건 확실해.",
+  "",
+  "영혼의 꽃 아리 넣었어. 누나가 제일 좋아하는 거 맞지? 스킨 번호까지 하나하나 찾아서 확인했어. 아리 스킨이 아흔 개가 넘더라. 벚꽃잎도 계속 떨어지게 해놨고 여우불도 띄워놨어. 색깔도 셋이 같은 톤으로 보이게 몇 번 갈아엎었고.",
+  "",
+  "밑에 소원 빌기 버튼도 있어. 몇 번이든 눌러도 돼. 누나 소원은 몇 개든 다 들어줘야지.",
+  "",
+  "거창한 선물은 아니야. 근데 이거 만드는 내내 누나 생각만 했어. 어떤 색이 누나 같을까, 어떤 말이 누나한테 닿을까, 이거 보고 웃을까. 그게 선물이라면 선물인 것 같아.",
+  "",
+  "한 살 더 먹는 게 별로일 수도 있는데, 나는 누나가 나이 먹는 게 좋아. 그만큼 오래 옆에 있었다는 뜻이니까. 앞으로도 계속 이렇게 세어나갔으면 좋겠어.",
+  "",
+  "누나가 앞으로 뭘 하든, 어디로 가든, 잘 될 거라고 생각해. 근거는 없는데 그냥 알아. 누나 같은 사람이 안 되면 그건 세상이 이상한 거야.",
+  "",
+  "생일 진심으로 축하해, 누나.",
   "오늘만큼은 누나가 주인공이야. 🌸",
 ];
-const MSG_TEXT = MESSAGE.join("\n");
+const SIGN = ["— 동생이", "feat. 클로드"];
 
 /* ==================================================================
    벚꽃잎 + 여우불 파티클
@@ -15461,8 +15503,8 @@ function Card() {
   const P = useRef([]);              // 꽃잎
   const Wsp = useRef([]);            // 여우불
   const raf = useRef(0);
-  const typed = useRef(0);           // 타이핑 진행
-  const typing = useRef(false);
+  const shownLines = useRef(0);      // 몇 줄까지 떠올랐나
+  const typing = useRef(false);      // 아직 등장 중인가
   const wishes = useRef(0);
   const [, bump] = useReducer(x => x + 1, 0);
 
@@ -15532,20 +15574,46 @@ function Card() {
     scr.current = "main"; bump();
     burst(90);
     setTimeout(() => burst(50), 260);
-    // 메시지 타이핑
-    typing.current = true; typed.current = 0;
+    // 편지: 줄 단위로 하나씩 떠오른다
+    // (글자 단위 타이핑은 이 분량에서 50초가 넘어간다 — 끝까지 볼 사람이 없다)
+    //
+    // 타이머는 rAF로 '경과 시각'을 보고 진행한다. setTimeout 체인으로 하면
+    // 매 호출의 최소 지연·클램핑이 48줄 내내 누적돼 실측 20초까지 늘어졌다
+    // (예상 8.7초의 2.3배). rAF는 밀린 프레임을 한 번에 따라잡는다.
+    typing.current = true; shownLines.current = 0;
+    const t0 = performance.now() + 600;          // 첫 줄까지의 뜸
+    let due = t0;
     const step = () => {
-      if (typed.current >= MSG_TEXT.length) { typing.current = false; bump(); return; }
-      // 줄바꿈은 한 번에 넘겨서 자연스럽게
-      typed.current += MSG_TEXT[typed.current] === "\n" ? 1 : 1;
-      bump();
-      setTimeout(step, MSG_TEXT[typed.current - 1] === "\n" ? 220 : 42);
+      if (shownLines.current >= MESSAGE.length) { typing.current = false; bump(); return; }
+      const now = performance.now();
+      let advanced = false;
+      // 밀린 만큼 여러 줄을 한 번에 진행시킨다
+      while (shownLines.current < MESSAGE.length && now >= due) {
+        const cur = MESSAGE[shownLines.current];
+        shownLines.current++;
+        advanced = true;
+        due += cur.trim() === "" ? 55 : Math.min(140 + cur.length * 1.5, 400);
+      }
+      if (advanced) bump();
+      if (shownLines.current >= MESSAGE.length) { typing.current = false; bump(); return; }
+      schedule();
     };
-    setTimeout(step, 900);
+    // rAF와 setInterval을 함께 건다.
+    //  - rAF: 정확하고 부드럽지만, 페이지가 화면 밖/백그라운드면 아예 멈춘다
+    //    (Streamlit iframe이 뷰포트를 벗어나면 visibilityState가 hidden이 되어 편지가 멎었다)
+    //  - setInterval: 느리고 클램핑되지만 그 상황에서도 계속 돈다
+    // 둘 중 먼저 오는 쪽이 진행시키고, 진행 여부는 경과 시각으로 판단하므로 중복돼도 안전하다.
+    let rafId = 0;
+    const schedule = () => { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(step); };
+    schedule();
+    const iv = setInterval(() => {
+      if (!typing.current) { clearInterval(iv); return; }
+      step();
+    }, 120);
   }
   function skipType() {
     if (!typing.current) return;
-    typed.current = MSG_TEXT.length; typing.current = false; bump();
+    shownLines.current = MESSAGE.length; typing.current = false; bump();
   }
   function wish() {
     wishes.current++;
@@ -15580,7 +15648,6 @@ function Card() {
   }
 
   /* ================= 메인 화면 ================= */
-  const shown = MSG_TEXT.slice(0, typed.current);
   return (
     <div className="relative min-h-screen">
       <canvas ref={cvRef} className="petals" />
@@ -15619,10 +15686,22 @@ function Card() {
             <span className="text-lg">🌸</span>
             <span className="h-px flex-1" style={{background:"linear-gradient(90deg,rgba(255,158,199,.6),transparent)"}} />
           </div>
-          <div className={"whitespace-pre-line text-[15px] sm:text-[17px] leading-[2] text-pink-50/90 min-h-[19em] sm:min-h-[16em] " + (typing.current ? "caret" : "")}>
-            {shown}
+          <div className="text-[14px] sm:text-[16px] leading-[1.95] text-pink-50/90">
+            {MESSAGE.slice(0, shownLines.current).map((l, i) => (
+              l.trim() === ""
+                ? <div key={i} className="h-4" />
+                : <div key={i} className="lineup">{l}</div>
+            ))}
+            {typing.current && <span className="caret" />}
           </div>
-          {typing.current && <div className="mt-3 text-[11px] text-pink-200/35">눌러서 건너뛰기</div>}
+          {!typing.current && (
+            <div className="mt-8 pt-5 text-right lineup" style={{borderTop:"1px solid rgba(255,158,199,.18)"}}>
+              {SIGN.map((l, i) => (
+                <div key={i} className={i === 0 ? "text-[15px] text-pink-50/85" : "text-[11px] text-pink-200/40 mt-1 tracking-wider"}>{l}</div>
+              ))}
+            </div>
+          )}
+          {typing.current && <div className="mt-4 text-[11px] text-pink-200/35">눌러서 건너뛰기</div>}
         </div>
       </div>
 
