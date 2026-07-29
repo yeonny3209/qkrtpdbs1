@@ -68,9 +68,19 @@ export function useRoom() {
   /* 탭이 닫힐 때 방에 알린다 */
   useEffect(() => {
     const onBye = () => { if (roomRef.current) roomRef.current.close() }
+    /* 다른 탭·앱을 보다 돌아오면 즉시 존재를 알린다.
+       배경에서는 타이머가 늦어져 하트비트가 끊기므로, 이게 없으면
+       돌아왔을 때 남들 목록에서 사라진 상태가 된다. */
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && roomRef.current) roomRef.current.forceBeat()
+    }
     window.addEventListener('pagehide', onBye)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
     return () => {
       window.removeEventListener('pagehide', onBye)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
       if (roomRef.current) { roomRef.current.close(); roomRef.current = null }
     }
   }, [])

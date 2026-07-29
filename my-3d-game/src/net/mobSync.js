@@ -26,8 +26,11 @@ export function encodeMobs(mobs) {
       x: Math.round(m.x * 100) / 100,
       z: Math.round(m.z * 100) / 100,
       h: Math.max(0, Math.round(m.hp)),
+      m: m.maxHp || undefined,             // 던전 몹은 배율 때문에 최대 HP가 다르다
       p: PHASE_CODE[m.phase] ?? 0,
       k: m.killerId || undefined,
+      b: m.dbits || undefined,             // 디버프 비트 (팔로워 시각 효과용)
+      r: m.rank && m.rank !== 'normal' ? m.rank : undefined,
     })
   }
   return out
@@ -41,8 +44,11 @@ export function decodeMobs(list) {
     x: m.x,
     z: m.z,
     hp: m.h,
+    maxHp: m.m || null,
     phase: PHASE_NAME[m.p] || 'alive',
     killerId: m.k || null,
+    dbits: m.b || 0,
+    rank: m.r || 'normal',
   }))
 }
 

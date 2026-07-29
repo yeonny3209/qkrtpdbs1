@@ -134,6 +134,19 @@ export function createRoom({ transport, me, now = () => Date.now() }) {
       Object.assign(self, patch)
     },
 
+    /* 즉시 존재를 알린다.
+       브라우저는 배경 탭의 타이머를 심하게 늦추므로, 화면이 다시 보이는
+       순간 하트비트를 기다리지 않고 바로 알려야 남들 목록에서 되살아난다.
+       동시에 다른 사람들의 lastSeen도 리셋해, 내가 멈춰 있는 동안 못 받은
+       하트비트 때문에 멀쩡한 사람을 내보내지 않도록 한다. */
+    forceBeat() {
+      if (closed) return
+      const t = now()
+      lastBeat = t
+      for (const m of members.values()) m.lastSeen = t
+      send({ t: 'hello', nick: self.nick, cls: self.cls, level: self.level, mapId: self.mapId, joinedAt })
+    },
+
     members() { return [...members.values()] },
     peerStates() { return peerStates },
     hostId() { return electHost([...members.values()]) },
