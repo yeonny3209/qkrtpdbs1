@@ -5,7 +5,8 @@
    화면에 그려야 하는 참가자 목록·호스트 여부는 state로 각각 제공한다.
    ================================================================== */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { LocalTransport } from './transport.js'
+import { LocalTransport, WsTransport } from './transport.js'
+import { getWsUrl } from './config.js'
 import { createRoom, HEARTBEAT_MS } from './room.js'
 
 export function useRoom() {
@@ -13,6 +14,8 @@ export function useRoom() {
   const [code, setCode] = useState(null)
   const [members, setMembers] = useState([])
   const [isHost, setIsHost] = useState(false)
+  /* 연결 상태 — none | local | connecting | open | error */
+  const [link, setLink] = useState('none')
   /* 호스트 여부는 매 프레임 읽히므로 ref로도 들고 있는다 */
   const hostRef = useRef(false)
 
@@ -22,11 +25,16 @@ export function useRoom() {
     setIsHost(false)
     setMembers([])
     setCode(null)
+    setLink('none')
   }, [])
 
   const join = useCallback((roomCode, identity) => {
     if (roomRef.current) leave()
-    const transport = LocalTransport(roomCode)
+    /* 서버 주소가 있으면 인터넷으로, 없으면 같은 브라우저 탭끼리 */
+    const wsUrl = getWsUrl()
+    const transport = wsUrl ? WsTransport(roomCode, wsUrl) : LocalTransport(roomCode)
+    if (transport.onStatus) transport.onStatus(setLink)
+    else setLink('local')
     const room = createRoom({ transport, me: identity })
     roomRef.current = room
     /* 혼자 있는 동안에도 호스트다 — 오프라인과 같은 동작이 보장된다 */
@@ -67,5 +75,5 @@ export function useRoom() {
     }
   }, [])
 
-  return { roomRef, hostRef, code, members, isHost, join, leave, connected: !!code }
+  return { roomRef, hostRef, code, members, isHost, link, join, leave, connected: !!code }
 }

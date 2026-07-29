@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom'
 import * as THREE from 'three'
 import { useRoom } from './net/useRoom.js'
+import { getWsUrl } from './net/config.js'
 import { encodeMobs, decodeMobs, sameIds, isMyKill } from './net/mobSync.js'
 
 /* ==================================================================
@@ -519,7 +520,8 @@ const saveJSON = (key, value) => {
    ================================================================== */
 const NET_STATE_HZ = 15        // 내 위치를 보내는 빈도
 const NET_MOB_HZ = 10          // 호스트가 몬스터 상태를 뿌리는 빈도
-const PEER_TIMEOUT = 5000      // 이 시간 동안 소식 없는 캐릭터는 지운다
+const PEER_TIMEOUT = 8000      // 이 시간 동안 소식 없는 캐릭터는 지운다
+                               // (인터넷 순간 끊김에 캐릭터가 깜빡이지 않도록 여유 있게)
 
 const makePlayerId = () =>
   Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -4361,6 +4363,8 @@ function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onFini
 function RoomModal({ room, isHost, onJoin, onLeave, onClose }) {
   const [code, setCode] = useState('')
   const [err, setErr] = useState(null)
+  const online = !!getWsUrl()          // 인터넷 서버가 설정되어 있는가
+  const link = room.link
 
   const submit = () => {
     const msg = onJoin(code)
@@ -4383,6 +4387,18 @@ function RoomModal({ room, isHost, onJoin, onLeave, onClose }) {
               <div className="mt-1.5 text-[11px] text-slate-400">
                 친구에게 이 코드를 알려주세요
               </div>
+            </div>
+
+            {/* 연결 상태 */}
+            <div className={`mt-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-[12px] font-bold ${
+              link === 'open' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
+              : link === 'connecting' ? 'border-amber-400/30 bg-amber-500/10 text-amber-300'
+              : link === 'error' ? 'border-rose-400/30 bg-rose-500/10 text-rose-300'
+              : 'border-white/10 bg-white/5 text-slate-300'}`}>
+              {link === 'open' && <>🟢 인터넷 서버 연결됨 — 다른 기기와 만날 수 있어요</>}
+              {link === 'connecting' && <>🟡 서버에 연결하는 중…</>}
+              {link === 'error' && <>🔴 서버 주소가 잘못되었습니다</>}
+              {link === 'local' && <>💻 로컬 모드 — 이 컴퓨터의 탭끼리 연결됩니다</>}
             </div>
 
             <div className="mt-4">
@@ -4444,8 +4460,13 @@ function RoomModal({ room, isHost, onJoin, onLeave, onClose }) {
             </button>
 
             <div className="mt-4 rounded-xl bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-slate-400">
-              지금은 <b className="text-slate-300">같은 컴퓨터의 다른 탭</b>끼리 연결됩니다.
-              서버를 붙이면 같은 코드로 인터넷 너머의 친구와도 만날 수 있습니다.
+              {online ? (
+                <>🌏 <b className="text-slate-300">인터넷 서버</b>를 통해 연결됩니다 —
+                다른 기기·다른 곳의 가족·친구와 같은 코드로 입장하세요.</>
+              ) : (
+                <>지금은 <b className="text-slate-300">같은 컴퓨터의 다른 탭</b>끼리 연결됩니다.
+                서버를 붙이면 같은 코드로 인터넷 너머의 친구와도 만날 수 있습니다.</>
+              )}
             </div>
           </>
         )}

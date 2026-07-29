@@ -71,6 +71,31 @@ Pages는 `github.io/저장소이름/` 처럼 **하위 경로**로 서비스되�
 
 ---
 
+## 🌐 인터넷 멀티플레이 서버 (공유 사냥터)
+
+RPG의 「같이 하기」를 **다른 기기의 가족·친구와** 쓰려면 릴레이 서버가 필요합니다.
+서버 코드는 [`server/main.ts`](server/main.ts) 한 파일이 전부입니다.
+
+### Deno Deploy에 올리기 (무료 · 카드 불필요 · 약 3분)
+
+1. <https://dash.deno.com> 접속 → **Sign in with GitHub**
+2. **New Playground** 클릭
+3. `server/main.ts` 파일 내용을 통째로 붙여넣기
+4. **Save & Deploy** → 오른쪽에 `https://이름.deno.dev` 주소가 생깁니다
+5. 그 주소를 `src/net/config.js`의 `WS_URL`에 넣고 다시 빌드·배포:
+   ```js
+   export const WS_URL = 'https://이름.deno.dev'   // https여도 자동으로 wss 변환됨
+   ```
+
+`WS_URL`이 비어 있으면 기존처럼 **같은 브라우저의 탭끼리만** 연결되는
+로컬 모드로 동작하므로, 서버 없이도 게임은 항상 정상입니다.
+
+> 서버를 바꿔가며 시험하려면 빌드 없이 브라우저 콘솔에서:
+> `localStorage.setItem('rpg_ws_url', 'wss://주소')` → 새로고침.
+> `'off'`를 넣으면 강제 로컬 모드, 지우면 기본값으로 돌아갑니다.
+
+---
+
 ## 로컬에서 프로덕션 빌드 미리보기
 
 ```bash
