@@ -74,17 +74,28 @@ Pages는 `github.io/저장소이름/` 처럼 **하위 경로**로 서비스되�
 ## 🌐 인터넷 멀티플레이 서버 (공유 사냥터)
 
 RPG의 「같이 하기」를 **다른 기기의 가족·친구와** 쓰려면 릴레이 서버가 필요합니다.
-서버 코드는 [`server/main.ts`](server/main.ts) 한 파일이 전부입니다.
 
-### Deno Deploy에 올리기 (무료 · 카드 불필요 · 약 3분)
+> ⚠️ [`server/main.ts`](server/main.ts)(Deno Deploy Playground)는 시도해봤지만
+> 실측 결과 **요청이 여러 인스턴스로 흩어져서, 다른 인스턴스에 붙은 두 사람이
+> 서로의 메시지를 못 받는 경우**가 확인되었습니다. 그래서 실제로 쓰는 서버는
+> 아래의 Node.js 버전([`server/node/`](server/node))입니다 — 이건 "프로세스
+> 하나가 계속 떠 있는" 방식이라 이 문제 자체가 생기지 않습니다.
 
-1. <https://dash.deno.com> 접속 → **Sign in with GitHub**
-2. **New Playground** 클릭
-3. `server/main.ts` 파일 내용을 통째로 붙여넣기
-4. **Save & Deploy** → 오른쪽에 `https://이름.deno.dev` 주소가 생깁니다
-5. 그 주소를 `src/net/config.js`의 `WS_URL`에 넣고 다시 빌드·배포:
+### Render에 올리기 (무료 · 카드 불필요 · 약 5분)
+
+1. <https://dashboard.render.com> 접속 → **GitHub로 로그인**
+2. **New +** → **Web Service** 클릭
+3. 이 저장소(`qkrtpdbs1`) 선택
+4. 설정 입력:
+   - **Root Directory**: `my-3d-game/server/node`
+   - **Runtime**: `Node`
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+   - **Instance Type**: `Free`
+5. **Create Web Service** → 배포 완료되면 `https://이름.onrender.com` 주소가 생깁니다
+6. 그 주소를 `src/net/config.js`의 `WS_URL`에 넣고 다시 빌드·배포:
    ```js
-   export const WS_URL = 'https://이름.deno.dev'   // https여도 자동으로 wss 변환됨
+   export const WS_URL = 'https://이름.onrender.com'   // https여도 자동으로 wss 변환됨
    ```
 
 `WS_URL`이 비어 있으면 기존처럼 **같은 브라우저의 탭끼리만** 연결되는
@@ -93,6 +104,10 @@ RPG의 「같이 하기」를 **다른 기기의 가족·친구와** 쓰려면 �
 > 서버를 바꿔가며 시험하려면 빌드 없이 브라우저 콘솔에서:
 > `localStorage.setItem('rpg_ws_url', 'wss://주소')` → 새로고침.
 > `'off'`를 넣으면 강제 로컬 모드, 지우면 기본값으로 돌아갑니다.
+
+> Render 무료 티어는 15분 정도 아무도 안 쓰면 서버가 잠들었다가, 다음 접속 때
+> 다시 깨어나는 데 몇십 초 걸릴 수 있습니다. 게임 쪽엔 재접속 로직이 있어서
+> 자동으로 다시 붙지만, 첫 입장 화면에서 🟡 표시가 잠깐 오래 보일 수 있습니다.
 
 ---
 
