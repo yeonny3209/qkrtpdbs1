@@ -6,8 +6,9 @@ import * as THREE from 'three'
 import { useRoom } from './net/useRoom.js'
 import { getWsUrl } from './net/config.js'
 import { encodeMobs, decodeMobs, sameIds, isMyKill } from './net/mobSync.js'
-import { partyCreate, partyAdd, partyRemove, partySetReady, partyCanStart, partySnapshot } from './net/party.js'
+import { partyCreate, partyAdd, partyRemove, partySetReady, partySnapshot } from './net/party.js'
 import { SKILL_SUFFIX, SKILL_TIER_OF, CLASS_ARCH_OF, SKILL_NAMES } from './game/skills.js'
+import { MAIN_QUESTS, MQ_COUNT, MQ_GOAL_LEVEL, currentQuest, canTurnIn, allQuestsDone } from './game/quests.js'
 import {
   DUNGEONS, DUNGEON_BY_ID, DG_WAVES, DG_HALF, dungeonWave, dungeonWaveReward,
   RAID_DIFFS, RAID_BY_ID, RAID_HALF, RAID_BOSS_ID, raidBossHp, raidPhase, raidMechanics,
@@ -413,55 +414,13 @@ const WEB_STATS = [
 const WEB_STAT_MAX = 3          // 특성 노드 최대 레벨
 const webStatId = (clsId, tier, k) => `${clsId}_w${tier}_${k}`
 
-/* 방사형 좌표 계산 (SVG viewBox 400×400, 중심 200,200) */
-const WEB_CENTER = 200
-const webRadius = (tier) => 34 + tier * 26
-/* 링 안의 노드 수가 티어마다 다르므로 per를 받아 균등 배치한다 */
-function webPos(tier, idx, per) {
-  const base = -Math.PI / 2                       // 12시 방향부터
-  const spin = tier * 0.28                        // 레이어마다 살짝 비틀어 거미줄 느낌
-  const a = base + (idx / per) * Math.PI * 2 + spin
-  const r = webRadius(tier)
-  return { x: WEB_CENTER + Math.cos(a) * r, y: WEB_CENTER + Math.sin(a) * r }
-}
-
-/* 한 직업의 전체 웹 노드 목록 (스킬 + 특성)
-   티어 0 = 기본 스킬 2개(중앙 좌우), 티어 1~6 = 신규 스킬들 + 특성 노드 2개 */
-function webNodesFor(clsId) {
-  const skills = SKILLS[clsId] || []
-  const nodes = []
-  skills.filter((s) => s.tier === 0).forEach((s, i) => {
-    nodes.push({ id: s.id, kind: 'skill', tier: 0, idx: i, x: WEB_CENTER + (i === 0 ? -17 : 17), y: WEB_CENTER })
-  })
+/* 특성 id로 정의를 되찾는다 (스킬트리 투자 시 사용) */
+function findWebStat(clsId, id) {
   for (let t = 1; t <= MAX_TIER; t++) {
-    const tierSkills = skills.filter((s) => s.tier === t)
-    const per = tierSkills.length + 2              // 스킬 노드들 + 특성 2개
-    let idx = 0
-    tierSkills.forEach((s) => {
-      nodes.push({ id: s.id, kind: 'skill', tier: t, idx, ...webPos(t, idx, per) })
-      idx++
-    })
-    WEB_STATS[t - 1].forEach((s) => {
-      nodes.push({ id: webStatId(clsId, t, s.k), kind: 'stat', tier: t, idx, stat: s, ...webPos(t, idx, per) })
-      idx++
-    })
+    const s = WEB_STATS[t - 1].find((x) => webStatId(clsId, t, x.k) === id)
+    if (s) return { id, tier: t, stat: s }
   }
-  return nodes
-}
-/* 웹 연결선 — 방사(스포크) + 동심(테두리). 링마다 노드 수가 달라도 이어진다 */
-function webLinks(nodes) {
-  const links = []
-  const ring = (t) => nodes.filter((n) => n.tier === t)
-  for (let t = 1; t <= MAX_TIER; t++) {
-    const cur = ring(t)
-    const prev = ring(t - 1)
-    cur.forEach((n, i) => {
-      const p = prev[Math.floor((i * prev.length) / cur.length) % prev.length]
-      if (p) links.push({ a: p, b: n, tier: t })
-      if (cur.length > 1) links.push({ a: n, b: cur[(i + 1) % cur.length], tier: t, ring: true })
-    })
-  }
-  return links
+  return null
 }
 
 /* 몬스터 크기 배율 */
@@ -803,6 +762,9 @@ const defaultSave = () => ({
   tutorial: 'none',              // none → active → done
   livers: 0,                     // 토끼 간
   unlocked: false,               // 전 콘텐츠 해금 여부
+  /* 메인 퀘스트 — 이장에게 받는 한 줄기 이야기 (현재 단계 번호) */
+  mq: 0,
+  dungeonClears: 0, raidClears: 0,
   /* 스킬 */
   skills: {},                    // { skillId: level }
   jobQuest: {},                  // { npcId: { state, base } } 전직 퀘스트
@@ -2878,22 +2840,30 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const net = netRef.current
     if (!net) return
     const { kind, id } = contentSelRef.current
-    /* 파티가 없어도 던전은 혼자 들어갈 수 있다 (최소 1명) */
+    /* 파티가 없어도 혼자 들어갈 수 있다 — 모자란 자리는 AI 동료가 채운다 */
     let p = partyRef.current
-    if (!p && kind === 'dungeon') {
+    if (!p) {
       p = partyCreate({ id: net.myId, nick: account.nick, cls: cls.id, level: S.current.level })
       partyRef.current = p
       syncParty()
     }
-    if (!p || p.leaderId !== net.myId) return
-    const chk = partyCanStart(p, kind)
-    if (!chk.ok) { addToast('⚠ ' + chk.reason); return }
+    if (p.leaderId !== net.myId) return
+    /* 준비 상태만 확인하고, 인원 미달은 AI로 메운다 */
+    const notReady = p.members.filter((m) => m.id !== p.leaderId && !m.ready)
+    if (notReady.length) { addToast(`⚠ 준비 안 됨: ${notReady.map((m) => m.nick).join(', ')}`); return }
+    const max = kind === 'dungeon' ? 6 : 10
+    if (p.members.length > max) { addToast(`⚠ ${kind === 'dungeon' ? '던전' : '레이드'}는 최대 ${max}명입니다`); return }
     const reqLv = kind === 'dungeon' ? DUNGEON_BY_ID[id].reqLv : RAID_BY_ID[id].reqLv
     const under = p.members.filter((m) => (m.level || 1) < reqLv)
     if (under.length) { addToast(`⚠ 레벨 부족: ${under.map((m) => m.nick).join(', ')} (Lv.${reqLv} 필요)`); return }
+
+    /* 레이드는 최소 4명 — 사람이 모자라면 용병으로 채워 체험할 수 있게 한다 */
+    const minNeed = kind === 'raid' ? 4 : 1
+    const aiCount = Math.max(0, minNeed - p.members.length)
     const inst = (kind === 'dungeon' ? 'dg_' : 'rd_') + Date.now().toString(36)
-    net.room.send({ t: 'pStart', pid: p.id, kind, cid: id, inst, size: p.members.length })
-    if (enterInstanceRef.current) enterInstanceRef.current(kind, id, inst, p.leaderId, p.members.length)
+    const size = p.members.length + aiCount
+    net.room.send({ t: 'pStart', pid: p.id, kind, cid: id, inst, size, ai: aiCount })
+    if (enterInstanceRef.current) enterInstanceRef.current(kind, id, inst, p.leaderId, size, aiCount)
     setPartyOpen(false)
   }, [addToast, account.nick, cls.id, syncParty])
 
@@ -2951,7 +2921,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const net = netRef.current
     const p = partyRef.current
     if (!net || !p || m.pid !== p.id || m.id !== p.leaderId) return
-    if (enterInstanceRef.current) enterInstanceRef.current(m.kind, m.cid, m.inst, p.leaderId, m.size)
+    if (enterInstanceRef.current) enterInstanceRef.current(m.kind, m.cid, m.inst, p.leaderId, m.size, m.ai || 0)
   }, [])
 
   /* 파티장이 소리 없이 사라지면(하트비트 유실) 파티를 정리한다 */
@@ -3147,6 +3117,15 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     }
   }, [cls, commit, bumpHud, addToast])
   world.current.hitPlayer = hitPlayer
+  world.current.playerMaxHp = stats.maxHp
+  /* AI 동료(힐러·성직자)가 나를 치유할 때 쓰는 통로 */
+  world.current.healAlly = useCallback((amount) => {
+    const L = live.current
+    if (L.dead) return
+    L.hp = Math.min(statsRef.current.maxHp, L.hp + amount)
+    setFx((l) => [...l.slice(-10), { id: ++fxId.current, kind: 'heal', x: world.current.player.x, z: world.current.player.z }])
+    bumpHud()
+  }, [bumpHud])
 
   /* ---------- 멀티플레이 배선 ----------
      방에 들어가 있는 동안에만 world.current.net이 채워진다.
@@ -3734,13 +3713,15 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   const investSkill = useCallback((nodeId) => {
     const s = S.current
     if (!s.unlocked) { lockedNotice(); return }
-    const node = webNodesFor(cls.id).find((n) => n.id === nodeId)
-    if (!node) return
-    if (s.tier < node.tier) { addToast('[' + JOB_TIERS[node.tier].title + ']이 필요합니다'); return }
+    /* 스킬이면 정의에서, 특성이면 id에 담긴 티어에서 정보를 얻는다 */
+    const sk = SKILL_BY_ID[nodeId]
+    const stat = sk ? null : findWebStat(cls.id, nodeId)
+    if (!sk && !stat) return
+    const tier = sk ? sk.tier : stat.tier
+    if (s.tier < tier) { addToast('[' + JOB_TIERS[tier].title + ']이 필요합니다'); return }
     const cur = s.skills[nodeId] || 0
-    const isSkill = node.kind === 'skill'
-    const max = isSkill ? skillMaxLv(SKILL_BY_ID[nodeId], s.tier) : WEB_STAT_MAX
-    const label = isSkill ? SKILL_BY_ID[nodeId].name : node.stat.name
+    const max = sk ? skillMaxLv(sk, s.tier) : WEB_STAT_MAX
+    const label = sk ? sk.name : stat.stat.name
     if (cur >= max) { addToast('이미 최대 레벨입니다'); return }
     if (s.sp < 1) { addToast('스킬 포인트(SP)가 부족합니다'); return }
     s.sp -= 1
@@ -3757,17 +3738,45 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     setNpcModal(null)
   }, [commit, addToast])
 
-  const finishTutorial = useCallback(() => {
+  /* ---------- 메인 퀘스트 보고 ----------
+     이장에게 현재 단계를 보고하고 보상을 받은 뒤 다음 단계로 넘어간다.
+     마지막 단계를 끝내면 레벨 10을 보장하고 1차 전직이 열린다. */
+  const turnInQuest = useCallback(() => {
     const s = S.current
-    if (s.livers < LIVER_NEED) return
-    s.tutorial = 'done'
-    s.unlocked = true
-    s.gold += 300
-    s.sp += 1
+    const q = currentQuest(s)
+    if (!q || !q.done(s)) return
+
+    /* 첫 단계는 기존 튜토리얼과 같은 해금 처리를 겸한다 */
+    if (q.id === 'tutorial') {
+      s.tutorial = 'done'
+      s.unlocked = true
+      world.current.tutorLock = false
+    }
+
+    const r = q.reward || {}
+    if (r.gold) s.gold += r.gold
+    if (r.sp) s.sp += r.sp
+    s.mq = (s.mq || 0) + 1
+
+    const events = r.exp ? applyExp(s, r.exp) : []
+
+    /* 전부 끝내면 1차 전직에 필요한 레벨을 보장해준다 */
+    let leveled = false
+    if (allQuestsDone(s) && s.level < MQ_GOAL_LEVEL) {
+      s.level = MQ_GOAL_LEVEL
+      s.exp = 0
+      s.sp += 2
+      leveled = true
+    }
     commit()
-    world.current.tutorLock = false
-    addToast('🎉 튜토리얼 완료! 모든 콘텐츠가 해금되었습니다')
-    addToast('✨ SP +1 · 골드 +300 — 이제 레벨업과 전직이 가능합니다')
+
+    addToast(`📜 [${q.title}] 완료! ${r.gold ? `+${r.gold} G ` : ''}${r.sp ? `SP +${r.sp}` : ''}`)
+    events.forEach(addToast)
+    if (q.id === 'tutorial') addToast('🎉 모든 콘텐츠가 해금되었습니다')
+    if (leveled) {
+      addToast(`✨ 메인 퀘스트 완주 — Lv.${MQ_GOAL_LEVEL} 달성! SP +2`)
+      addToast('🎖 1차 전직 퀘스트가 열렸습니다 — 전직관을 찾아가세요')
+    }
     setNpcModal(null)
   }, [commit, addToast])
 
@@ -3942,6 +3951,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     w.mobs.clear()
     waveIdsRef.current = null
     setInst(null)
+    setAllies([])
     const md = MAP_BY_ID[mapIdRef.current]
     w.half = md.half
     w.portals = portalsFor(mapIdRef.current)
@@ -3955,7 +3965,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     if (msg) addToast(msg)
   }, [addToast, spawnForMap])
 
-  const enterInstance = useCallback((kind, cid, instId, leaderId, size) => {
+  const [allies, setAllies] = useState([])
+  const enterInstance = useCallback((kind, cid, instId, leaderId, size, aiCount = 0) => {
     const s = S.current
     if (!s.unlocked) { lockedNotice(); return }
     const def = kind === 'dungeon' ? DUNGEON_BY_ID[cid] : RAID_BY_ID[cid]
@@ -3980,8 +3991,11 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     L.buffs = []
     setDeath(null)
     w.teleport = { x: 0, z: (kind === 'dungeon' ? DG_HALF : RAID_HALF) * 0.6, yaw: Math.PI }
+    /* 자리를 채운 용병은 인스턴스 소유자(파티장)만 시뮬레이션한다 */
+    setAllies(isLeader && aiCount > 0 ? makeAllies(aiCount, S.current.level) : [])
     addToast(`${def.icon} [${def.name}] 입장!`)
-    pushChat({ sys: true, txt: `${def.name} 입장 — ${size}명` })
+    pushChat({ sys: true, txt: `${def.name} 입장 — ${size}명${aiCount ? ` (용병 ${aiCount}명 합류)` : ''}` })
+    if (aiCount > 0) addToast(`🤝 인원이 모자라 용병 ${aiCount}명이 합류했습니다`)
   }, [addToast, lockedNotice, spawnInstWave, pushChat])
   enterInstanceRef.current = enterInstance
 
@@ -4050,6 +4064,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const rw = dungeonWaveReward(cur.cid, wave)
     grantInstReward(rw.exp, rw.gold, win ? 4 : (wave === 4 ? 3 : 0))
     if (win) {
+      S.current.dungeonClears = (S.current.dungeonClears || 0) + 1
+      commit()
       setInst((v) => (v ? { ...v, done: 'win' } : v))
       addToast('🏆 던전 클리어!')
       pushChat({ sys: true, txt: `${DUNGEON_BY_ID[cur.cid].name} 클리어!` })
@@ -4059,7 +4075,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       /* 쓰러진 사람은 다음 웨이브 시작과 함께 일어난다 */
       if (live.current.dead) reviveInPlace(0.6)
     }
-  }, [grantInstReward, addToast, pushChat, reviveInPlace])
+  }, [grantInstReward, addToast, pushChat, reviveInPlace, commit])
 
   /* 인스턴스 몹 처치 — 보상은 웨이브 클리어 때 전원에게 주므로 여기선 기록만 */
   const onInstMobKill = useCallback((entry) => {
@@ -4159,11 +4175,13 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     if (win && cur.kind === 'raid') {
       const diff = RAID_BY_ID[cur.cid]
       grantInstReward(diff.exp, diff.gold, diff.gradeMax)
+      S.current.raidClears = (S.current.raidClears || 0) + 1
+      commit()
       addToast('🏆 레이드 토벌 성공!')
       pushChat({ sys: true, txt: `${diff.name} 토벌 성공!` })
     }
     setInst((v) => (v ? { ...v, done: win ? 'win' : 'fail' } : v))
-  }, [grantInstReward, addToast, pushChat])
+  }, [grantInstReward, addToast, pushChat, commit])
 
   /* ==================================================================
      거래 — 내 골드와 상대 아이템을 맞바꾼다 (양쪽 다 제시할 수 있다)
@@ -4578,7 +4596,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
                 {NPCS.map((n) => (
                   <QuestNPC key={n.id} npc={n}
                     state={n.role === 'chief'
-                      ? (saveUI.tutorial === 'none' ? 'none' : saveUI.tutorial === 'done' ? 'done' : (saveUI.livers >= LIVER_NEED ? 'ready' : 'active'))
+                      ? (allQuestsDone(saveUI) ? 'done' : canTurnIn(saveUI) ? 'ready' : saveUI.tutorial === 'none' ? 'none' : 'active')
                       : n.role === 'merchant' || n.role === 'changer' ? 'none'
                       : (n.cls === cls.id && canAdvance(saveUI) ? 'ready' : 'done')} />
                 ))}
@@ -4613,6 +4631,9 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
           <group>
             <DungeonArena inst={inst} mobs={mobs} world={world} live={live}
               onKill={onInstMobKill} onRespawn={noRespawn} />
+            {allies.map((a, i) => (
+              <AllyBot key={a.id} ally={a} world={world} live={live} index={i} />
+            ))}
           </group>
         ) : (
           <group>
@@ -4701,20 +4722,27 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         </div>
       </div>
 
-      {/* 튜토리얼 추적 / 성장 안내 */}
-      {!unlocked ? (
-        <div className="pointer-events-none absolute left-1/2 top-4 w-[min(92vw,30rem)] -translate-x-1/2 rounded-2xl border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-center backdrop-blur-sm">
-          <div className="text-[11px] font-black tracking-widest text-amber-200">📜 튜토리얼</div>
-          <div className="text-[12px] text-white">
-            {saveUI.tutorial === 'none' ? '마을 이장에게 말을 걸어보세요 (E)'
-              : saveUI.livers >= LIVER_NEED ? '토끼 간을 다 모았습니다 — 이장에게 돌아가세요!'
-              : `토끼를 사냥해 '토끼 간' 수집 — ${saveUI.livers} / ${LIVER_NEED}`}
+      {/* 메인 퀘스트 추적 / 성장 안내 */}
+      {!inst && !allQuestsDone(saveUI) ? (() => {
+        const q = currentQuest(saveUI)
+        const ready = canTurnIn(saveUI)
+        const stepPct = ((saveUI.mq || 0) / MQ_COUNT) * 100
+        return (
+          <div className="pointer-events-none absolute left-1/2 top-4 w-[min(92vw,30rem)] -translate-x-1/2 rounded-2xl border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-center backdrop-blur-sm">
+            <div className="text-[11px] font-black tracking-widest text-amber-200">
+              📜 메인 퀘스트 {(saveUI.mq || 0) + 1} / {MQ_COUNT} · {q.icon} {q.title}
+            </div>
+            <div className="text-[12px] text-white">
+              {saveUI.tutorial === 'none' ? '마을 이장에게 말을 걸어보세요 (E)'
+                : ready ? '✅ 완료 — 마을 이장에게 돌아가세요!'
+                : `${q.hint} — ${q.progress(saveUI)}`}
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/40">
+              <div className="h-full bg-amber-400 transition-[width]" style={{ width: `${ready ? Math.min(100, stepPct + 100 / MQ_COUNT) : stepPct}%` }} />
+            </div>
           </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/40">
-            <div className="h-full bg-amber-400 transition-[width]" style={{ width: `${(saveUI.livers / LIVER_NEED) * 100}%` }} />
-          </div>
-        </div>
-      ) : (
+        )
+      })() : inst ? null : (
         <div className="pointer-events-none absolute left-1/2 top-4 max-w-md -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-4 py-1.5 text-center text-[11px] text-white/75 backdrop-blur-sm">
           💡 {cls.growHint}
         </div>
@@ -4950,7 +4978,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       )}
       {npcModal && (
         <NpcModal npc={npcModal} save={saveUI} cls={cls} nick={account.nick} onChangeClass={changeClass}
-          onStartTutorial={startTutorial} onFinishTutorial={finishTutorial}
+          onStartTutorial={startTutorial} onTurnInQuest={turnInQuest}
           onBuy={buyItem} onAdvanceGold={advanceByGold}
           onAcceptJobQuest={acceptJobQuest} onCompleteJobQuest={completeJobQuest} onTrainSp={trainSp}
           onClose={() => setNpcModal(null)} />
@@ -5217,141 +5245,193 @@ function InventoryModal({ save, cls, stats, onEquip, onUnequip, onSell, onClose 
    ================================================================== */
 
 /* ==================================================================
-   거미줄 스킬트리 — 중앙에서 바깥으로 뻗는 방사형 노드 UI
-   전직할 때마다 바깥 테두리(레이어)가 하나씩 해금되며 넓어진다.
+   스킬트리 — 전직 단계(티어)를 한 줄씩 쌓은 표
+
+   방사형 거미줄은 노드가 20개를 넘어가면서 서로 겹쳐 알아보기 힘들었다.
+   지금은 티어를 위에서 아래로 한 줄씩 놓고, 각 줄에 그 단계에서 열리는
+   스킬 카드와 특성 칩을 나란히 둔다. 어떤 단계에 무엇이 열리는지가
+   한눈에 들어오고, 화면이 좁아도 자연스럽게 접힌다.
    ================================================================== */
 function SkillTreeModal({ save, cls, stats, onInvest, onClose }) {
-  const nodes = useMemo(() => webNodesFor(cls.id), [cls.id])
-  const links = useMemo(() => webLinks(nodes), [nodes])
-  const [sel, setSel] = useState(`${cls.id}_t0`)
-  const node = nodes.find((n) => n.id === sel) || nodes[0]
-  const isSkill = node.kind === 'skill'
-  const sk = isSkill ? SKILL_BY_ID[node.id] : null
-  const lv = save.skills[node.id] || 0
-  const max = isSkill ? skillMaxLv(sk, save.tier) : WEB_STAT_MAX
-  const tierOk = save.tier >= node.tier
-  const canInvest = tierOk && save.sp > 0 && lv < max
-  const label = isSkill ? sk.name : node.stat.name
+  const list = useMemo(() => SKILLS[cls.id] || [], [cls.id])
+  const [sel, setSel] = useState(list[0] ? list[0].id : null)
 
-  const stateOf = (n) => {
-    const l = save.skills[n.id] || 0
-    if (save.tier < n.tier) return 'locked'
-    if (l >= (n.kind === 'skill' ? skillMaxLv(SKILL_BY_ID[n.id], save.tier) : WEB_STAT_MAX)) return 'mastered'
-    if (l > 0) return 'progress'
-    return 'open'
-  }
-  const COL = { mastered: '#fbbf24', progress: '#34d399', open: '#818cf8', locked: '#3a3a50' }
+  /* 티어별로 스킬과 특성을 묶는다 */
+  const tiers = useMemo(() => Array.from({ length: MAX_TIER + 1 }, (_, t) => ({
+    tier: t,
+    skills: list.filter((s) => s.tier === t),
+    stats: t === 0 ? [] : WEB_STATS[t - 1].map((st) => ({
+      id: webStatId(cls.id, t, st.k), stat: st, tier: t,
+    })),
+  })), [list, cls.id])
+
+  const selSkill = list.find((s) => s.id === sel)
+  const selStat = !selSkill
+    ? tiers.flatMap((r) => r.stats).find((n) => n.id === sel)
+    : null
+  const node = selSkill || selStat
+  const nodeTier = node ? node.tier : 0
+  const lv = node ? (save.skills[node.id] || 0) : 0
+  const max = selSkill ? skillMaxLv(selSkill, save.tier) : WEB_STAT_MAX
+  const tierOk = save.tier >= nodeTier
+  const canInvest = tierOk && save.sp > 0 && lv < max
+
+  const kindIcon = (k) => k === 'buff' ? '🕊️' : k === 'heal' ? '💗' : k === 'debuff' ? '🌒'
+    : k === 'awaken' ? '🌟' : k === 'dash' ? '💨' : '⚔'
+  const kindLabel = (k) => k === 'buff' ? '아군 버프' : k === 'heal' ? '아군 회복' : k === 'debuff' ? '적 디버프'
+    : k === 'awaken' ? '각성' : k === 'dash' ? '돌진 공격' : '공격'
+  const slotKey = (n) => (n === 10 ? '0' : n === 11 ? '-' : String(n))
 
   return (
-    <div data-ui className="absolute inset-0 z-[55] flex items-center justify-center bg-black/72 p-3 backdrop-blur-sm" onClick={onClose}>
+    <div data-ui className="absolute inset-0 z-[55] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()}
-        className="relative flex max-h-[94vh] w-full max-w-4xl flex-col rounded-3xl border border-white/12 bg-slate-900/96 p-5 shadow-2xl [animation:pop_.25s_cubic-bezier(.2,1.5,.4,1)]">
+        className="relative flex max-h-[94vh] w-full max-w-4xl flex-col rounded-3xl border border-white/12 bg-slate-900 p-5 shadow-2xl [animation:pop_.25s_cubic-bezier(.2,1.5,.4,1)]">
         <button onClick={onClose} className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white">✕</button>
+
         <div className="mb-3 flex items-center justify-between pr-8">
           <div>
-            <div className="text-lg font-black text-white">🕸 {cls.name} 거미줄 스킬트리</div>
+            <div className="text-lg font-black text-white">🕸 {cls.name} 스킬트리</div>
             <div className="text-[11px] text-slate-400">
               현재 <b style={{ color: cls.color }}>[{JOB_TIERS[save.tier].name}] {JOB_TIERS[save.tier].title}</b>
               {save.tier < MAX_TIER
-                ? <> · 다음 <b className="text-amber-300">{JOB_TIERS[save.tier + 1].title}</b>(Lv.{JOB_TIERS[save.tier + 1].reqLv}) 시 바깥 테두리 해금</>
-                : <> · <b className="text-fuchsia-300">모든 테두리 해금 완료</b></>}
+                ? <> · 다음 <b className="text-amber-300">{JOB_TIERS[save.tier + 1].title}</b>(Lv.{JOB_TIERS[save.tier + 1].reqLv})에서 새 단계 해금</>
+                : <> · <b className="text-fuchsia-300">모든 단계 해금 완료</b></>}
             </div>
           </div>
           <div className="rounded-full bg-emerald-500/15 px-3 py-1.5 text-sm font-black text-emerald-300">SP {save.sp}</div>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto sm:grid-cols-[1fr_15rem]">
-          {/* 방사형 웹 */}
-          <div className="overflow-hidden rounded-2xl border border-white/8 bg-[#080b14]">
-            <svg viewBox="0 0 400 400" className="h-full w-full">
-              {/* 해금된 테두리(동심원) 가이드 */}
-              {[1, 2, 3, 4, 5, 6].map((t) => (
-                <circle key={t} cx={WEB_CENTER} cy={WEB_CENTER} r={webRadius(t)} fill="none"
-                  stroke={save.tier >= t ? '#6366f1' : '#ffffff'}
-                  strokeOpacity={save.tier >= t ? 0.16 : 0.05} strokeWidth="1" strokeDasharray={save.tier >= t ? '0' : '3 5'} />
-              ))}
-              {/* 거미줄 실 */}
-              {links.map((l, i) => {
-                const on = save.tier >= l.tier
-                return (
-                  <line key={i} x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y}
-                    stroke={on ? (l.ring ? '#4f46e5' : '#6366f1') : '#252538'}
-                    strokeWidth={on ? (l.ring ? 1.6 : 2.4) : 1.2}
-                    strokeDasharray={on ? '0' : '4 4'} strokeOpacity={on ? 0.85 : 0.7} />
-                )
-              })}
-              {/* 노드 */}
-              {nodes.map((n) => {
-                const stt = stateOf(n)
-                const l = save.skills[n.id] || 0
-                const isSel = sel === n.id
-                const r = n.kind === 'skill' ? (n.tier === 0 ? 19 : 16) : 12
-                const nm = n.kind === 'skill' ? SKILL_BY_ID[n.id].name : n.stat.name
-                return (
-                  <g key={n.id} style={{ cursor: 'pointer' }} onClick={() => setSel(n.id)}>
-                    {isSel && <circle cx={n.x} cy={n.y} r={r + 6} fill="none" stroke={COL[stt]} strokeWidth="2" opacity="0.65" />}
-                    <circle cx={n.x} cy={n.y} r={r} fill={stt === 'locked' ? '#12121e' : COL[stt] + '30'} stroke={COL[stt]} strokeWidth={isSel ? 3 : 2} />
-                    <text x={n.x} y={n.y + 4} textAnchor="middle" fontSize={n.kind === 'skill' ? 12 : 10} fill={COL[stt]} fontWeight="bold">
-                      {stt === 'locked' ? '🔒' : stt === 'mastered' ? '★' : String(l)}
-                    </text>
-                    {stt !== 'locked' && (
-                      <text x={n.x} y={n.y + r + 11} textAnchor="middle" fontSize="8.5" fill="#94a3b8" fontWeight="600">{nm}</text>
-                    )}
-                  </g>
-                )
-              })}
-            </svg>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden sm:grid-cols-[1fr_15rem]">
+          {/* 티어별 목록 */}
+          <div className="min-h-0 space-y-2 overflow-y-auto pr-1">
+            {tiers.map((row) => {
+              const open = save.tier >= row.tier
+              return (
+                <div key={row.tier}
+                  className={`rounded-2xl border p-3 transition ${open ? 'border-white/12 bg-white/[0.04]' : 'border-white/6 bg-black/20'}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${open ? 'bg-indigo-500/25 text-indigo-200' : 'bg-white/5 text-slate-600'}`}>
+                      {row.tier === 0 ? '기본' : JOB_TIERS[row.tier].title}
+                    </span>
+                    <span className={`text-[10px] ${open ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {open ? `스킬 ${row.skills.length}개` : `Lv.${JOB_TIERS[row.tier].reqLv} 전직 시 해금`}
+                    </span>
+                    {!open && <span className="ml-auto text-xs">🔒</span>}
+                  </div>
+
+                  {/* 스킬 카드 */}
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                    {row.skills.map((sk) => {
+                      const l = save.skills[sk.id] || 0
+                      const m = skillMaxLv(sk, save.tier)
+                      const done = l >= m && m > 0
+                      const on = sel === sk.id
+                      return (
+                        <button key={sk.id} onClick={() => setSel(sk.id)}
+                          className={`rounded-xl border px-2 py-1.5 text-left transition ${on ? 'ring-2' : ''} ${
+                            !open ? 'border-white/8 bg-black/25 opacity-50'
+                            : done ? 'border-amber-400/50 bg-amber-500/12'
+                            : l > 0 ? 'border-emerald-400/45 bg-emerald-500/10'
+                            : 'border-white/12 bg-black/25 hover:bg-white/8'}`}
+                          style={on ? { boxShadow: `0 0 0 2px ${cls.color}88` } : undefined}>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[13px]">{open ? kindIcon(sk.kind) : '🔒'}</span>
+                            <span className="truncate text-[11px] font-bold text-white">{sk.name}</span>
+                          </div>
+                          <div className="mt-0.5 flex items-center justify-between text-[9px]">
+                            <span className="rounded bg-black/40 px-1 text-slate-400">{slotKey(sk.slot)}</span>
+                            <span className={done ? 'font-bold text-amber-300' : l > 0 ? 'font-bold text-emerald-300' : 'text-slate-500'}>
+                              {open ? `${l} / ${m}` : '—'}
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* 특성 칩 */}
+                  {row.stats.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {row.stats.map((n) => {
+                        const l = save.skills[n.id] || 0
+                        const done = l >= WEB_STAT_MAX
+                        const on = sel === n.id
+                        return (
+                          <button key={n.id} onClick={() => setSel(n.id)}
+                            className={`rounded-full border px-2.5 py-1 text-[10px] font-bold transition ${on ? 'ring-2 ring-white/40' : ''} ${
+                              !open ? 'border-white/8 bg-black/25 text-slate-600 opacity-50'
+                              : done ? 'border-amber-400/50 bg-amber-500/12 text-amber-200'
+                              : l > 0 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
+                              : 'border-white/12 bg-black/25 text-slate-300 hover:bg-white/8'}`}>
+                            ✦ {n.stat.name} <span className="opacity-70">{open ? `${l}/${WEB_STAT_MAX}` : '🔒'}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
 
           {/* 상세 */}
           <div className="flex h-fit flex-col rounded-2xl border border-white/8 bg-slate-800/50 p-4">
-            <div className="text-base font-black text-white">{tierOk ? label : '잠긴 노드'}</div>
-            <div className="mt-0.5 text-[11px]" style={{ color: cls.color }}>
-              {JOB_TIERS[node.tier].title} · {!isSkill ? '특성'
-                : sk.kind === 'buff' ? `버프 [${sk.slot === 10 ? '0' : sk.slot === 11 ? '-' : sk.slot}]`
-                : sk.kind === 'heal' ? `회복 [${sk.slot === 10 ? '0' : sk.slot === 11 ? '-' : sk.slot}]`
-                : sk.kind === 'debuff' ? `저주 [${sk.slot === 10 ? '0' : sk.slot === 11 ? '-' : sk.slot}]`
-                : sk.kind === 'awaken' ? `각성 [${sk.slot === 10 ? '0' : sk.slot === 11 ? '-' : sk.slot}]`
-                : `공격 [${sk.slot === 10 ? '0' : sk.slot === 11 ? '-' : sk.slot}]`}
-            </div>
-            <div className="mt-3 rounded-lg bg-black/30 px-3 py-2 text-xs leading-relaxed text-slate-300">
-              {!tierOk ? `${JOB_TIERS[node.tier].title}(Lv.${JOB_TIERS[node.tier].reqLv}) 이후 해금됩니다.`
-                : isSkill ? sk.desc
-                : `${node.stat.name} — ${node.stat.stat} +${node.stat.per}${node.stat.unit} / 레벨`}
-            </div>
-            {tierOk && (
-              <div className="mt-2 space-y-1 text-[11px] text-slate-400">
-                <div>레벨 <b className="text-white">{lv} / {max}</b></div>
-                {isSkill && (sk.kind === 'dmg' || sk.kind === 'dash') && (
-                  <>
-                    <div>피해 배율 <b className="text-white">×{(sk.dmgMul + sk.dmgPer * Math.max(0, lv - 1)).toFixed(2)}</b></div>
-                    <div>범위 <b className="text-white">{(sk.range * (1 + stats.skillRange)).toFixed(1)}</b> · 쿨 <b className="text-white">{sk.cd}s</b></div>
-                    {sk.kind === 'dash' && <div className="text-sky-300">💨 시전 시 전방으로 돌진</div>}
-                  </>
+            {node ? (
+              <>
+                <div className="text-base font-black text-white">
+                  {tierOk ? (selSkill ? selSkill.name : selStat.stat.name) : '잠긴 항목'}
+                </div>
+                <div className="mt-0.5 text-[11px]" style={{ color: cls.color }}>
+                  {nodeTier === 0 ? '기본' : JOB_TIERS[nodeTier].title}
+                  {' · '}
+                  {selSkill ? `${kindLabel(selSkill.kind)} [${slotKey(selSkill.slot)}]` : '특성'}
+                </div>
+
+                <div className="mt-3 rounded-lg bg-black/30 px-3 py-2 text-xs leading-relaxed text-slate-300">
+                  {!tierOk ? `${JOB_TIERS[nodeTier].title}(Lv.${JOB_TIERS[nodeTier].reqLv}) 이후 해금됩니다.`
+                    : selSkill ? selSkill.desc
+                    : `${selStat.stat.name} — 레벨당 ${selStat.stat.stat} +${selStat.stat.per}${selStat.stat.unit}`}
+                </div>
+
+                {tierOk && (
+                  <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+                    <div>레벨 <b className="text-white">{lv} / {max}</b></div>
+                    {selSkill && (selSkill.kind === 'dmg' || selSkill.kind === 'dash') && (
+                      <>
+                        <div>피해 배율 <b className="text-white">×{(selSkill.dmgMul + selSkill.dmgPer * Math.max(0, lv - 1)).toFixed(2)}</b></div>
+                        <div>범위 <b className="text-white">{(selSkill.range * (1 + stats.skillRange)).toFixed(1)}</b> · 쿨 <b className="text-white">{selSkill.cd}s</b></div>
+                        {selSkill.kind === 'dash' && <div className="text-sky-300">💨 시전 시 전방으로 돌진</div>}
+                      </>
+                    )}
+                    {selSkill && selSkill.kind === 'buff' && (
+                      <div className="text-amber-200">🕊️ 주변 아군 · 범위 {selSkill.aoe}m · 지속 {selSkill.dur}초 · 쿨 {selSkill.cd}s</div>
+                    )}
+                    {selSkill && selSkill.kind === 'debuff' && (
+                      <div className="text-violet-300">🌒 주변 적 · 범위 {selSkill.aoe}m · 지속 {selSkill.dur}초 · 쿨 {selSkill.cd}s</div>
+                    )}
+                    {selSkill && selSkill.kind === 'heal' && (
+                      <div className="text-pink-300">💗 주변 아군 · 범위 {selSkill.aoe}m · 쿨 {selSkill.cd}s{selSkill.revive ? ' · 부활' : ''}</div>
+                    )}
+                    {selSkill && selSkill.kind === 'awaken' && (
+                      <div className="text-amber-300">🌟 {selSkill.dur}초 동안 전능력 강화 · 쿨 {selSkill.cd}s</div>
+                    )}
+                    {selStat && (
+                      <div>현재 보너스 <b className="text-white">+{(selStat.stat.per * lv).toFixed(1)}{selStat.stat.unit}</b></div>
+                    )}
+                  </div>
                 )}
-                {isSkill && sk.kind === 'buff' && (
-                  <div className="text-amber-200">🕊️ 아군 버프 · 범위 {sk.aoe}m · 지속 {sk.dur}초 · 쿨 {sk.cd}s</div>
-                )}
-                {isSkill && sk.kind === 'debuff' && (
-                  <div className="text-violet-300">🌒 적 디버프 · 범위 {sk.aoe}m · 지속 {sk.dur}초 · 쿨 {sk.cd}s</div>
-                )}
-                {isSkill && sk.kind === 'heal' && (
-                  <div className="text-pink-300">💗 아군 회복 · 범위 {sk.aoe}m · 쿨 {sk.cd}s{sk.revive ? ' · 부활' : ''}</div>
-                )}
-                {isSkill && sk.kind === 'awaken' && (
-                  <div className="text-amber-300">🌟 각성 — {sk.dur}초 동안 전능력 강화 · 쿨 {sk.cd}s</div>
-                )}
-                {!isSkill && (
-                  <div>현재 보너스 <b className="text-white">+{(node.stat.per * lv).toFixed(1)}{node.stat.unit}</b></div>
-                )}
-              </div>
+
+                <button onClick={() => onInvest(node.id)} disabled={!canInvest}
+                  className={`mt-4 w-full rounded-xl py-2.5 text-sm font-bold transition ${
+                    canInvest ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:brightness-110'
+                      : 'cursor-not-allowed bg-slate-700/50 text-slate-500'}`}>
+                  {!tierOk ? '🔒 전직 필요' : lv >= max ? '✓ 최대 레벨' : save.sp < 1 ? 'SP 부족' : `SP 1 투자 (Lv.${lv} → ${lv + 1})`}
+                </button>
+              </>
+            ) : (
+              <div className="text-sm text-slate-500">항목을 선택하세요</div>
             )}
-            <button onClick={() => onInvest(node.id)} disabled={!canInvest}
-              className={`mt-4 w-full rounded-xl py-2.5 text-sm font-bold transition ${
-                canInvest ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:brightness-110' : 'cursor-not-allowed bg-slate-700/50 text-slate-500'
-              }`}>
-              {!tierOk ? '🔒 전직 필요' : lv >= max ? '✓ 최대 레벨' : save.sp < 1 ? 'SP 부족' : `SP 1 투자 (Lv.${lv} → ${lv + 1})`}
-            </button>
+
             <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-white/8 pt-3 text-[11px]">
               <div className="text-slate-400">공격력 <b className="text-white">{stats.atk.toFixed(2)}</b></div>
               <div className="text-slate-400">최대 HP <b className="text-white">{stats.maxHp}</b></div>
@@ -5364,7 +5444,7 @@ function SkillTreeModal({ save, cls, stats, onInvest, onClose }) {
     </div>
   )
 }
-function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onFinishTutorial, onBuy,
+function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onTurnInQuest, onBuy,
   onAdvanceGold, onAcceptJobQuest, onCompleteJobQuest, onTrainSp, onClose }) {
   const isMobile = useIsMobile()
   const next = canAdvance(save)
@@ -5385,66 +5465,97 @@ function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onFini
           </div>
         </div>
 
-        {/* ── 마을 이장 (튜토리얼) ── */}
-        {npc.role === 'chief' && (
-          <>
-            {save.tutorial === 'none' && (
-              <>
-                <p className="mt-4 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">
-                  “{nick} 환영한다네! 먼저 움직이는 법(<b className="text-amber-300">{isMobile ? '왼쪽 조이스틱' : 'W, A, S, D'}</b>)과 시점 돌리는 법(<b className="text-amber-300">{isMobile ? '빈 화면 드래그' : '우클릭 드래그'}</b>)을 익혀보게.
-                  준비가 되면 주변의 토끼를 사냥해 <b className="text-amber-300">‘토끼 간’ 10개</b>를 구해오게나.”
-                </p>
-                <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-                  ⚠ 튜토리얼을 완료하기 전까지 레벨업 · 맵 탐험 · 전직 · 수련관 · 신전 · 스킬트리가 잠겨 있습니다.
-                </div>
-                <button onClick={onStartTutorial}
-                  className="mt-4 w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 py-3 font-bold text-white transition hover:brightness-110">
-                  📜 알겠습니다, 다녀오겠습니다
-                </button>
-              </>
-            )}
-            {save.tutorial === 'active' && save.livers < LIVER_NEED && (
-              <>
-                <p className="mt-4 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">
-                  “아직 부족하구먼. 토끼를 더 사냥해 <b className="text-amber-300">토끼 간</b>을 모아오게. 조급해할 것 없네.”
-                </p>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/50">
-                  <div className="h-full bg-amber-400" style={{ width: `${(save.livers / LIVER_NEED) * 100}%` }} />
-                </div>
-                <div className="mt-1 text-right text-[11px] font-bold text-white">{save.livers} / {LIVER_NEED}</div>
-                <button onClick={onClose} className="mt-4 w-full rounded-xl border border-white/15 py-3 font-bold text-slate-200 transition hover:bg-white/5">알겠습니다</button>
-              </>
-            )}
-            {save.tutorial === 'active' && save.livers >= LIVER_NEED && (
-              <>
-                <p className="mt-4 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">
-                  “오오, 벌써 다 모았는가! 훌륭하네. 이제 자네는 어엿한 모험가일세 —
-                  <b className="text-violet-300"> 레벨</b>과 <b className="text-violet-300">전직</b>, 그리고 바깥 세상이 모두 열릴 걸세!”
-                </p>
-                <button onClick={onFinishTutorial}
-                  className="mt-4 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 font-black text-white transition hover:brightness-110">
-                  🎉 보상 받기 — 전 콘텐츠 해금
-                </button>
-              </>
-            )}
-            {save.tutorial === 'done' && (
-              <>
-                <p className="mt-4 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">
-                  “자네 덕분에 마을이 평화롭다네. 상인에게 물건도 사고, 자네 직업의 <b className="text-amber-300">전직관</b>도 찾아가 보게.
-                  10레벨마다 전직할 수 있으니 잊지 말게!”
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-1.5 text-[11px] text-slate-400">
-                  {NPCS.filter((n) => n.role === 'job').map((n) => (
-                    <div key={n.id} className={n.cls === cls.id ? 'font-bold text-amber-300' : ''}>
-                      {n.icon} {n.region} — {CLASS_BY_ID[n.cls].name}
+        {/* ── 마을 이장 (메인 퀘스트) ── */}
+        {npc.role === 'chief' && (() => {
+          const q = currentQuest(save)
+          const ready = q && q.done(save)
+          const step = (save.mq || 0) + 1
+          return (
+            <>
+              {/* 진행 표시 — 총 5단계 중 어디쯤인지 */}
+              <div className="mt-4 flex items-center gap-1.5">
+                {MAIN_QUESTS.map((mq, i) => (
+                  <div key={mq.id} className="flex-1 text-center">
+                    <div className={`h-1.5 rounded-full ${i < (save.mq || 0) ? 'bg-emerald-400' : i === (save.mq || 0) ? 'bg-amber-400' : 'bg-white/15'}`} />
+                    <div className={`mt-1 text-[9px] ${i < (save.mq || 0) ? 'text-emerald-300' : i === (save.mq || 0) ? 'text-amber-300' : 'text-slate-600'}`}>
+                      {mq.icon}
                     </div>
-                  ))}
-                </div>
-                <button onClick={onClose} className="mt-4 w-full rounded-xl border border-white/15 py-3 font-bold text-slate-200 transition hover:bg-white/5">고맙습니다</button>
-              </>
-            )}
-          </>
-        )}
+                  </div>
+                ))}
+              </div>
+
+              {q ? (
+                <>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-black text-amber-300">
+                      메인 {step} / {MQ_COUNT}
+                    </span>
+                    <span className="text-sm font-black text-white">{q.icon} {q.title}</span>
+                  </div>
+
+                  <p className="mt-2 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">
+                    {ready
+                      ? `“${q.turnIn}”`
+                      : (save.mq === 0 && save.tutorial === 'none'
+                        ? <>“{nick} 환영한다네! 먼저 움직이는 법(<b className="text-amber-300">{isMobile ? '왼쪽 조이스틱' : 'W, A, S, D'}</b>)과 시점 돌리는 법(<b className="text-amber-300">{isMobile ? '빈 화면 드래그' : '우클릭 드래그'}</b>)을 익혀보게. {q.give}”</>
+                        : `“${q.give}”`)}
+                  </p>
+
+                  {!ready && (
+                    <div className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300">📌 {q.hint}</span>
+                        <b className="text-amber-300">{q.progress(save)}</b>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                    <span className="text-slate-500">보상</span>
+                    {q.reward.gold && <span className="rounded bg-black/30 px-2 py-0.5 text-amber-300">🪙 {q.reward.gold}</span>}
+                    {q.reward.sp && <span className="rounded bg-black/30 px-2 py-0.5 text-emerald-300">SP +{q.reward.sp}</span>}
+                    {q.reward.exp && <span className="rounded bg-black/30 px-2 py-0.5 text-violet-300">EXP {q.reward.exp}</span>}
+                  </div>
+
+                  {save.mq === 0 && save.tutorial === 'none' ? (
+                    <button onClick={onStartTutorial}
+                      className="mt-4 w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 py-3 font-bold text-white transition hover:brightness-110">
+                      📜 알겠습니다, 다녀오겠습니다
+                    </button>
+                  ) : ready ? (
+                    <button onClick={onTurnInQuest}
+                      className="mt-4 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 font-black text-white transition hover:brightness-110">
+                      🎉 보고하고 보상 받기
+                    </button>
+                  ) : (
+                    <button onClick={onClose}
+                      className="mt-4 w-full rounded-xl border border-white/15 py-3 font-bold text-slate-200 transition hover:bg-white/5">
+                      다녀오겠습니다
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="mt-3 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">
+                    “자네는 이제 어엿한 모험가일세. <b className="text-amber-300">전직관</b>을 찾아가 1차 전직을 하게 —
+                    10레벨마다 새로운 힘이 열릴 걸세!”
+                  </p>
+                  <div className="mt-3 rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-200">
+                    ✓ 메인 퀘스트 {MQ_COUNT}단계를 모두 마쳤습니다
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-1.5 text-[11px] text-slate-400">
+                    {NPCS.filter((n) => n.role === 'job').map((n) => (
+                      <div key={n.id} className={n.cls === cls.id ? 'font-bold text-amber-300' : ''}>
+                        {n.icon} {n.region} — {CLASS_BY_ID[n.cls].name}
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={onClose} className="mt-4 w-full rounded-xl border border-white/15 py-3 font-bold text-slate-200 transition hover:bg-white/5">고맙습니다</button>
+                </>
+              )}
+            </>
+          )
+        })()}
 
         {/* ── 직업 변경관 ── */}
         {npc.role === 'changer' && (
@@ -5691,6 +5802,170 @@ function ConfirmPopup({ icon, title, desc, hint, accentFrom, accentTo, onAccept,
 }
 
 /* ==================================================================
+   AI 동료 — 인원이 모자랄 때 함께 싸워주는 마을 용병
+
+   혼자서도 파티 던전·레이드를 체험할 수 있게 파티 자리를 채운다.
+   시뮬레이션은 몹과 마찬가지로 인스턴스 소유자(파티장)만 돌리고,
+   나머지 참가자에게는 위치·HP가 스냅샷으로 전달된다.
+   ================================================================== */
+const ALLY_NAMES = ['용병 카린', '용병 두르', '용병 미라', '용병 렌', '용병 소라', '용병 발크', '용병 이니', '용병 타샤', '용병 곤']
+const ALLY_CLASSES = ['warrior', 'archer', 'healer', 'mage', 'priest', 'assassin', 'moon', 'swordsman', 'reaper']
+
+/* 인원이 모자란 만큼 AI 동료를 만든다 */
+function makeAllies(count, level) {
+  return Array.from({ length: Math.max(0, count) }, (_, i) => ({
+    id: 'ai_' + i,
+    nick: ALLY_NAMES[i % ALLY_NAMES.length],
+    cls: ALLY_CLASSES[i % ALLY_CLASSES.length],
+    level,
+    ai: true,
+  }))
+}
+
+function AllyBot({ ally, world, live, index }) {
+  const root = useRef()
+  const armPivot = useRef()
+  const hpFg = useRef()
+  const cls = CLASS_BY_ID[ally.cls] || CLASSES[0]
+  const pose = poseOf(cls.weapon)
+  const label = useMemo(() => makeLabelTexture(ally.nick), [ally.nick])
+  useEffect(() => () => label.tex.dispose(), [label])
+
+  const st = useRef({
+    x: Math.cos((index / 4) * Math.PI * 2) * 4,
+    z: 6 + Math.sin((index / 4) * Math.PI * 2) * 2,
+    yaw: Math.PI, hp: 1, maxHp: 1, swingT: -1, cool: 0.6 + index * 0.2, healCd: 4,
+  })
+
+  /* 파티 명단에 나를 등록해 힐·버프 대상이 되고 몹 표적도 된다 */
+  useEffect(() => {
+    const w = world.current
+    const me = {
+      peerId: ally.id, nick: ally.nick, cls: ally.cls, ai: true,
+      x: st.current.x, z: st.current.z, yaw: st.current.yaw,
+      hp: 1, maxHp: 1, dead: false, alive: true,
+      mapId: w.mapId, inst: w.inst, at: performance.now(),
+    }
+    w.peers.set(ally.id, me)
+    return () => { w.peers.delete(ally.id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useFrame((state, rawDelta) => {
+    const g = root.current
+    if (!g) return
+    const dt = Math.min(rawDelta, 0.1)
+    const w = world.current
+    const me = w.peers.get(ally.id)
+    if (!me) return
+    const S2 = st.current
+
+    /* 동료 능력치는 파티원 평균에 맞춘 고정값 — 밸런스가 튀지 않게 */
+    const lvl = ally.level || 1
+    const maxHp = 200 + lvl * 26
+    const atk = 12 + lvl * 3.4
+    if (S2.maxHp !== maxHp) { S2.maxHp = maxHp; if (S2.hp <= 1) S2.hp = maxHp }
+    me.maxHp = maxHp
+    me.at = performance.now()
+    me.inst = w.inst
+    me.mapId = w.mapId
+
+    if (me.dead) {
+      g.rotation.x = lerp(g.rotation.x, -Math.PI / 2 + 0.2, damp(6, dt))
+      g.position.set(S2.x, 0, S2.z)
+      return
+    }
+    g.rotation.x = lerp(g.rotation.x, 0, damp(10, dt))
+
+    /* 가장 가까운 살아있는 몹을 찾아 붙는다 */
+    let target = null, best = 1e9
+    w.mobs.forEach((m) => {
+      if (!m.alive) return
+      const d = dist2(S2.x, S2.z, m.x, m.z)
+      if (d < best) { best = d; target = m }
+    })
+
+    const healer = ally.cls === 'healer' || ally.cls === 'priest'
+    S2.healCd = Math.max(0, S2.healCd - dt)
+    /* 지원 계열은 다친 아군(플레이어 포함)을 돌본다 */
+    if (healer && S2.healCd <= 0) {
+      const pHurt = live.current.hp < statsRefSafe(w) * 0.65 && !live.current.dead
+      if (pHurt) {
+        S2.healCd = 6
+        if (w.healAlly) w.healAlly(Math.round(40 + lvl * 6))
+      }
+    }
+
+    if (target) {
+      const dx = target.x - S2.x, dz = target.z - S2.z
+      const d = Math.max(0.001, Math.hypot(dx, dz))
+      S2.yaw = dampAngle(S2.yaw, Math.atan2(dx, dz), 8, dt)
+      const reach = 2.6
+      if (d > reach) {
+        const spd = 5.2
+        S2.x += (dx / d) * spd * dt
+        S2.z += (dz / d) * spd * dt
+      } else {
+        S2.cool -= dt
+        if (S2.cool <= 0) {
+          S2.cool = 1.1
+          S2.swingT = 0
+          const dmg = Math.round(atk * (0.85 + Math.random() * 0.4))
+          target.hit({ x: dx / d, z: dz / d }, dmg, ally.id)
+        }
+      }
+    } else {
+      /* 적이 없으면 플레이어 곁으로 */
+      const px = w.player.x, pz = w.player.z
+      const dx = px - S2.x, dz = pz - S2.z
+      const d = Math.hypot(dx, dz)
+      if (d > 4) { S2.x += (dx / d) * 4.4 * dt; S2.z += (dz / d) * 4.4 * dt }
+      S2.yaw = dampAngle(S2.yaw, Math.atan2(dx, dz), 5, dt)
+    }
+
+    const half = w.half
+    S2.x = clamp(S2.x, -half, half); S2.z = clamp(S2.z, -half, half)
+    me.x = S2.x; me.z = S2.z; me.yaw = S2.yaw; me.hp = S2.hp
+
+    g.position.x = S2.x
+    g.position.z = S2.z
+    g.position.y = Math.abs(Math.sin(state.clock.elapsedTime * 3 + index)) * 0.04
+    g.rotation.y = S2.yaw
+
+    if (hpFg.current) {
+      const r = clamp(S2.hp / S2.maxHp, 0, 1)
+      hpFg.current.scale.x = Math.max(0.001, r)
+      hpFg.current.position.x = -0.6 * (1 - r)
+      hpFg.current.material.color.set(r > 0.6 ? '#4ade80' : r > 0.34 ? '#facc15' : '#f87171')
+    }
+    if (armPivot.current) {
+      if (S2.swingT >= 0) {
+        S2.swingT += dt
+        const q = S2.swingT / SWING_TIME
+        if (q >= 1) { S2.swingT = -1; armPivot.current.rotation.x = pose.rest }
+        else armPivot.current.rotation.x = swingAngleFor(pose, q)
+      } else armPivot.current.rotation.x = pose.rest + Math.sin(state.clock.elapsedTime * 1.6 + index) * 0.05
+    }
+  })
+
+  return (
+    <group ref={root}>
+      <CharacterBody cls={cls} wtype={cls.weapon} armPivot={armPivot} tint={false} />
+      <Billboard position={[0, 3.05, 0]}>
+        <mesh position={[0, 0.3, 0]}>
+          <planeGeometry args={[label.aspect * 0.4, 0.4]} />
+          <meshBasicMaterial map={label.tex} transparent depthWrite={false} />
+        </mesh>
+        <mesh><planeGeometry args={[1.25, 0.16]} /><meshBasicMaterial color="#111827" transparent opacity={0.85} /></mesh>
+        <mesh ref={hpFg} position={[0, 0, 0.001]}><planeGeometry args={[1.2, 0.1]} /><meshBasicMaterial color="#4ade80" /></mesh>
+      </Billboard>
+    </group>
+  )
+}
+/* 플레이어 최대 HP를 안전하게 얻는다 (동료 회복 판단용) */
+function statsRefSafe(w) { return (w.playerMaxHp || 100) }
+
+/* ==================================================================
    던전 · 레이드 무대 — 폐쇄된 원형 투기장 + 웨이브 몬스터
    ================================================================== */
 function DungeonArena({ inst, mobs, world, live, onKill, onRespawn }) {
@@ -5743,8 +6018,11 @@ function PartyModal({ myId, party, roster, contentSel, setContentSel, saveLevel,
   const lim = contentSel.kind === 'dungeon' ? { min: 1, max: 6 } : { min: 4, max: 10 }
   const content = contentSel.kind === 'dungeon' ? DUNGEON_BY_ID[contentSel.id] : RAID_BY_ID[contentSel.id]
   const notReady = party ? party.members.filter((m) => m.id !== party.leaderId && !m.ready) : []
-  const sizeOk = size >= lim.min && size <= lim.max
+  /* 인원이 모자라면 AI 용병이 채워주므로 상한만 지키면 시작할 수 있다 */
+  const aiFill = Math.max(0, lim.min - size)
+  const sizeOk = size <= lim.max
   const canStart = isLeader && sizeOk && notReady.length === 0
+  const lvOk = saveLevel >= content.reqLv
   const inParty = (id) => !!party && party.members.some((m) => m.id === id)
   const myReady = party ? !!party.members.find((m) => m.id === myId)?.ready : false
 
@@ -5871,35 +6149,30 @@ function PartyModal({ myId, party, roster, contentSel, setContentSel, saveLevel,
             })}
           </div>
 
-          {isLeader ? (
+          {aiFill > 0 && lvOk && (
+            <div className="mt-3 rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-200">
+              🤝 인원이 <b>{aiFill}명</b> 모자라 <b>마을 용병</b>이 함께 갑니다 — 혼자서도 체험할 수 있어요
+            </div>
+          )}
+
+          {!party || isLeader ? (
             <>
-              <button onClick={onStart} disabled={!canStart}
-                className={`mt-3 w-full rounded-xl py-3 font-black text-white transition ${canStart
+              <button onClick={onStart} disabled={!lvOk || (party && !canStart)}
+                className={`mt-3 w-full rounded-xl py-3 font-black text-white transition ${lvOk && (!party || canStart)
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110'
                   : 'cursor-not-allowed bg-slate-700/60 text-slate-500'}`}>
-                {!sizeOk ? `${lim.min}~${lim.max}명이 필요합니다 (현재 ${size}명)`
+                {!lvOk ? `Lv.${content.reqLv} 이상 필요`
+                  : !sizeOk ? `최대 ${lim.max}명까지입니다 (현재 ${size}명)`
                   : notReady.length ? `준비 대기: ${notReady.map((m) => m.nick).join(', ')}`
-                  : `▶ ${content.name} 입장`}
+                  : `▶ ${content.name} 입장${aiFill > 0 ? ` (+용병 ${aiFill})` : ''}`}
               </button>
               <div className="mt-2 text-center text-[11px] text-slate-500">
-                파티원 전원이 준비를 완료하면 입장할 수 있습니다
+                {party ? '파티원 전원이 준비를 완료하면 입장할 수 있습니다' : '혼자 시작하면 용병이 자리를 채웁니다'}
               </div>
             </>
-          ) : party ? (
-            <div className="mt-3 rounded-xl bg-white/5 px-3 py-2.5 text-center text-[12px] text-slate-400">
-              파티장이 시작하기를 기다리는 중입니다 — <b className="text-slate-200">준비 완료</b>를 눌러주세요
-            </div>
-          ) : contentSel.kind === 'dungeon' ? (
-            /* 파티가 없어도 던전은 혼자 도전할 수 있다 */
-            <button onClick={onStart} disabled={saveLevel < content.reqLv}
-              className={`mt-3 w-full rounded-xl py-3 font-black text-white transition ${saveLevel >= content.reqLv
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110'
-                : 'cursor-not-allowed bg-slate-700/60 text-slate-500'}`}>
-              {saveLevel >= content.reqLv ? `▶ ${content.name} 혼자 입장` : `Lv.${content.reqLv} 이상 필요`}
-            </button>
           ) : (
             <div className="mt-3 rounded-xl bg-white/5 px-3 py-2.5 text-center text-[12px] text-slate-400">
-              레이드는 <b className="text-slate-200">4명 이상</b>의 파티가 필요합니다
+              파티장이 시작하기를 기다리는 중입니다 — <b className="text-slate-200">준비 완료</b>를 눌러주세요
             </div>
           )}
         </div>

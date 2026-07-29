@@ -11,16 +11,27 @@
    파티 4~10명. 페이즈가 오를수록 기믹이 추가된다.
    ================================================================== */
 
+/* 레벨 구간마다 하나씩 — 사냥터(MAPS)의 요구 레벨과 짝을 맞춘다.
+   tier는 보상 등급 계산에 쓰인다 (뒤로 갈수록 후하다). */
 export const DUNGEONS = [
-  { id: 0, name: '고블린 소굴', icon: '🏕️', reqLv: 8, mob: 'goblin',
+  { id: 0, name: '버려진 지하실', icon: '🕯️', reqLv: 3, mob: 'rabbit', tier: 0,
+    ground: '#3a3a44', sky: '#16161c', fog: [16, 52], accent: '#94a3b8',
+    desc: '마을 아래 잊혀진 창고 — 첫 모험에 알맞다' },
+  { id: 1, name: '고블린 소굴', icon: '🏕️', reqLv: 8, mob: 'goblin', tier: 1,
     ground: '#2e4231', sky: '#18231b', fog: [16, 52], accent: '#8bc34a',
     desc: '고블린 무리의 본거지 — 우두머리가 도사린다' },
-  { id: 1, name: '늑대 협곡 심부', icon: '🐺', reqLv: 16, mob: 'wolf',
+  { id: 2, name: '늑대 협곡 심부', icon: '🐺', reqLv: 16, mob: 'wolf', tier: 2,
     ground: '#4a4238', sky: '#211d18', fog: [16, 50], accent: '#b8a88a',
     desc: '협곡 깊은 곳, 늑대왕의 사냥터' },
-  { id: 2, name: '화염 심장부', icon: '🌋', reqLv: 26, mob: 'imp',
+  { id: 3, name: '화염 심장부', icon: '🌋', reqLv: 26, mob: 'imp', tier: 3,
     ground: '#4a2620', sky: '#2a1210', fog: [14, 46], accent: '#ff7043',
     desc: '용암 한가운데, 화염 군주의 옥좌' },
+  { id: 4, name: '심연의 미궁', icon: '🕳️', reqLv: 36, mob: 'wraith', tier: 4,
+    ground: '#2a2438', sky: '#12101c', fog: [12, 42], accent: '#a78bfa',
+    desc: '빛이 닿지 않는 미궁 — 망령의 왕이 기다린다' },
+  { id: 5, name: '용의 둥지 심층', icon: '🐲', reqLv: 48, mob: 'drake', tier: 5,
+    ground: '#4a2c34', sky: '#241419', fog: [12, 44], accent: '#f43f5e',
+    desc: '어린 용들의 둥지 가장 깊은 곳' },
 ]
 export const DUNGEON_BY_ID = Object.fromEntries(DUNGEONS.map((d) => [d.id, d]))
 
@@ -54,19 +65,22 @@ export function dungeonWave(wave, partySize) {
 export function dungeonWaveReward(dungeonId, wave) {
   const base = [0, 340, 480, 640, 1100, 2400][wave] || 0     // 경험치
   const goldBase = [0, 30, 42, 56, 100, 220][wave] || 0
-  const mul = 1 + dungeonId * 0.9                            // 상위 던전일수록 후하게
+  const t = DUNGEON_BY_ID[dungeonId] ? DUNGEON_BY_ID[dungeonId].tier : dungeonId
+  const mul = 1 + t * 1.6                                    // 상위 던전일수록 후하게
   return { exp: Math.round(base * mul), gold: Math.round(goldBase * mul) }
 }
 
 /* ==================================================================
    레이드 — 심연의 군주
    ================================================================== */
+/* 초급은 메인 퀘스트 도중(레벨 10 이전)에 체험할 수 있어야 하므로 문턱을 낮게 둔다.
+   중급·하드는 그 뒤의 성장 목표다. */
 export const RAID_DIFFS = [
-  { id: 0, name: '초급 레이드', phases: 3, reqLv: 20, icon: '🌑',
-    hp: 30000, dmg: 34, color: '#7c6cd6', gold: 2600, exp: 26000, gradeMax: 4 },
-  { id: 1, name: '중급 레이드', phases: 4, reqLv: 35, icon: '🌘',
+  { id: 0, name: '초급 레이드', phases: 3, reqLv: 5, icon: '🌑',
+    hp: 12000, dmg: 22, color: '#7c6cd6', gold: 2600, exp: 26000, gradeMax: 4 },
+  { id: 1, name: '중급 레이드', phases: 4, reqLv: 25, icon: '🌘',
     hp: 90000, dmg: 55, color: '#a052d6', gold: 7000, exp: 90000, gradeMax: 5 },
-  { id: 2, name: '하드 레이드', phases: 5, reqLv: 50, icon: '🌒',
+  { id: 2, name: '하드 레이드', phases: 5, reqLv: 45, icon: '🌒',
     hp: 240000, dmg: 84, color: '#e0409a', gold: 20000, exp: 300000, gradeMax: 5 },
 ]
 export const RAID_BY_ID = Object.fromEntries(RAID_DIFFS.map((r) => [r.id, r]))
