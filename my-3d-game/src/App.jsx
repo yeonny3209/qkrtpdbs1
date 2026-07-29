@@ -3,6 +3,8 @@ import { Billboard, RoundedBox } from '@react-three/drei'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom'
 import * as THREE from 'three'
+import { useRoom } from './net/useRoom.js'
+import { encodeMobs, decodeMobs, sameIds, isMyKill } from './net/mobSync.js'
 
 /* ==================================================================
    [3D 하드코어 액션 RPG — 세계관 · 튜토리얼 · 전직 시스템]
@@ -501,6 +503,71 @@ const loadJSON = (key, fallback) => {
 }
 const saveJSON = (key, value) => {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* 무시 */ }
+}
+
+/* ==================================================================
+   공유 사냥터 — 여러 명이 같은 필드에서 함께 논다.
+
+   [진실의 소유자]
+   호스트(방에 가장 먼저 들어온 사람)만 몬스터 AI를 돌리고 HP를 소유한다.
+   나머지는 받은 좌표·HP를 따라 그린다. 그래야 "내 화면에선 죽었는데
+   친구 화면에선 살아있는" 상태가 생기지 않는다.
+
+   [혼자 할 때]
+   방에 들어가지 않으면 world.current.net === null 이고, 모든 분기가
+   호스트 경로를 타므로 기존 단독 플레이와 완전히 동일하게 동작한다.
+   ================================================================== */
+const NET_STATE_HZ = 15        // 내 위치를 보내는 빈도
+const NET_MOB_HZ = 10          // 호스트가 몬스터 상태를 뿌리는 빈도
+const PEER_TIMEOUT = 5000      // 이 시간 동안 소식 없는 캐릭터는 지운다
+
+const makePlayerId = () =>
+  Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
+
+/* 네트워크에서 나를 구분하는 id — 탭마다 다르다.
+   localStorage는 탭끼리 공유되므로 저장 데이터에 id를 두면 같은 브라우저의
+   두 탭이 한 사람으로 취급된다. sessionStorage는 탭별로 분리되고
+   새로고침해도 유지되므로 여기에 둔다. */
+const SS_PEER_ID = 'rpg_peer_id_v1'
+function getPeerId() {
+  try {
+    let v = sessionStorage.getItem(SS_PEER_ID)
+    if (!v) { v = makePlayerId(); sessionStorage.setItem(SS_PEER_ID, v) }
+    return v
+  } catch { return makePlayerId() }
+}
+
+/* 방 코드 — 사람이 불러주기 쉽게 헷갈리는 글자(0/O, 1/I)는 뺀다 */
+const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const makeRoomCode = () => Array.from(
+  { length: 4 },
+  () => ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)],
+).join('')
+const normalizeRoomCode = (raw) => (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+
+/* 몬스터가 노릴 대상 — 나와 접속자 중 가장 가까운 사람.
+   혼자일 때는 나 자신만 후보이므로 기존 동작과 같다.
+   투기장에 가 있는 사람은 필드에 없으므로 표적에서 뺀다. */
+function nearestTarget(w, x, z) {
+  let best = w.player
+  let bd = dist2(x, z, w.player.x, w.player.z)
+  if (w.peers) {
+    for (const p of w.peers.values()) {
+      if (p.mapId !== w.mapId || p.dead || p.arena || !p.alive) continue
+      const d = dist2(x, z, p.x, p.z)
+      if (d < bd) { bd = d; best = p }
+    }
+  }
+  return best
+}
+
+/* 몬스터의 공격을 대상에게 전달한다. 피어가 맞았으면 그 사람에게 알린다. */
+function deliverMobHit(w, target, dmg) {
+  if (target && target.peerId) {
+    if (w.net) w.net.room.send({ t: 'mobHit', target: target.peerId, dmg })
+    return
+  }
+  if (w.hitPlayer) w.hitPlayer(dmg)
 }
 
 /* ==================================================================
@@ -1303,6 +1370,175 @@ function Player({ cls, wtype, gradeColor, awakened, swing, world, live, camRef, 
 }
 
 /* ==================================================================
+   다른 플레이어 — 네트워크로 받은 좌표를 향해 부드럽게 따라간다.
+
+   초당 15번만 위치를 받으므로 그대로 그리면 뚝뚝 끊겨 보인다.
+   damp()로 보간해 60fps처럼 움직이게 만든다.
+   ================================================================== */
+
+/* 이름표를 캔버스로 그려 텍스처로 쓴다 — 폰트 파일을 받아올 필요가 없다 */
+function makeLabelTexture(text) {
+  const font = 'bold 44px system-ui, -apple-system, sans-serif'
+  const measure = document.createElement('canvas').getContext('2d')
+  measure.font = font
+  const w = Math.min(420, Math.ceil(measure.measureText(text).width) + 28)
+  const c = document.createElement('canvas')
+  c.width = Math.max(8, w); c.height = 64
+  const g = c.getContext('2d')
+  g.font = font
+  g.textAlign = 'center'; g.textBaseline = 'middle'
+  g.fillStyle = 'rgba(8,12,24,.62)'
+  g.beginPath(); g.roundRect(0, 0, c.width, c.height, 14); g.fill()
+  g.fillStyle = '#ffffff'
+  g.fillText(text, c.width / 2, c.height / 2 + 2)
+  const tex = new THREE.CanvasTexture(c)
+  tex.anisotropy = 4
+  return { tex, aspect: c.width / c.height }
+}
+
+function RemotePlayer({ peerId, nick, clsId, wtype, world }) {
+  const root = useRef()
+  const armPivot = useRef()
+  const hpFg = useRef()
+  const cls = CLASS_BY_ID[clsId] || CLASSES[0]
+  const pose = poseOf(wtype || cls.weapon)
+  const swingT = useRef(-1)
+  const label = useMemo(() => makeLabelTexture(nick || '???'), [nick])
+  useEffect(() => () => label.tex.dispose(), [label])
+
+  useFrame((state, rawDelta) => {
+    const g = root.current
+    if (!g) return
+    const dt = Math.min(rawDelta, 0.1)
+    const p = world.current.peers.get(peerId)
+    if (!p) { g.visible = false; return }
+    g.visible = true
+
+    /* 수신 좌표를 향해 보간 — 15Hz 입력을 60fps로 펴준다 */
+    p.rx = lerp(p.rx ?? p.x, p.x, damp(11, dt))
+    p.rz = lerp(p.rz ?? p.z, p.z, damp(11, dt))
+    p.ryaw = dampAngle(p.ryaw ?? p.yaw, p.yaw, 10, dt)
+
+    g.position.x = p.rx
+    g.position.z = p.rz
+    g.position.y = p.dead ? 0 : Math.abs(Math.sin(state.clock.elapsedTime * 3)) * 0.04
+    g.rotation.y = p.ryaw
+    /* 쓰러진 모습 */
+    g.rotation.x = p.dead
+      ? lerp(g.rotation.x, -Math.PI / 2 + 0.2, damp(6, dt))
+      : lerp(g.rotation.x, 0, damp(10, dt))
+
+    if (hpFg.current && p.maxHp > 0) {
+      const r = clamp(p.hp / p.maxHp, 0, 1)
+      hpFg.current.scale.x = Math.max(0.001, r)
+      hpFg.current.position.x = -0.6 * (1 - r)
+      hpFg.current.material.color.set(r > 0.6 ? '#4ade80' : r > 0.34 ? '#facc15' : '#f87171')
+    }
+
+    /* 공격 모션 — 상대가 휘둘렀다는 신호를 받으면 한 번 재생 */
+    if (p.swingSeq !== p.playedSeq) { p.playedSeq = p.swingSeq; swingT.current = 0 }
+    if (armPivot.current) {
+      if (swingT.current >= 0) {
+        swingT.current += dt
+        const q = swingT.current / SWING_TIME
+        if (q >= 1) { swingT.current = -1; armPivot.current.rotation.x = pose.rest }
+        else armPivot.current.rotation.x = swingAngleFor(pose, q)
+      } else {
+        armPivot.current.rotation.x = pose.rest + Math.sin(state.clock.elapsedTime * 1.6) * 0.05
+      }
+    }
+  })
+
+  return (
+    <group ref={root}>
+      <CharacterBody cls={cls} wtype={wtype || cls.weapon} armPivot={armPivot} tint={false} />
+      <Billboard position={[0, 3.05, 0]}>
+        {/* 이름표 */}
+        <mesh position={[0, 0.3, 0]}>
+          <planeGeometry args={[label.aspect * 0.42, 0.42]} />
+          <meshBasicMaterial map={label.tex} transparent depthWrite={false} />
+        </mesh>
+        {/* HP바 */}
+        <mesh><planeGeometry args={[1.25, 0.16]} /><meshBasicMaterial color="#111827" transparent opacity={0.85} /></mesh>
+        <mesh ref={hpFg} position={[0, 0, 0.001]}><planeGeometry args={[1.2, 0.1]} /><meshBasicMaterial color="#4ade80" /></mesh>
+      </Billboard>
+    </group>
+  )
+}
+
+/* 같은 맵에 있는 접속자만 그린다 */
+function RemotePlayers({ roster, world }) {
+  return roster.map((p) => (
+    <RemotePlayer key={p.id} peerId={p.id} nick={p.nick} clsId={p.cls} wtype={p.wtype} world={world} />
+  ))
+}
+
+/* ==================================================================
+   네트워크 펌프 — 주기적으로 내 상태를 보내고, 호스트면 몬스터 상태를 뿌린다.
+
+   [왜 useFrame이 아니라 타이머인가]
+   브라우저는 배경 탭의 requestAnimationFrame을 아예 멈춘다. 렌더 루프에
+   네트워크를 얹으면 호스트가 다른 탭을 보는 순간 모두의 세계가 정지한다.
+   타이머는 배경에서 느려질 뿐 멈추지 않으므로 방이 유지된다.
+   전송 주기가 프레임률에 좌우되지 않는다는 점도 이쪽이 옳다.
+   ================================================================== */
+function useNetPump({ world, live, netRef, mapIdRef, modeRef, identityRef, onMobList, onRoster, active }) {
+  const cbRef = useRef({})
+  cbRef.current = { onMobList, onRoster }
+
+  useEffect(() => {
+    if (!active) return
+    const r2 = (v) => Math.round(v * 100) / 100
+
+    const sendState = () => {
+      const net = netRef.current
+      if (!net) return
+      const w = world.current
+      const id = identityRef.current
+      net.room.send({
+        t: 'state',
+        x: r2(w.player.x), z: r2(w.player.z), yaw: r2(w.player.yaw),
+        mapId: mapIdRef.current, md: modeRef.current,
+        hp: Math.round(live.current.hp), maxHp: Math.round(live.current.maxHp),
+        dead: !!live.current.dead,
+        nick: id.nick, cls: id.cls, wtype: id.wtype,
+        sw: net.swingSeq | 0,
+      })
+    }
+
+    const pumpMobs = () => {
+      const net = netRef.current
+      if (!net) return
+      if (net.isHost) {
+        /* 호스트만 몬스터의 진실을 알고 있다.
+           투기장에 있는 동안은 필드 몬스터가 언마운트되므로 빈 목록을
+           보내지 않는다 — 팔로워는 마지막 상태로 멈춰서 기다린다. */
+        if (modeRef.current === 'arena') return
+        net.room.send({ t: 'mobs', mapId: mapIdRef.current, list: encodeMobs(world.current.mobs) })
+      } else if (net.pendingMobs) {
+        /* 팔로워 — 구성이 바뀌었을 때만 컴포넌트를 다시 만든다 */
+        const list = net.pendingMobs
+        net.pendingMobs = null
+        cbRef.current.onMobList(list)
+      }
+    }
+
+    const sweep = () => {
+      if (!netRef.current) return
+      const now = performance.now()
+      const peers = world.current.peers
+      for (const [id, p] of peers) if (now - p.at > PEER_TIMEOUT) peers.delete(id)
+      cbRef.current.onRoster()
+    }
+
+    const a = setInterval(sendState, 1000 / NET_STATE_HZ)
+    const b = setInterval(pumpMobs, 1000 / NET_MOB_HZ)
+    const c = setInterval(sweep, 400)
+    return () => { clearInterval(a); clearInterval(b); clearInterval(c) }
+  }, [active, world, live, netRef, mapIdRef, modeRef, identityRef])
+}
+
+/* ==================================================================
    몬스터 — 맵마다 종류·레벨·스펙이 다르다.
    토끼는 비공격, 나머지는 플레이어를 추격해 공격하는 AI를 가진다.
    ================================================================== */
@@ -1420,6 +1656,7 @@ function Monster({ entry, world, live, onKill, onRespawn }) {
   const fired = useRef({ kill: false, resp: false })
   const knock = useRef({ x: 0, z: 1, t: 0 })
   const dieDir = useRef({ x: 0, z: 1 })
+  const killerRef = useRef(null)      // 막타를 넣은 사람 (보상 귀속)
   const meRef = useRef(null)
   const pos = useRef({ x: entry.x, z: entry.z })
   const face = useRef(Math.random() * Math.PI * 2)
@@ -1432,19 +1669,44 @@ function Monster({ entry, world, live, onKill, onRespawn }) {
   useEffect(() => () => mat.dispose(), [mat])
   const red = useMemo(() => new THREE.Color('#ff5a4d'), [])
 
-  const onHit = useCallback((dir, dmg) => {
+  /* attackerId: 누가 때렸는가. 없으면 나(로컬 플레이어).
+     막타를 넣은 사람만 보상을 받으므로 처치 순간에 이 값을 기록해 둔다. */
+  const onHit = useCallback((dir, dmg, attackerId) => {
     if (phase.current !== 'alive') return
     flash.current = HIT_FLASH
-    hp.current -= dmg
     knock.current = { x: dir.x, z: dir.z, t: 0.18 }
+
+    const w = world.current
+    const net = w.net
+    /* 팔로워는 HP를 소유하지 않는다 — 호스트에 의도만 보내고
+       타격 이펙트만 즉시 보여준다(반응성). HP는 호스트 값을 따른다.
+       단, 호스트와 다른 맵에 있으면 이 몬스터는 내 로컬 세계의 것이므로
+       혼자 하던 방식 그대로 처리한다. */
+    if (net && !net.isHost && net.snapMapId === w.mapId) {
+      net.room.send({ t: 'hit', mobId: entry.id, dmg, dx: dir.x, dz: dir.z })
+      return
+    }
+
+    hp.current -= dmg
     if (T.aggro) ai.current.cool = Math.min(ai.current.cool, 0.3)   // 맞으면 즉각 반응
-    if (hp.current <= 0) { phase.current = 'dying'; dieDir.current = dir; dieT.current = 0 }
-  }, [T.aggro])
+    if (hp.current <= 0) {
+      phase.current = 'dying'; dieDir.current = dir; dieT.current = 0
+      killerRef.current = attackerId || (net ? net.myId : null)
+      const me = meRef.current
+      if (me) { me.phase = 'dying'; me.killerId = killerRef.current }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [T.aggro, entry.id, world])
   const onHitRef = useRef(onHit); onHitRef.current = onHit
 
   useEffect(() => {
     const reg = world.current.mobs
-    const me = { x: entry.x, z: entry.z, alive: true, type: entry.type, hit: (dir, dmg) => onHitRef.current(dir, dmg) }
+    const me = {
+      id: entry.id, x: entry.x, z: entry.z, alive: true,
+      type: entry.type, scale: entry.scale || 1,
+      hp: T.hp, maxHp: T.hp, phase: 'alive', killerId: null,
+      hit: (dir, dmg, attackerId) => onHitRef.current(dir, dmg, attackerId),
+    }
     reg.set(entry.id, me); meRef.current = me
     return () => { reg.delete(entry.id) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1472,13 +1734,55 @@ function Monster({ entry, world, live, onKill, onRespawn }) {
 
     if (phase.current === 'alive') {
       const P = pos.current
-      const pl = world.current.player
+      const w = world.current
+      const net = w.net
+      /* 호스트가 지금 이 맵을 돌리고 있을 때만 팔로워가 된다.
+         호스트가 다른 맵에 있으면 내 맵의 몬스터는 내가 직접 돌린다. */
+      const follower = !!net && !net.isHost && net.snapMapId === w.mapId
+
+      /* 팔로워 — AI를 돌리지 않고 호스트가 보낸 좌표·HP를 따라간다 */
+      if (follower) {
+        const snap = net.mobSnap.get(entry.id)
+        if (snap) {
+          P.x = lerp(P.x, snap.x, damp(12, dt))
+          P.z = lerp(P.z, snap.z, damp(12, dt))
+          hp.current = snap.hp
+          if (snap.phase !== 'alive') {
+            /* 호스트가 죽었다고 하면 죽는 연출로 넘어간다 */
+            killerRef.current = snap.killerId
+            phase.current = 'dying'; dieT.current = 0
+            const me0 = meRef.current
+            if (me0) { me0.phase = 'dying'; me0.killerId = snap.killerId }
+          }
+        }
+        if (knock.current.t > 0) knock.current.t = Math.max(0, knock.current.t - dt)
+        const kk0 = smooth(knock.current.t / 0.18) * 0.4
+        const bob0 = entry.type === 'rabbit' ? Math.abs(Math.sin(t * 4.2)) * 0.3
+          : entry.type === 'imp' || entry.type === 'wraith' ? Math.sin(t * 1.8) * 0.16
+          : Math.abs(Math.sin(t * 3)) * 0.06
+        g.position.x = P.x + knock.current.x * kk0
+        g.position.z = P.z + knock.current.z * kk0
+        g.position.y = bob0
+        if (entry.type !== 'rabbit') {
+          const tg0 = nearestTarget(w, P.x, P.z)
+          face.current = dampAngle(face.current, Math.atan2(tg0.x - P.x, tg0.z - P.z), 7, dt)
+          g.rotation.y = face.current
+        }
+        const meF = meRef.current
+        if (meF) { meF.x = g.position.x; meF.z = g.position.z; meF.alive = true; meF.hp = hp.current }
+        return
+      }
+
+      /* 여기부터는 호스트(또는 혼자 플레이) — 기존 AI 그대로 */
+      const pl = nearestTarget(w, P.x, P.z)
       const dx = pl.x - P.x, dz = pl.z - P.z
       const d = Math.hypot(dx, dz)
       if (knock.current.t > 0) knock.current.t = Math.max(0, knock.current.t - dt)
       const kk = smooth(knock.current.t / 0.18) * 0.4
 
-      if (T.aggro && !live.current.dead) {
+      /* 노리는 대상이 죽어 있으면 쉰다. 혼자일 때는 예전과 같은 조건이다. */
+      const targetDown = pl.peerId ? !!pl.dead : live.current.dead
+      if (T.aggro && !targetDown) {
         const A = ai.current
         if (A.cool > 0) A.cool -= dt
         face.current = dampAngle(face.current, Math.atan2(dx, dz), 7, dt)
@@ -1493,7 +1797,9 @@ function Monster({ entry, world, live, onKill, onRespawn }) {
           if (A.t >= T.windup) {
             A.mode = 'idle'; A.cool = T.cool
             const dd = Math.hypot(pl.x - P.x, pl.z - P.z)
-            if (dd <= T.range + 0.6) world.current.hitPlayer(T.dmg + Math.floor(Math.random() * Math.max(1, T.dmg * 0.25)))
+            if (dd <= T.range + 0.6) {
+              deliverMobHit(w, pl, T.dmg + Math.floor(Math.random() * Math.max(1, T.dmg * 0.25)))
+            }
           }
         }
       }
@@ -1508,12 +1814,13 @@ function Monster({ entry, world, live, onKill, onRespawn }) {
       if (T.aggro && ai.current.mode === 'windup') g.position.x += Math.sin(t * 55) * 0.04
       if (inner.current && entry.type === 'rabbit') inner.current.scale.set(1, 1 - Math.sin(t * 8.4) * 0.05, 1)
       if (ears.current) ears.current.rotation.z = Math.sin(t * 4.2) * 0.12
-      const me = meRef.current; if (me) { me.x = g.position.x; me.z = g.position.z; me.alive = true }
+      const me = meRef.current
+      if (me) { me.x = g.position.x; me.z = g.position.z; me.alive = true; me.hp = hp.current }
       return
     }
 
     if (phase.current === 'dying') {
-      const me = meRef.current; if (me) me.alive = false
+      const me = meRef.current; if (me) { me.alive = false; me.hp = 0 }
       dieT.current += dt
       const p = Math.min(1, dieT.current / DIE_TIME)
       const fly = smooth(Math.min(1, p * 1.1))
@@ -1524,12 +1831,26 @@ function Monster({ entry, world, live, onKill, onRespawn }) {
       g.scale.setScalar((p > 0.65 ? lerp(1, 0.04, smooth((p - 0.65) / 0.35)) : 1) * (entry.scale || 1))
       if (p >= 1) {
         g.visible = false; phase.current = 'gone'; goneT.current = 0
-        if (!fired.current.kill) { fired.current.kill = true; onKill(entry) }
+        if (!fired.current.kill) {
+          fired.current.kill = true
+          /* 막타를 넣은 사람만 보상을 받는다. 혼자일 때는 net이 없으므로
+             killer 판정을 거치지 않고 예전처럼 바로 지급된다. */
+          const net = world.current.net
+          if (!net || isMyKill(killerRef.current, net.myId)) onKill(entry)
+        }
       }
       return
     }
     goneT.current += dt
-    if (goneT.current >= RESPAWN_TIME && !fired.current.resp) { fired.current.resp = true; onRespawn(entry.id) }
+    /* 리스폰은 이 몬스터의 시뮬레이션을 소유한 쪽만 결정한다.
+       호스트(또는 혼자·호스트와 다른 맵의 로컬 세계)는 직접 리스폰하고,
+       팔로워는 호스트 스냅샷으로 새 개체를 받는다. */
+    if (goneT.current >= RESPAWN_TIME && !fired.current.resp) {
+      const net = world.current.net
+      if (!net || net.isHost || net.snapMapId !== world.current.mapId) {
+        fired.current.resp = true; onRespawn(entry.id)
+      }
+    }
   })
 
   const sc = entry.scale || 1
@@ -2372,10 +2693,19 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     mobs: new Map(), targets: new Map(), dummies: new Map(), fragments: new Map(),
     bot: null, half: MAP_BY_ID[S.current.map || 0].half, teleport: null,
     tutorLock: !S.current.unlocked, onEdge: null, portals: portalsFor(S.current.map || 0),
+    /* 공유 사냥터 — 방에 들어가기 전에는 net이 null이라 혼자 하던 것과 같다 */
+    peers: new Map(), net: null, mapId: S.current.map || 0,
   })
   const camRef = useRef({ yaw: Math.PI, pitch: 0.62 })
   const swing = useRef({ t: -1, hitDone: true, impact: null })
   const controlRef = useRef({ lock: false })
+
+  /* ---------- 공유 사냥터 ---------- */
+  const room = useRoom()
+  const netRef = useRef(null)
+  const [roster, setRoster] = useState([])       // 같은 맵에 있는 접속자 (렌더용)
+  const [roomOpen, setRoomOpen] = useState(false)
+  const identityRef = useRef({ nick: account.nick, cls: cls.id, wtype: null })
 
   const [, setTick] = useState(0)
   const bumpHud = useCallback(() => setTick((t) => t + 1), [])
@@ -2384,6 +2714,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   const modeRef = useRef(mode); modeRef.current = mode
   const [mapId, setMapId] = useState(() => S.current.map || 0)
   const mapIdRef = useRef(mapId); mapIdRef.current = mapId
+  world.current.mapId = mapId
   const mapDef = MAP_BY_ID[mapId]
   const [botCls, setBotCls] = useState(null)
   const [botDiff, setBotDiff] = useState(null)
@@ -2543,6 +2874,123 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     }
   }, [cls, commit, bumpHud, addToast])
   world.current.hitPlayer = hitPlayer
+
+  /* ---------- 멀티플레이 배선 ----------
+     방에 들어가 있는 동안에만 world.current.net이 채워진다.
+     나가면 즉시 null이 되어 혼자 하던 동작으로 돌아간다. */
+  const roomRef = room.roomRef
+  const roomConnected = room.connected
+  const roomIsHost = room.isHost
+
+  useEffect(() => {
+    const w = world.current            // 게임이 사는 동안 바뀌지 않는 객체
+    const r = roomRef.current
+    if (!roomConnected || !r) {
+      w.net = null
+      netRef.current = null
+      w.peers.clear()
+      setRoster([])
+      return
+    }
+    const net = { room: r, myId: r.id, isHost: true, mobSnap: new Map(), snapMapId: -1, pendingMobs: null, swingSeq: 0 }
+    netRef.current = net
+    w.net = net
+
+    /* 다른 사람의 위치 수신 */
+    const offState = r.on('state', (m) => {
+      let p = w.peers.get(m.id)
+      if (!p) { p = { peerId: m.id, alive: true, rx: m.x, rz: m.z, ryaw: m.yaw, playedSeq: m.sw }; w.peers.set(m.id, p) }
+      p.x = m.x; p.z = m.z; p.yaw = m.yaw; p.mapId = m.mapId
+      p.hp = m.hp; p.maxHp = m.maxHp; p.dead = !!m.dead
+      p.arena = m.md === 'arena'          // 투기장에 있는 동안은 필드에서 빠진다
+      p.nick = m.nick; p.cls = m.cls; p.wtype = m.wtype
+      p.swingSeq = m.sw
+      p.at = performance.now()
+    })
+
+    /* 팔로워의 공격 의도 — 호스트만 실제 HP에 반영한다 */
+    const offHit = r.on('hit', (m) => {
+      if (!net.isHost) return
+      const mob = w.mobs.get(m.mobId)
+      if (mob && mob.alive) mob.hit({ x: m.dx, z: m.dz }, m.dmg, m.id)
+    })
+
+    /* 호스트가 "네가 몬스터에게 맞았다"고 알려온 경우 */
+    const offMobHit = r.on('mobHit', (m) => {
+      if (m.target !== net.myId) return
+      if (w.hitPlayer) w.hitPlayer(m.dmg)
+    })
+
+    /* 호스트가 뿌린 몬스터 상태 */
+    const offMobs = r.on('mobs', (m) => {
+      if (net.isHost) return                     // 호스트는 자기 것이 진실
+      net.snapMapId = m.mapId                    // 호스트가 어느 맵을 돌리는지 기록
+      if (m.mapId !== mapIdRef.current) return   // 내가 다른 맵이면 이 스냅샷은 쓰지 않는다
+      const list = decodeMobs(m.list)
+      net.mobSnap.clear()
+      for (const x of list) net.mobSnap.set(x.id, x)
+      net.pendingMobs = list
+    })
+
+    const offLeave = r.on('leave', ({ id }) => { w.peers.delete(id) })
+
+    return () => {
+      offState(); offHit(); offMobHit(); offMobs(); offLeave()
+      w.net = null
+      netRef.current = null
+      w.peers.clear()
+      setRoster([])
+    }
+  }, [roomConnected, roomRef])
+
+  /* 호스트 승계는 언제든 일어날 수 있다 — 매 프레임 읽히는 ref에 반영 */
+  useEffect(() => {
+    if (netRef.current) netRef.current.isHost = roomIsHost
+  }, [roomIsHost])
+
+  /* 내 정보가 바뀌면 방에 알린다 */
+  useEffect(() => {
+    identityRef.current = { nick: account.nick, cls: cls.id, wtype }
+    if (roomRef.current) roomRef.current.update({ cls: cls.id, level: saveUI.level, mapId })
+  }, [account.nick, cls.id, wtype, saveUI.level, mapId, roomRef])
+
+  /* 화면에 그릴 접속자 명단 — 같은 맵 필드에 있는 사람만 (투기장은 각자 공간) */
+  const refreshRoster = useCallback(() => {
+    const here = []
+    for (const p of world.current.peers.values()) {
+      if (p.mapId === mapIdRef.current && !p.arena) here.push({ id: p.peerId, nick: p.nick, cls: p.cls, wtype: p.wtype })
+    }
+    setRoster((prev) => {
+      if (prev.length === here.length && prev.every((x, i) => x.id === here[i].id && x.cls === here[i].cls && x.wtype === here[i].wtype)) return prev
+      return here
+    })
+  }, [])
+
+  /* 호스트가 보낸 몬스터 구성으로 교체 (팔로워 전용) */
+  const applyRemoteMobs = useCallback((list) => {
+    setMobs((prev) => (sameIds(prev, list) ? prev : list.map((m) => ({ id: m.id, type: m.type, scale: m.scale, x: m.x, z: m.z }))))
+  }, [])
+
+  const joinRoom = useCallback((rawCode) => {
+    const code = normalizeRoomCode(rawCode)
+    if (code.length < 3) return '방 코드는 3자 이상이어야 합니다'
+    room.join(code, {
+      id: getPeerId(), nick: account.nick, cls: cls.id, level: S.current.level, mapId: mapIdRef.current,
+    })
+    setRoomOpen(false)
+    addToast(`🌐 [${code}] 방에 입장했습니다`)
+    return null
+  }, [room, account.nick, cls.id, addToast])
+
+  const leaveRoom = useCallback(() => {
+    room.leave()
+    addToast('🌐 혼자 하기로 돌아왔습니다')
+  }, [room, addToast])
+
+  useNetPump({
+    world, live, netRef, mapIdRef, modeRef, identityRef,
+    onMobList: applyRemoteMobs, onRoster: refreshRoster, active: roomConnected,
+  })
 
   const revive = useCallback(() => {
     const L = live.current
@@ -2717,6 +3165,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const s = swing.current
     if (s.t >= 0 && s.t < SWING_TIME * 0.55) return
     s.t = 0; s.hitDone = false
+    /* 다른 사람 화면에서도 내가 휘두르는 게 보이도록 신호를 올린다 */
+    if (netRef.current) netRef.current.swingSeq = (netRef.current.swingSeq | 0) + 1
   }, [cls, openMath])
   const doAttackRef = useRef(doAttack); doAttackRef.current = doAttack
 
@@ -3146,6 +3596,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
           return <HealFx key={f.id} fx={f} onDone={fxDone} />
         })}
         <ArrowPool live={live} />
+        {/* 같은 맵에 있는 다른 플레이어 */}
+        {mode === 'field' && <RemotePlayers roster={roster} world={world} />}
         <GameLogic world={world} live={live} mode={mode} mapId={mapId} statsRef={statsRef}
           bumpHud={bumpHud} onFragment={onFragment} onSermon={onSermon} onPortal={changeMap} />
       </Canvas>
@@ -3299,6 +3751,14 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       )}
 
       <div data-ui className={`absolute right-4 flex flex-col items-end gap-2 ${isMobile ? 'top-28 scale-90 origin-top-right' : 'bottom-4'}`}>
+        <button onClick={() => setRoomOpen(true)}
+          className={`rounded-full border px-4 py-2 text-sm font-bold backdrop-blur-sm transition ${room.connected
+            ? 'border-emerald-400/50 bg-emerald-600/80 text-white hover:bg-emerald-600'
+            : 'border-white/15 bg-slate-900/85 text-white hover:bg-slate-800'}`}>
+          {room.connected
+            ? <>🌐 {room.code} <span className="ml-1 rounded-full bg-black/35 px-2 py-0.5 text-[10px]">{room.members.length}명</span></>
+            : <>🌐 같이 하기</>}
+        </button>
         <button onClick={() => { if (!unlocked) { lockedNotice(); return } setTreeOpen(true) }}
           className={`rounded-full border px-4 py-2 text-sm font-bold backdrop-blur-sm transition ${unlocked ? 'border-white/15 bg-slate-900/85 text-white hover:bg-slate-800' : 'border-white/10 bg-slate-900/60 text-slate-500'}`}>
           {unlocked ? '🕸' : '🔒'} 스킬트리 <span className="text-[10px] text-slate-400">(K)</span>
@@ -3327,6 +3787,10 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
           onClose={() => setNpcModal(null)} />
       )}
       {diffModal && <DifficultyModal save={saveUI} onPick={enterArena} onClose={() => setDiffModal(false)} />}
+      {roomOpen && (
+        <RoomModal room={room} isHost={roomIsHost} onJoin={joinRoom} onLeave={leaveRoom}
+          onClose={() => setRoomOpen(false)} />
+      )}
       {mathModal && <MathModal problem={mathModal} circle={saveUI.circle} onSubmit={submitMath} onCancel={() => setMathModal(null)} />}
       {death && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -3891,6 +4355,105 @@ function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onFini
     </div>
   )
 }
+/* ==================================================================
+   방 — 같은 코드를 입력한 사람끼리 사냥터를 공유한다
+   ================================================================== */
+function RoomModal({ room, isHost, onJoin, onLeave, onClose }) {
+  const [code, setCode] = useState('')
+  const [err, setErr] = useState(null)
+
+  const submit = () => {
+    const msg = onJoin(code)
+    if (msg) setErr(msg)
+  }
+
+  return (
+    <div data-ui className="absolute inset-0 z-[60] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+      <div className="w-[23rem] rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-black text-white">🌐 같이 하기</div>
+          <button onClick={onClose} className="rounded-lg px-2 py-1 text-slate-400 transition hover:bg-white/10 hover:text-white">✕</button>
+        </div>
+
+        {room.connected ? (
+          <>
+            <div className="mt-4 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-center">
+              <div className="text-[11px] tracking-[0.3em] text-emerald-300/80">ROOM CODE</div>
+              <div className="mt-1 font-mono text-3xl font-black tracking-[0.3em] text-emerald-300">{room.code}</div>
+              <div className="mt-1.5 text-[11px] text-slate-400">
+                친구에게 이 코드를 알려주세요
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs font-bold text-slate-400">접속 중 ({room.members.length}명)</div>
+              <div className="mt-2 space-y-1.5">
+                {room.members.map((m) => {
+                  const c = CLASS_BY_ID[m.cls]
+                  const isMe = m.id === room.roomRef.current?.id
+                  return (
+                    <div key={m.id} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                      <span className="text-base">{c ? c.icon : '👤'}</span>
+                      <span className="text-sm font-bold text-white">{m.nick}</span>
+                      {isMe && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-300">나</span>}
+                      <span className="ml-auto text-[11px] text-slate-400">Lv.{m.level || 1}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-slate-400">
+              {isHost
+                ? '🖥 이 기기가 몬스터를 관리합니다 (호스트)'
+                : '📡 호스트의 몬스터 상태를 받아오는 중입니다'}
+              <br />몬스터를 <b className="text-slate-300">마지막에 때린 사람</b>이 경험치와 아이템을 가져갑니다.
+            </div>
+
+            <button onClick={() => { onLeave(); onClose() }}
+              className="mt-4 w-full rounded-xl border border-white/15 py-3 text-sm font-bold text-slate-200 transition hover:bg-white/5">
+              방 나가기
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="mt-3 text-[13px] leading-relaxed text-slate-300">
+              같은 방 코드를 입력하면 같은 사냥터에서 함께 놀 수 있습니다.
+            </p>
+            <div className="mt-4">
+              <label className="text-xs font-bold text-slate-400">방 코드</label>
+              <input
+                autoFocus
+                value={code}
+                onChange={(e) => { setCode(normalizeRoomCode(e.target.value)); setErr(null) }}
+                onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+                placeholder="예: ABCD"
+                maxLength={6}
+                className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-center font-mono text-2xl font-black tracking-[0.3em] text-white outline-none transition focus:border-indigo-400"
+              />
+              {err && <div className="mt-2 text-xs font-bold text-rose-400">{err}</div>}
+            </div>
+
+            <button onClick={submit}
+              className="mt-4 w-full rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 py-3 font-black text-white transition hover:brightness-110">
+              입장하기
+            </button>
+            <button onClick={() => { const c = makeRoomCode(); setCode(c); setErr(null) }}
+              className="mt-2 w-full rounded-xl border border-white/15 py-2.5 text-sm font-bold text-slate-300 transition hover:bg-white/5">
+              🎲 새 방 코드 만들기
+            </button>
+
+            <div className="mt-4 rounded-xl bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-slate-400">
+              지금은 <b className="text-slate-300">같은 컴퓨터의 다른 탭</b>끼리 연결됩니다.
+              서버를 붙이면 같은 코드로 인터넷 너머의 친구와도 만날 수 있습니다.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DifficultyModal({ save, onPick, onClose }) {
   return (
     <div data-ui className="absolute inset-0 z-[55] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
