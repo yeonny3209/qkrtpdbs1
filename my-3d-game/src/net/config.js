@@ -5,7 +5,7 @@
    주소를 적으면, 같은 방 코드로 다른 기기의 가족·친구와 연결된다.
    비워두면 같은 브라우저의 탭끼리만 이어지는 로컬 모드로 동작한다.
    ================================================================== */
-export const WS_URL = import.meta.env.VITE_WS_URL || ''
+export const WS_URL = import.meta.env.VITE_WS_URL || 'https://qkrtpdbs1.onrender.com'
 
 /* http(s) 주소를 붙여넣어도 ws(s)로 바로잡는다 */
 function toWsUrl(raw) {
