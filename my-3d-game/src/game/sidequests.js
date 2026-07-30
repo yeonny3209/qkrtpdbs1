@@ -189,15 +189,17 @@ export function sqState(save, id) {
   return e ? e.state : 'none'
 }
 
-/* 현재 진행량 (0 이상). collect는 별도 카운터, 나머지는 누적값 - base */
+/* 현재 진행량 — 0 이상, 목표치를 넘지 않는다 (UI가 "18 / 8"처럼 새지 않게).
+   collect는 별도 카운터, 나머지는 누적값 - 수락 시점 */
 export function sqProgress(save, quest) {
   const e = (save.sq || {})[quest.id]
   if (!e || e.state === 'none') return 0
   if (e.state === 'done') return quest.need
-  if (quest.type === 'collect') return e.got || 0
-  if (quest.type === 'boss') return Math.max(0, (save.dungeonClears || 0) + (save.raidClears || 0) - (e.base || 0))
-  if (quest.type === 'visit') return 1
-  return Math.max(0, (save.kills || 0) - (e.base || 0))
+  const cap = (v) => Math.max(0, Math.min(quest.need, v))
+  if (quest.type === 'collect') return cap(e.got || 0)
+  if (quest.type === 'boss') return cap((save.dungeonClears || 0) + (save.raidClears || 0) - (e.base || 0))
+  if (quest.type === 'visit') return quest.need
+  return cap((save.kills || 0) - (e.base || 0))
 }
 
 export const sqComplete = (save, quest) => sqProgress(save, quest) >= quest.need
@@ -212,4 +214,21 @@ export function mapQuestMarker(save, mapId) {
     else if (st === 'none' && (save.level || 1) >= x.reqLv) hasNew = true
   }
   return hasReady ? 'ready' : hasNew ? 'new' : 'none'
+}
+
+/* 맵 안 NPC 배치 — 입구 근처에 부채꼴로 세운다.
+   퀘스트마다 NPC가 하나씩이므로 맵당 2~8명이 선다. */
+export function npcSpotsForMap(mapId, half) {
+  const list = questsForMap(mapId)
+  const r = Math.max(6, half * 0.42)
+  return list.map((q, i) => {
+    const spread = Math.PI * 0.9
+    const a = -Math.PI / 2 + (list.length === 1 ? 0 : (i / (list.length - 1) - 0.5) * spread)
+    return {
+      ...q,
+      x: Math.cos(a) * r,
+      z: Math.sin(a) * r + (mapId === 0 ? 12 : half * 0.55),
+      face: Math.atan2(-Math.cos(a), -Math.sin(a)),
+    }
+  })
 }

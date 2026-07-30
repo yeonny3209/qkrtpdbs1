@@ -18,7 +18,10 @@
    · 힐러 = 아군 회복 스킬만     · 나머지 6직업 = 공격 스킬
    ================================================================== */
 export const TIER_NEW_SKILLS = [2, 1, 2, 1, 1, 3, 1]
-export const SKILL_SUFFIX = ['', 'b', 'c']
+/* 한 전직 단계에 여러 스킬이 열릴 때 id를 구분하는 접미사.
+   어둠의 암살자처럼 한 단계에 4개가 열리는 직업도 있으므로 넉넉히 둔다
+   (모자라면 id가 '...undefined'가 되어 서로 충돌한다). */
+export const SKILL_SUFFIX = ['', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
 /* 플랫 인덱스(0~10) → 티어 */
 export const SKILL_TIER_OF = []
 TIER_NEW_SKILLS.forEach((n, t) => { for (let i = 0; i < n; i++) SKILL_TIER_OF.push(t) })

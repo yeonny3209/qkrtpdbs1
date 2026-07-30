@@ -8,13 +8,16 @@ import { getWsUrl } from './net/config.js'
 import { encodeMobs, decodeMobs, sameIds, isMyKill } from './net/mobSync.js'
 import { partyCreate, partyAdd, partyRemove, partySetReady, partySnapshot } from './net/party.js'
 import { SKILL_SUFFIX, CLASS_ARCH_OF, SKILL_NAMES, skillTierAt, MOON_BASIC, MOON_SKILL_DMG_MUL, MOONLORD_MULT, SPELLBLADE_COMBO, FAIRY_CAP, FAIRY_GATHER_SEC, DARK_PASSIVE } from './game/skills.js'
-import { MOB_TYPES, MOB_SCALE, MAPS, MAP_BY_ID, MAP_COUNT, SPECIAL_SPOTS } from './game/world.js'
+import { MOB_TYPES, MOB_SCALE, MAPS, MAP_BY_ID, SPECIAL_SPOTS } from './game/world.js'
 import { MAIN_QUESTS, MQ_COUNT, MQ_GOAL_LEVEL, currentQuest, canTurnIn, allQuestsDone } from './game/quests.js'
 import {
   MAX_GRADE, clampInt, gradeOf, rollDrop, sellPrice,
   RUNE_DROP, ARTIFACT_DROP, artifactAllowed,
 } from './game/loot.js'
 import { classifyCode, isAdminPw } from './game/codes.js'
+import {
+  SQ_BY_ID, questsForMap, npcSpotsForMap, sqState, sqProgress, sqComplete,
+} from './game/sidequests.js'
 import {
   DUNGEONS, DUNGEON_BY_ID, DG_WAVES, DG_HALF, dungeonWave, dungeonWaveReward,
   RAID_DIFFS, RAID_BY_ID, RAID_HALF, RAID_BOSS_ID, raidBossHp, raidPhase, raidMechanics,
@@ -145,7 +148,7 @@ const HIDDEN_CLASSES = [
 const HIDDEN_BY_ID = Object.fromEntries(HIDDEN_CLASSES.map((c) => [c.id, c]))
 const ALL_CLASSES = [...CLASSES, ...HIDDEN_CLASSES]
 const CLASS_BY_ID = Object.fromEntries(ALL_CLASSES.map((c) => [c.id, c]))
-const isHiddenClass = (id) => !!HIDDEN_BY_ID[id]
+
 
 /* 히든 직업 해금 조건 판정 — 저장 데이터만 보고 결정한다 */
 function hiddenUnlockable(save, clsId, hid) {
@@ -1413,7 +1416,8 @@ function RemotePlayer({ peerId, nick, clsId, wtype, world }) {
     if (!g) return
     const dt = Math.min(rawDelta, 0.1)
     const p = world.current.peers.get(peerId)
-    if (!p) { g.visible = false; return }
+    /* 은신 중인 어둠의 암살자는 남에게 보이지 않는다 */
+    if (!p || p.stealth) { g.visible = false; return }
     g.visible = true
 
     /* 수신 좌표를 향해 보간 — 15Hz 입력을 60fps로 펴준다 */
@@ -1505,6 +1509,8 @@ function useNetPump({ world, live, netRef, mapIdRef, modeRef, identityRef, onMob
         dead: !!live.current.dead,
         nick: id.nick, cls: id.cls, wtype: id.wtype,
         sw: net.swingSeq | 0,
+        /* 은신 중이면 남들 화면에서 사라진다 (어둠의 암살자) */
+        hid: live.current.stealth ? 1 : undefined,
       })
     }
 
@@ -2401,6 +2407,42 @@ function GameLogic({ world, live, mode, mapId, statsRef, bumpHud, onFragment, on
     if (!L.dead && buffRegen > 0) L.hp = Math.min(st.maxHp, L.hp + buffRegen * dt)
     if (!L.buffPruneT || now - L.buffPruneT > 1000) { L.buffPruneT = now; pruneBuffs(L) }
 
+    /* ---- 어둠의 암살자 패시브 · 지속 상태 ---- */
+    if (L.isDark) {
+      const pl2 = world.current.player
+      const moved = Math.hypot(pl2.x - (L.lastX ?? pl2.x), pl2.z - (L.lastZ ?? pl2.z)) > 0.02
+      L.lastX = pl2.x; L.lastZ = pl2.z
+      if (moved) {
+        /* 충분히 가만히 있었다면 움직이는 순간 은신 */
+        if ((L.stillT || 0) >= DARK_PASSIVE.stillNeed && !L.stealth) {
+          L.stealth = true
+          if (world.current.onStealth) world.current.onStealth(true)
+        }
+        L.stillT = 0
+      } else {
+        L.stillT = (L.stillT || 0) + dt
+      }
+      /* 빙의 중이면 대상 위치를 따라간다 */
+      if (L.possess) {
+        if (now >= L.possess.until) { L.possess = null }
+        else {
+          const tgt = L.possess.mob || (L.possess.peerId ? world.current.peers.get(L.possess.peerId) : null)
+          if (tgt) { L.possess.x = tgt.x; L.possess.z = tgt.z }
+          world.current.teleport = { x: L.possess.x, z: L.possess.z }
+        }
+      }
+      /* 파고든 직후 잠깐 상대를 따라붙는다 */
+      if (L.followFoe) {
+        if (now >= L.followFoe.until) L.followFoe = null
+        else {
+          const tgt = L.followFoe.mob || (L.followFoe.peerId ? world.current.peers.get(L.followFoe.peerId) : null)
+          if (tgt && tgt.alive !== false) world.current.teleport = { x: tgt.x - 1.1, z: tgt.z }
+        }
+      }
+      /* 잔상 수명 */
+      if (L.mirror && now >= L.mirror.until) L.mirror = null
+    }
+
     for (const k in L.cd) { if (L.cd[k] > 0) L.cd[k] = Math.max(0, L.cd[k] - dt) }
 
     const pl = world.current.player
@@ -2433,6 +2475,8 @@ function GameLogic({ world, live, mode, mapId, statsRef, bumpHud, onFragment, on
           if (Math.hypot(a.x - m.x, a.z - m.z) < 1.1) {
             const dd = Math.max(0.001, Math.hypot(m.x - pl.x, m.z - pl.z))
             m.hit({ x: (m.x - pl.x) / dd, z: (m.z - pl.z) / dd }, a.dmg); consumed = true
+            /* 달빛 투사체는 맞은 적을 둔화시킨다 */
+            if (a.moon) applyMobDebuffs(world.current, [m.id], [['slow', MOON_BASIC.slow]], MOON_BASIC.slowDur, null)
           }
         })
       }
@@ -2474,6 +2518,33 @@ function GameLogic({ world, live, mode, mapId, statsRef, bumpHud, onFragment, on
         else if (dist2(pl.x, pl.z, PVP_PORTAL.x, PVP_PORTAL.z) < 3.2) prompt = { kind: 'portal' }
       }
     }
+    /* 사이드 퀘스트 NPC · 히든 직업 지점 — 필드 어디서나 */
+    let atHidden = null
+    if (!L.dead && mode === 'field') {
+      const hs = world.current.hiddenSpot
+      if (hs && dist2(pl.x, pl.z, hs.x, hs.z) <= hs.r) atHidden = hs
+      if (!prompt) {
+        let best = 3.6
+        for (const sp of (world.current.sqSpots || [])) {
+          const d = dist2(pl.x, pl.z, sp.x, sp.z)
+          if (d < best) { best = d; prompt = { kind: 'sq', id: sp.id } }
+        }
+        if (atHidden) prompt = { kind: 'hidden', id: atHidden.key }
+      }
+    }
+
+    /* 요정 모으기 — 엘프의 숲 요정 무리 안에서 E를 꾹 누르면 10초당 1마리 */
+    if (atHidden && atHidden.key === 'fairy_grove' && L.eHeld && !L.dead) {
+      L.gatherT = (L.gatherT || 0) + dt
+      if (L.gatherT >= FAIRY_GATHER_SEC) {
+        L.gatherT = 0
+        if (world.current.onFairy) world.current.onFairy()
+      }
+    } else if (L.gatherT) {
+      L.gatherT = 0
+    }
+    L.gatherPct = atHidden && atHidden.key === 'fairy_grove' && L.eHeld
+      ? (L.gatherT || 0) / FAIRY_GATHER_SEC : 0
     const sig = prompt ? prompt.kind + (prompt.id || '') : ''
     if (sig !== L.promptSig) { L.prompt = prompt; L.promptSig = sig; bumpHud() }
 
@@ -3116,6 +3187,93 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     if (!silent) addToast(`🎁 [${gradeOf(item.grade).name}] ${item.name} 획득!`)
   }, [addToast])
 
+  /* ---------- 맵별 사이드 퀘스트 ---------- */
+  const [sqModal, setSqModal] = useState(null)      // 열려 있는 NPC 퀘스트 id
+  const sqSpots = useMemo(() => npcSpotsForMap(mapId, MAP_BY_ID[mapId].half), [mapId])
+  world.current.sqSpots = mode === 'field' ? sqSpots : []
+
+  const acceptSq = useCallback((id) => {
+    const s = S.current
+    const q = SQ_BY_ID[id]
+    if (!q) return
+    if (s.level < q.reqLv) { addToast(`🔒 Lv.${q.reqLv} 이상이어야 받을 수 있습니다`); return }
+    s.sq = { ...(s.sq || {}), [id]: {
+      state: 'active',
+      base: q.type === 'boss' ? (s.dungeonClears || 0) + (s.raidClears || 0) : s.kills,
+      got: 0,
+    } }
+    commit()
+    addToast(`📜 [${q.title}] 수락 — ${q.desc}`)
+  }, [commit, addToast])
+
+  const turnInSq = useCallback((id) => {
+    const s = S.current
+    const q = SQ_BY_ID[id]
+    if (!q || !sqComplete(s, q)) return
+    s.sq = { ...(s.sq || {}), [id]: { state: 'done', base: 0, got: 0 } }
+    s.gold += q.gold
+    const ev = applyExp(s, q.exp * (1 + statsRef.current.expGain / 100))
+    /* 룬 퀘스트 — 상점에서 살 수 없는 룬을 여기서 확정 지급한다 */
+    if (q.rune) addItem(makeRune(s, Math.min(MAX_GRADE, 1 + Math.floor(q.reqLv / 12))))
+    commit()
+    addToast(`✅ [${q.title}] 완료! +${q.exp.toLocaleString()} EXP, +${q.gold.toLocaleString()} G`)
+    ev.forEach(addToast)
+    setSqModal(null)
+  }, [commit, addToast, addItem])
+
+  /* ---------- 히든 직업 지점 상호작용 ---------- */
+  const onHiddenSpot = useCallback((key) => {
+    const s = S.current
+    if (key === 'magic_falls') {
+      /* 폭포 안으로 들어가면 즉시 마검사 (사용자 확정) */
+      if ((s.hidden || {}).spellblade) { addToast('이미 마검사의 길을 걸었습니다'); return }
+      becomeHiddenRef.current('spellblade')
+    } else if (key === 'fairy_grove') {
+      if ((s.fairies || 0) >= FAIRY_CAP) {
+        addToast(`🧚 요정 ${FAIRY_CAP}명을 다 모았습니다 — 마을 마법사 전직관으로 가세요`)
+        return
+      }
+      /* E를 꾹 누르고 있으면 10초에 1마리씩 모인다 */
+      addToast(`🧚 E를 꾹 누르고 있으세요 — ${FAIRY_GATHER_SEC}초당 1마리`)
+    } else if (key === 'dark_altar') {
+      if ((s.oneShotPvp || 0) < 5) {
+        addToast(`🕯️ 제사에는 한방 승리 5회가 필요합니다 (현재 ${s.oneShotPvp || 0}회)`)
+        return
+      }
+      becomeHiddenRef.current('darkassassin')
+    } else if (key === 'moon_sea') {
+      if ((s.fragments || 0) < 1000) {
+        addToast(`🌘 달조각 1000개가 필요합니다 (현재 ${Math.floor(s.fragments || 0)}개)`)
+        return
+      }
+      /* 구덩이 안에서 스킬 3개를 쓰면 전직 — 여기서는 안내만 */
+      const used = (live.current.moonRite || new Set()).size
+      addToast(`🌘 구덩이 안에서 서로 다른 스킬 3개를 사용하세요 (${used}/3)`)
+    }
+  }, [addToast])
+  const hiddenSpotRef = useRef(onHiddenSpot); hiddenSpotRef.current = onHiddenSpot
+  const becomeHiddenRef = useRef(null)
+
+  /* 이 맵의 히든 직업 지점 (있으면) */
+  const hiddenSpot = useMemo(() => {
+    const key = MAP_BY_ID[mapId].special
+    if (!key) return null
+    const sp = SPECIAL_SPOTS[key]
+    return sp ? { ...sp, key } : null
+  }, [mapId])
+  world.current.hiddenSpot = mode === 'field' ? hiddenSpot : null
+
+  /* 요정 1마리 획득 */
+  world.current.onFairy = useCallback(() => {
+    const s = S.current
+    if ((s.fairies || 0) >= FAIRY_CAP) return
+    s.fairies = (s.fairies || 0) + 1
+    commit()
+    addToast(`🧚 요정이 따라옵니다 (${s.fairies}/${FAIRY_CAP})`)
+    if (s.fairies >= FAIRY_CAP) addToast('✨ 요정을 다 모았습니다 — 마을 마법사 전직관으로!')
+  }, [commit, addToast])
+
+
   const onMobKill = useCallback((entry) => {
     const s = S.current
     const st = statsRef.current
@@ -3127,6 +3285,21 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       s.livers += 1
       addToast(`🥩 토끼 간 획득! (${s.livers}/${LIVER_NEED})`)
       if (s.livers >= LIVER_NEED) addToast('📜 다 모았다 — 이장에게 돌아가자!')
+    }
+    /* 진행 중인 수집형 사이드 퀘스트 — 이 맵의 것만 확률로 쌓인다 */
+    if (s.sq) {
+      let picked = null
+      for (const q of questsForMap(mapIdRef.current)) {
+        const e = s.sq[q.id]
+        if (!e || e.state !== 'active' || q.type !== 'collect') continue
+        if ((e.got || 0) >= q.need) continue
+        if (Math.random() < (q.drop || 0.4)) {
+          e.got = (e.got || 0) + 1
+          picked = `${q.item} (${e.got}/${q.need})`
+          if (e.got >= q.need) picked += ' — 다 모았다!'
+        }
+      }
+      if (picked) addToast(`📦 ${picked}`)
     }
     const ev = applyExp(s, mt.exp * (1 + st.expGain / 100))
     if (s.unlocked) {
@@ -3232,6 +3405,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   world.current.hitPlayer = hitPlayer
   world.current.playerMaxHp = stats.maxHp
   world.current.spectate = spectate
+  live.current.isDark = cls.id === 'darkassassin'
   /* AI 동료(힐러·성직자)가 나를 치유할 때 쓰는 통로 */
   world.current.healAlly = useCallback((amount) => {
     const L = live.current
@@ -3278,6 +3452,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       p.arena = m.md === 'arena' && !m.in   // 혼자 AI 투기장에 있는 동안은 필드에서 빠진다
       p.nick = m.nick; p.cls = m.cls; p.wtype = m.wtype
       p.swingSeq = m.sw
+      p.stealth = !!m.hid            // 은신 중이면 그리지 않는다
       p.at = performance.now()
     })
 
@@ -3544,6 +3719,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         const dx = op.x - p.x, dz = op.z - p.z, d = Math.hypot(dx, dz)
         if (d <= range && (arc >= Math.PI || Math.abs(angleDiff(Math.atan2(dx, dz), p.yaw)) <= arc)) {
           net.room.send({ t: 'dlHit', to: duel.peerId, dmg }); hits++
+          /* 몇 번 때려서 이겼는지 세어 '한방 승리'를 판정한다 */
+          live.current.duelHits = (live.current.duelHits || 0) + 1
         }
       }
     }
@@ -3554,6 +3731,38 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const p = world.current.player
     const L = live.current
     const st = withBuffs(statsRef.current, L)   // 공격·치명·흡혈 버프 반영
+
+    /* 달의 사제·달의 권위자 — 기본 공격이 달빛 투사체이고, 맞은 적은 둔화된다
+       (사용자 확정: 대신 스킬 직접 피해는 매우 낮다) */
+    if (cls.id === 'moon' || cls.id === 'moonlord') {
+      const cy = camRef.current.yaw
+      const ax = -Math.sin(cy), az = -Math.cos(cy)
+      const lordMul = cls.id === 'moonlord' ? MOONLORD_MULT * 0.05 : 1
+      const roll = rollDamage(st, MOON_BASIC.dmgMul * lordMul)
+      L.arrows.push({
+        x: p.x + ax * 0.7, z: p.z + az * 0.7,
+        vx: ax * ARROW_SPEED * 0.8, vz: az * ARROW_SPEED * 0.8,
+        life: ARROW_LIFE * 1.2, dmg: roll.dmg,
+        moon: true,                       // 맞으면 둔화를 건다
+      })
+      pushFx({ kind: 'spell', x: p.x + ax * 1.4, z: p.z + az * 1.4, range: 1.1, color: cls.color })
+      return
+    }
+
+    /* 어둠의 암살자 — 기본 공격은 은신을 푼다. 잔상이 있으면 같은 공격을 복제한다. */
+    if (cls.id === 'darkassassin') {
+      const roll = rollDamage(st)
+      applyArea(p, ATTACK_RANGE, ATTACK_ARC, roll.dmg)
+      pushFx({ kind: 'slash', x: p.x, z: p.z, yaw: p.yaw, range: ATTACK_RANGE, arc: ATTACK_ARC, color: '#7c3aed' })
+      if (L.mirror) {
+        const m = L.mirror
+        darkHitRef.current(m.x, m.z, m.yaw, ATTACK_RANGE, ATTACK_ARC, Math.round(roll.dmg * 0.6))
+        pushFx({ kind: 'slash', x: m.x, z: m.z, yaw: m.yaw, range: ATTACK_RANGE, arc: ATTACK_ARC, color: '#a78bfa' })
+      }
+      L.stealth = false
+      return
+    }
+
     if (cls.mode === 'melee') {
       const isReaper = cls.id === 'reaper'
       const range = isReaper ? 3.7 : ATTACK_RANGE
@@ -3585,6 +3794,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const s = S.current
     if (cls.id === 'priest') return 1 + s.buffCoef
     if (cls.id === 'moon') return 1 + s.debuffPower
+    /* 달의 권위자 — 저주 위력 100배 (사용자 확정) */
+    if (cls.id === 'moonlord') return (1 + s.debuffPower) * MOONLORD_MULT
     if (cls.id === 'healer') return 1 + s.healPower * 2
     return 1
   }, [cls])
@@ -3668,6 +3879,16 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const p = w.player
     const ids = []
     w.mobs.forEach((m) => { if (m.alive && dist2(p.x, p.z, m.x, m.z) <= sk.aoe) ids.push(m.id) })
+
+    /* 달의 사제는 저주가 본체이고 직접 피해는 매우 낮다 (사용자 확정).
+       달의 권위자로 전직하면 각성 스킬이 되어 피해가 크게 오른다. */
+    if (ids.length) {
+      const st2 = withBuffs(statsRef.current, live.current)
+      const base = sk.mul != null ? sk.mul + (sk.per || 0) * (lv - 1) : 1
+      const dmgMul = sk.awakened ? base : base * MOON_SKILL_DMG_MUL
+      const roll2 = rollDamage(st2, dmgMul)
+      applyArea(p, sk.aoe, Math.PI, roll2.dmg)
+    }
     const net = netRef.current
     const follower = net && !net.simOwner && net.snapZone === zoneOf(w.inst, mapIdRef.current)
     if (follower) {
@@ -3677,7 +3898,195 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     }
     pushFx({ kind: 'spell', x: p.x, z: p.z, range: sk.aoe * 0.55, color: '#8b5cf6' })
     addToast(ids.length ? `🌙 ${sk.name} — ${ids.length}마리에게 저주` : `🌙 ${sk.name} — 사거리 안에 적이 없다`)
-  }, [supportPower, pushFx, addToast])
+  }, [supportPower, pushFx, addToast, applyArea])
+
+  /* ==================================================================
+     어둠의 암살자 — 5가지 능력 (사용자 확정 설계)
+
+     패시브: 10초간 가만히 있다가 움직이면 은신. 은신 중 남들에게 안 보인다.
+     1) 은신 중에만 — 상대에게 파고들어 잔상 2개와 함께 3연속 공격
+     2) 잔상을 전방에 발사, 재사용 시 그 자리로 순간이동.
+        잔상은 내가 공격할 때 같은 공격을 전방으로 복제한다.
+     3) 주변을 원으로 벤다 — 은신이 풀리지 않는다
+     4) 상대에게 5초간 들어간다. 재사용 시 잔상 10개와 함께 튀어나오고,
+        직후 한 번 더 쓰면 즉시 은신하며 멀리 돌진한다.
+     ================================================================== */
+  const darkHit = useCallback((originX, originZ, yaw, range, arc, dmg) => {
+    /* 특정 지점을 기준으로 광역 판정 (잔상 공격에 쓴다) */
+    const w = world.current
+    let hits = 0
+    w.mobs.forEach((m) => {
+      if (!m.alive) return
+      const dx = m.x - originX, dz = m.z - originZ, d = Math.hypot(dx, dz)
+      if (d > range) return
+      if (arc < Math.PI && Math.abs(angleDiff(Math.atan2(dx, dz), yaw)) > arc) return
+      m.hit(d < 0.001 ? { x: 0, z: 1 } : { x: dx / d, z: dz / d }, dmg)
+      hits++
+    })
+    return hits
+  }, [])
+
+  const castDark = useCallback((sk, lv) => {
+    const L = live.current
+    const w = world.current
+    const p = w.player
+    const st = withBuffs(statsRef.current, L)
+    const dmg = () => rollDamage(st, sk.dmgMul + sk.dmgPer * (lv - 1)).dmg
+    const cy = camRef.current.yaw
+    const fx2 = -Math.sin(cy), fz2 = -Math.cos(cy)
+
+    /* 가장 가까운 적 (몬스터 또는 결투 상대) */
+    const nearestFoe = (maxR) => {
+      let best = null, bd = maxR
+      w.mobs.forEach((m) => {
+        if (!m.alive) return
+        const d = dist2(p.x, p.z, m.x, m.z)
+        if (d < bd) { bd = d; best = { x: m.x, z: m.z, mob: m } }
+      })
+      const duel = duelRef.current
+      if (duel) {
+        const op = w.peers.get(duel.peerId)
+        if (op && !op.dead) {
+          const d = dist2(p.x, p.z, op.x, op.z)
+          if (d < bd) { bd = d; best = { x: op.x, z: op.z, peer: op } }
+        }
+      }
+      return best
+    }
+
+    if (sk.kind === 'dark_strike') {
+      /* 은신 중에만 발동 */
+      if (!L.stealth) { addToast('🌑 은신 중에만 쓸 수 있습니다'); L.cd[sk.id] = 0; return }
+      const foe = nearestFoe(sk.range)
+      if (!foe) { addToast('🌑 근처에 대상이 없습니다'); L.cd[sk.id] = 0; return }
+      /* 상대에게 파고든다 — 붙어서 따라다닌다 */
+      w.teleport = { x: foe.x - fx2 * 1.2, z: foe.z - fz2 * 1.2, yaw: Math.atan2(foe.x - p.x, foe.z - p.z) }
+      L.followFoe = { until: performance.now() + 1400, mob: foe.mob || null, peerId: foe.peer ? foe.peer.peerId : null }
+      /* 본체 + 잔상 2개 = 3연속 */
+      for (let i = 0; i < 3; i++) {
+        setTimeout(() => {
+          const d2 = dmg()
+          darkHit(foe.x, foe.z, 0, 2.6, Math.PI, d2)
+          if (foe.peer && netRef.current) netRef.current.room.send({ t: 'dlHit', to: foe.peer.peerId, dmg: d2 })
+          pushFx({ kind: 'slash', x: foe.x + (i - 1) * 0.7, z: foe.z, yaw: cy, range: 2.6, arc: 1.6, color: '#7c3aed' })
+        }, i * 130)
+      }
+      L.stealth = false
+      addToast('🌑 그림자 침투 — 3연속!')
+      return
+    }
+
+    if (sk.kind === 'dark_mirror') {
+      if (L.mirror) {
+        /* 재사용 — 잔상 위치로 순간이동 */
+        w.teleport = { x: L.mirror.x, z: L.mirror.z, yaw: p.yaw }
+        pushFx({ kind: 'spell', x: L.mirror.x, z: L.mirror.z, range: 1.6, color: '#7c3aed' })
+        L.mirror = null
+        addToast('🌑 잔상 위치로 순간이동')
+      } else {
+        const mx = p.x + fx2 * sk.range, mz = p.z + fz2 * sk.range
+        L.mirror = { x: mx, z: mz, yaw: cy, until: performance.now() + 8000 }
+        pushFx({ kind: 'spell', x: mx, z: mz, range: 1.4, color: '#7c3aed' })
+        addToast('🌑 잔상 배치 — 다시 누르면 순간이동')
+      }
+      return
+    }
+
+    if (sk.kind === 'dark_spin') {
+      /* 은신을 유지한 채 주변을 벤다 */
+      const d2 = dmg()
+      darkHit(p.x, p.z, 0, sk.range, Math.PI, d2)
+      const duel = duelRef.current
+      if (duel && netRef.current) {
+        const op = w.peers.get(duel.peerId)
+        if (op && !op.dead && dist2(p.x, p.z, op.x, op.z) <= sk.range) {
+          netRef.current.room.send({ t: 'dlHit', to: duel.peerId, dmg: d2 })
+        }
+      }
+      pushFx({ kind: 'slash', x: p.x, z: p.z, yaw: p.yaw, range: sk.range, arc: Math.PI * 2, wide: true, color: '#7c3aed' })
+      addToast('🌑 암영 회전 (은신 유지)')
+      return
+    }
+
+    if (sk.kind === 'dark_possess') {
+      if (L.possess) {
+        /* 나오면서 잔상 10개로 공격 */
+        const px = L.possess.x, pz = L.possess.z
+        L.possess = null
+        for (let i = 0; i < 10; i++) {
+          setTimeout(() => {
+            const a = (i / 10) * Math.PI * 2
+            const d2 = Math.round(dmg() * 0.45)
+            darkHit(px + Math.cos(a) * 1.2, pz + Math.sin(a) * 1.2, 0, 2.4, Math.PI, d2)
+            pushFx({ kind: 'slash', x: px + Math.cos(a) * 1.4, z: pz + Math.sin(a) * 1.4, yaw: a, range: 2.2, arc: 1.4, color: '#7c3aed' })
+          }, i * 60)
+        }
+        /* 직후 한 번 더 쓰면 은신 + 장거리 돌진 */
+        L.possessRecast = performance.now() + 4000
+        L.cd[sk.id] = 1.2
+        addToast('🌑 빙의 해제 — 잔상 10개! (지금 다시 누르면 은신 돌진)')
+        return
+      }
+      if (L.possessRecast && performance.now() < L.possessRecast) {
+        L.possessRecast = 0
+        L.stealth = true
+        L.dashReq = { dist: 16 }
+        L.cd[sk.id] = sk.cd
+        addToast('🌑 은신 돌진!')
+        return
+      }
+      const foe = nearestFoe(sk.range)
+      if (!foe) { addToast('🌑 근처에 대상이 없습니다'); L.cd[sk.id] = 0; return }
+      L.possess = { x: foe.x, z: foe.z, until: performance.now() + sk.dur * 1000, mob: foe.mob || null, peerId: foe.peer ? foe.peer.peerId : null }
+      L.stealth = true
+      addToast(`🌑 빙의 — ${sk.dur}초 (다시 누르면 튀어나온다)`)
+      return
+    }
+  }, [darkHit, pushFx, addToast])
+
+  /* 달의 권위자 궁극기 — 달을 떨어뜨려 모든 저주를 걸고 빈사의 적을 처형한다
+     (사용자 확정: 일반 30% 미만 · 보스 5% 미만 즉사) */
+  const castMoonJudgement = useCallback((sk, lv) => {
+    const w = world.current
+    const p = w.player
+    const pw = supportPower()
+    const net = netRef.current
+    /* 10개 스킬의 모든 디버프 + 속박 */
+    const allDebs = [
+      ['slow', 70], ['weak', 70], ['vuln', 90], ['dot', 40 * (1 + lv * 0.2)],
+      ['blind', 60], ['root', 3 + lv * 0.4],
+    ].map(([k, v]) => [k, +(v * Math.min(3, pw / 30)).toFixed(1)])
+
+    const ids = []
+    let executed = 0
+    w.mobs.forEach((m) => {
+      if (!m.alive || dist2(p.x, p.z, m.x, m.z) > sk.aoe) return
+      ids.push(m.id)
+      const ratio = m.maxHp > 0 ? m.hp / m.maxHp : 1
+      const line = (m.rank === 'boss' ? sk.execBoss : sk.execNormal) / 100
+      if (ratio <= line) {
+        m.hit({ x: 0, z: 1 }, m.hp + 1, net ? net.myId : null)   // 처형
+        executed++
+      }
+    })
+    const follower = net && !net.simOwner && net.snapZone === zoneOf(w.inst, mapIdRef.current)
+    if (follower) {
+      if (ids.length) net.room.send({ t: 'mobDebuff', ids, debs: allDebs, dur: 14, mapId: mapIdRef.current, in: w.inst || undefined })
+    } else {
+      applyMobDebuffs(w, ids, allDebs, 14, net ? net.myId : null)
+    }
+    /* 직접 피해도 크게 */
+    const st = withBuffs(statsRef.current, live.current)
+    const roll = rollDamage(st, (sk.mul || 6) + (sk.per || 1) * (lv - 1))
+    applyArea(p, sk.aoe, Math.PI, roll.dmg)
+    pushFx({ kind: 'spell', x: p.x, z: p.z, range: sk.aoe * 0.6, color: '#c7d2fe' })
+    pushFx({ kind: 'spell', x: p.x, z: p.z, range: sk.aoe * 0.35, color: '#818cf8' })
+    addToast(executed > 0
+      ? `🌘 달의 심판! ${ids.length}마리 저주 · ${executed}마리 처형`
+      : `🌘 달의 심판! ${ids.length}마리에게 모든 저주`)
+  }, [supportPower, applyArea, pushFx, addToast])
+
+  const darkHitRef = useRef(darkHit); darkHitRef.current = darkHit
 
   const castSkillSlot = useCallback((slot) => {
     const L = live.current
@@ -3693,17 +4102,52 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     if ((L.cd[sk.id] || 0) > 0) return
     L.cd[sk.id] = sk.cd
 
+    /* 달의 바다 구덩이 안에서 서로 다른 스킬 3개를 쓰면 달의 권위자로 전직 */
+    const hs = world.current.hiddenSpot
+    if (hs && hs.key === 'moon_sea' && cls.id === 'moon' && (s.fragments || 0) >= 1000) {
+      const p0 = world.current.player
+      if (dist2(p0.x, p0.z, hs.x, hs.z) <= hs.r) {
+        if (!L.moonRite) L.moonRite = new Set()
+        L.moonRite.add(sk.id)
+        if (L.moonRite.size >= 3) {
+          L.moonRite.clear()
+          becomeHiddenRef.current('moonlord')
+          return
+        }
+        addToast(`🌘 달의 의식 ${L.moonRite.size}/3`)
+      }
+    }
+
     /* 지원 계열 — 성직자·달의 사제·힐러 + 공격 직업의 각성 */
     if (sk.kind === 'awaken') { castAwaken(sk, lv); bumpHud(); return }
     if (sk.kind === 'buff') { castBuff(sk, lv); bumpHud(); return }
     if (sk.kind === 'heal') { castHeal(sk, lv); bumpHud(); return }
+    if (sk.kind === 'moon_judgement') { castMoonJudgement(sk, lv); bumpHud(); return }
     if (sk.kind === 'debuff') { castDebuff(sk, lv); bumpHud(); return }
+    if (sk.kind && sk.kind.startsWith('dark_')) { castDark(sk, lv); bumpHud(); return }
 
     /* 공격 계열 */
     const st = withBuffs(statsRef.current, L)
     const p = world.current.player
     if (sk.kind === 'dash') L.dashReq = { dist: 4.5 }
-    const mul = sk.dmgMul + sk.dmgPer * (lv - 1)
+    let mul = sk.dmgMul + sk.dmgPer * (lv - 1)
+
+    /* 마검사 — 검격과 마법을 번갈아 써야 콤보가 쌓인다 (사용자 확정: 극난이도) */
+    if (cls.id === 'spellblade') {
+      const isSpell = sk.slot % 2 === 0            // 짝수 슬롯 = 마법 계열
+      const now2 = performance.now()
+      const fresh = L.sbAt && now2 - L.sbAt < SPELLBLADE_COMBO.window * 1000
+      if (fresh && L.sbSpell !== undefined && L.sbSpell !== isSpell) {
+        L.sbStack = Math.min(SPELLBLADE_COMBO.maxStack, (L.sbStack || 0) + 1)
+      } else {
+        if ((L.sbStack || 0) > 0) addToast('💢 콤보가 끊겼다')
+        L.sbStack = 0
+      }
+      L.sbSpell = isSpell
+      L.sbAt = now2
+      mul *= 1 + (L.sbStack || 0) * SPELLBLADE_COMBO.perStack
+      if (L.sbStack > 0) addToast(`⚡ 검마 콤보 ${L.sbStack} (×${(1 + L.sbStack * SPELLBLADE_COMBO.perStack).toFixed(2)})`)
+    }
     const range = sk.range * (1 + st.skillRange)
     const roll = rollDamage(st, mul)
     const hits = applyArea(p, range, sk.arc, roll.dmg)
@@ -3728,7 +4172,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     if (sw.t < 0 || sw.t >= SWING_TIME * 0.5) { sw.t = 0; sw.hitDone = true }
     addToast(`✨ ${sk.name}${roll.crit ? ' 치명타!' : ''}`)
     bumpHud()
-  }, [cls, applyArea, pushFx, addToast, bumpHud, lockedNotice, castAwaken, castBuff, castHeal, castDebuff])
+  }, [cls, applyArea, pushFx, addToast, bumpHud, lockedNotice, castAwaken, castBuff, castHeal, castDebuff, castMoonJudgement, castDark])
   const castRef = useRef(castSkillSlot); castRef.current = castSkillSlot
 
   const openMath = useCallback(() => setMathModal(makeMathProblem(S.current.circle)), [])
@@ -4047,6 +4491,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     setNpcModal(null)
     onChangeClass(hid)
   }, [cls, commit, addToast, onChangeClass, pushChat, account.nick])
+  becomeHiddenRef.current = becomeHidden
 
   /* ---------- PVP ---------- */
   /* ==================================================================
@@ -4510,6 +4955,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     setMobs([])
     const L = live.current
     L.hp = statsRef.current.maxHp; L.dead = false; L.iframe = 1.5; L.arrows.length = 0; L.buffs = []
+    L.duelHits = 0
     setDeath(null)
     w.teleport = { x: 0, z: 6, yaw: Math.PI }
     addToast(`⚔ ${nick}님과의 결투 시작!`)
@@ -4536,6 +4982,11 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       const st = statsRef.current
       s.pvpKills += 1
       s.gold += Math.round(120 * (1 + st.goldGain / 100))
+      /* 도적이 한 방(피격 없이 단번)에 끝냈으면 어둠의 암살자 조건이 쌓인다 */
+      if (cls.id === 'assassin' && (live.current.duelHits || 0) <= 1) {
+        s.oneShotPvp = (s.oneShotPvp || 0) + 1
+        addToast(`🌑 한방 승리 ${s.oneShotPvp}/5 — 어둠의 제단으로`)
+      }
       if (cls.id === 'assassin') s.atkBonus += GROWTH_STEP
       const ev = applyExp(s, 500 * (1 + st.expGain / 100))
       commit()
@@ -4633,6 +5084,12 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       if (!npc) return
       if (npc.role !== 'chief' && !S.current.unlocked) { lockedNotice(); return }
       setNpcModal(npc)
+    } else if (pr.kind === 'sq') {
+      if (!S.current.unlocked) { lockedNotice(); return }
+      setSqModal(pr.id)
+    } else if (pr.kind === 'hidden') {
+      if (!S.current.unlocked) { lockedNotice(); return }
+      hiddenSpotRef.current(pr.id)
     }
   }, [bumpHud, lockedNotice])
   const promptRef = useRef(promptAction); promptRef.current = promptAction
@@ -4682,7 +5139,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9, Digit0: 10, Minus: 11,
       }[e.code]
       if (n) { castRef.current(n); return }
-      if (e.code === 'KeyE') promptRef.current()
+      if (e.code === 'KeyE') { live.current.eHeld = true; promptRef.current() }
       else if (e.code === 'KeyC') {
         /* 채팅 — 온라인 같이 하기 중에만 (사용자 확정 규칙) */
         if (!netRef.current) return
@@ -4700,19 +5157,27 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         setTreeOpen((v) => !v)
       } else if (e.code === 'Escape') {
         setMathModal(null); setInvOpen(false); setTreeOpen(false); setNpcModal(null); setDiffModal(false)
+        setSqModal(null); setPartyOpen(false); setAdminOpen(false)
       }
     }
+    /* E를 꾹 누르는 동안(요정 모으기) 상태를 추적한다 */
+    const onKeyUp = (e) => { if (e.code === 'KeyE') live.current.eHeld = false }
+    const onBlurE = () => { live.current.eHeld = false }
     window.addEventListener('contextmenu', onContext)
     window.addEventListener('pointerdown', onDown)
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlurE)
     return () => {
       window.removeEventListener('contextmenu', onContext)
       window.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlurE)
     }
   }, [lockedNotice])
 
@@ -4736,6 +5201,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   const promptLabel = !L.prompt ? null
     : L.prompt.kind === 'altar' ? '제단에서 설교 듣기'
     : L.prompt.kind === 'portal' ? 'PVP 결투장 입장'
+    : L.prompt.kind === 'sq' ? (SQ_BY_ID[L.prompt.id]?.npc || 'NPC') + ' 와(과) 대화'
+    : L.prompt.kind === 'hidden' ? (SPECIAL_SPOTS[L.prompt.id]?.label || '수상한 곳') + ' — 조사하기'
     : (NPC_BY_ID[L.prompt.id]?.name || 'NPC') + ' 와(과) 대화'
 
   return (
@@ -4777,6 +5244,15 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
                 {fragments.map((f) => <Fragment key={f.id} x={f.x} z={f.z} />)}
               </group>
             )}
+            {/* 맵별 사이드 퀘스트 NPC */}
+            {sqSpots.map((sp) => (
+              <SideQuestNPC key={sp.id} spot={sp}
+                state={sqState(saveUI, sp.id)}
+                ready={sqState(saveUI, sp.id) === 'active' && sqComplete(saveUI, sp)}
+                canTake={sqState(saveUI, sp.id) === 'none' && saveUI.level >= sp.reqLv} />
+            ))}
+            {/* 히든 직업 지점 */}
+            {hiddenSpot && <HiddenSpot spot={hiddenSpot} />}
             {/* 맵 연결 포탈 — 빛나는 기둥 */}
             {portalsFor(mapId).map((p) => (
               <PortalPillar key={p.to} x={p.x} z={p.z} color={p.color} label={p.label}
@@ -5230,6 +5706,10 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
           accentFrom="from-rose-500" accentTo="to-red-500"
           onAccept={acceptDuel}
           onDecline={() => { const r = duelReq; setDuelReq(null); if (r) netRef.current?.room.send({ t: 'dlDec', to: r.from, nick: account.nick }) }} />
+      )}
+      {sqModal && SQ_BY_ID[sqModal] && (
+        <SideQuestModal quest={SQ_BY_ID[sqModal]} save={saveUI}
+          onAccept={acceptSq} onTurnIn={turnInSq} onClose={() => setSqModal(null)} />
       )}
       {adminOpen && saveUI.admin && (
         <AdminPanel save={saveUI} roster={roster} spectate={spectate}
@@ -5692,6 +6172,22 @@ function NpcModal({ npc, save, cls, nick, onAbandonClass, onPickNewClass, onBeco
           </div>
         </div>
 
+        {/* 이 NPC에게서 받을 수 있는 히든 직업
+           요정술사는 마법사 전직관, 초초보자는 아무 전직관에서나 받는다 */}
+        {(npc.role === 'job' || npc.role === 'changer') && HIDDEN_CLASSES.filter((h) => {
+          if (!hiddenUnlockable(save, cls.id, h.id)) return false
+          if (h.id === 'fairymancer') return npc.role === 'job' && npc.cls === 'mage'
+          if (h.id === 'novice') return true
+          return false
+        }).map((h) => (
+          <button key={h.id} onClick={() => onBecomeHidden(h.id)}
+            className="mt-4 w-full rounded-xl border-2 border-amber-400/60 bg-gradient-to-r from-amber-500/20 to-fuchsia-500/20 p-3 text-left transition hover:brightness-125">
+            <div className="text-sm font-black text-amber-200">🌟 히든 직업 해금! {h.icon} {h.name}</div>
+            <div className="mt-0.5 text-[10px] text-slate-300">{h.note}</div>
+            <div className="mt-1 text-[11px] font-bold text-amber-300">눌러서 전직하기 →</div>
+          </button>
+        ))}
+
         {/* ── 마을 이장 (메인 퀘스트) ── */}
         {npc.role === 'chief' && (() => {
           const q = currentQuest(save)
@@ -5835,17 +6331,6 @@ function NpcModal({ npc, save, cls, nick, onAbandonClass, onPickNewClass, onBeco
               </>
             )}
 
-            {/* 이 전직관에서 받을 수 있는 히든 직업 */}
-            {HIDDEN_CLASSES.filter((h) => h.id === 'fairymancer' && npc.cls === 'mage'
-              ? hiddenUnlockable(save, cls.id, h.id)
-              : h.id === 'novice' ? hiddenUnlockable(save, cls.id, h.id) : false).map((h) => (
-              <button key={h.id} onClick={() => onBecomeHidden(h.id)}
-                className="mt-3 w-full rounded-xl border-2 border-amber-400/60 bg-gradient-to-r from-amber-500/20 to-fuchsia-500/20 p-3 text-left transition hover:brightness-125">
-                <div className="text-sm font-black text-amber-200">🌟 히든 직업 해금! {h.icon} {h.name}</div>
-                <div className="mt-0.5 text-[10px] text-slate-300">{h.note}</div>
-                <div className="mt-1 text-[11px] font-bold text-amber-300">눌러서 전직하기 →</div>
-              </button>
-            ))}
           </>
         )}
 
@@ -6051,6 +6536,83 @@ function TradeModal({ trade, bag, myGold, onGold, onToggleItem, onLock, onConfir
 }
 
 /* ==================================================================
+   사이드 퀘스트 대화창 — 수락 / 진행 확인 / 보고
+   ================================================================== */
+function SideQuestModal({ quest, save, onAccept, onTurnIn, onClose }) {
+  const st = sqState(save, quest.id)
+  const cur = sqProgress(save, quest)
+  const done = sqComplete(save, quest)
+  const lvOk = (save.level || 1) >= quest.reqLv
+  const pct = Math.min(100, (cur / quest.need) * 100)
+
+  return (
+    <div data-ui className="absolute inset-0 z-[58] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-md rounded-3xl border border-white/12 bg-slate-900/96 p-6 shadow-2xl [animation:pop_.25s_cubic-bezier(.2,1.5,.4,1)]">
+        <button onClick={onClose} className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white">✕</button>
+
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/20 text-2xl">{quest.icon}</div>
+          <div>
+            <div className="text-lg font-black text-white">{quest.npc}</div>
+            <div className="text-[11px] text-amber-300">{quest.title}</div>
+          </div>
+        </div>
+
+        <p className="mt-4 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">“{quest.desc}”</p>
+
+        <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+          <span className={`rounded px-2 py-0.5 ${lvOk ? 'bg-black/30 text-slate-300' : 'bg-rose-500/20 text-rose-300'}`}>
+            Lv.{quest.reqLv} 이상
+          </span>
+          <span className="rounded bg-black/30 px-2 py-0.5 text-violet-300">EXP {quest.exp.toLocaleString()}</span>
+          <span className="rounded bg-black/30 px-2 py-0.5 text-amber-300">🪙 {quest.gold.toLocaleString()}</span>
+          {quest.rune && <span className="rounded bg-fuchsia-500/20 px-2 py-0.5 font-bold text-fuchsia-300">🔮 룬 확정 지급</span>}
+        </div>
+
+        {st === 'done' ? (
+          <>
+            <div className="mt-4 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-center text-[12px] text-emerald-200">
+              ✓ 이미 완료한 의뢰입니다
+            </div>
+            <button onClick={onClose} className="mt-3 w-full rounded-xl border border-white/15 py-3 font-bold text-slate-200 transition hover:bg-white/5">돌아가기</button>
+          </>
+        ) : st === 'active' ? (
+          <>
+            <div className="mt-4 rounded-xl bg-black/30 p-3">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">
+                  {quest.type === 'collect' ? `${quest.item} 수집`
+                    : quest.type === 'boss' ? '던전·레이드 클리어'
+                    : quest.type === 'visit' ? '방문' : '몬스터 처치'}
+                </span>
+                <b className="text-white">{cur} / {quest.need}</b>
+              </div>
+              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-black/50">
+                <div className="h-full rounded-full bg-amber-400 transition-[width]" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+            <button onClick={() => onTurnIn(quest.id)} disabled={!done}
+              className={`mt-3 w-full rounded-xl py-3 font-black transition ${done
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:brightness-110'
+                : 'cursor-not-allowed bg-slate-700/50 text-slate-500'}`}>
+              {done ? '🎉 보고하고 보상 받기' : '아직 부족합니다'}
+            </button>
+          </>
+        ) : (
+          <button onClick={() => onAccept(quest.id)} disabled={!lvOk}
+            className={`mt-4 w-full rounded-xl py-3 font-black transition ${lvOk
+              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:brightness-110'
+              : 'cursor-not-allowed bg-slate-700/50 text-slate-500'}`}>
+            {lvOk ? '📜 의뢰 받기' : `🔒 Lv.${quest.reqLv} 이상 필요`}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ==================================================================
    관리자 패널 — 코드로 해금된 사람만 열 수 있다
    ================================================================== */
 function AdminPanel({ save, roster, spectate, onAct, onSpectate, onClose }) {
@@ -6138,6 +6700,79 @@ function ConfirmPopup({ icon, title, desc, hint, accentFrom, accentTo, onAccept,
         </div>
       </div>
     </div>
+  )
+}
+
+/* ==================================================================
+   맵별 사이드 퀘스트 NPC — 머리 위 표시로 받을 것/보고할 것을 알린다
+   ================================================================== */
+function SideQuestNPC({ spot, state, ready, canTake }) {
+  const mark = useRef()
+  useFrame((st) => {
+    if (mark.current) {
+      const t = st.clock.elapsedTime
+      mark.current.position.y = 2.5 + Math.sin(t * 2.4) * 0.12
+      mark.current.rotation.y = t * 1.6
+    }
+  })
+  const color = ready ? '#4ade80' : canTake ? '#fbbf24' : '#64748b'
+  return (
+    <group position={[spot.x, 0, spot.z]} rotation-y={spot.face || 0}>
+      {/* 몸통 */}
+      <mesh castShadow position={[0, 0.85, 0]}>
+        <capsuleGeometry args={[0.32, 0.75, 4, 10]} />
+        <meshStandardMaterial color={color} roughness={0.75} />
+      </mesh>
+      <mesh castShadow position={[0, 1.62, 0]}>
+        <sphereGeometry args={[0.27, 14, 12]} />
+        <meshStandardMaterial color="#f1d3b4" roughness={0.8} />
+      </mesh>
+      {/* 상태 표식 */}
+      {(ready || canTake) && (
+        <mesh ref={mark} position={[0, 2.5, 0]}>
+          <octahedronGeometry args={[0.2]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.1} />
+        </mesh>
+      )}
+      <Billboard position={[0, 2.1, 0]}>
+        <mesh><planeGeometry args={[1.5, 0.3]} /><meshBasicMaterial color="#0b1020" transparent opacity={0.7} /></mesh>
+      </Billboard>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.03, 0]}>
+        <ringGeometry args={[1.1, 1.35, 24]} />
+        <meshBasicMaterial color={color} transparent opacity={state === 'done' ? 0.15 : 0.4} />
+      </mesh>
+    </group>
+  )
+}
+
+/* 히든 직업 전직 지점 — 빛나는 원 */
+function HiddenSpot({ spot }) {
+  const g = useRef()
+  useFrame((st) => {
+    if (g.current) {
+      const t = st.clock.elapsedTime
+      g.current.rotation.y = t * 0.5
+      g.current.scale.setScalar(1 + Math.sin(t * 1.6) * 0.06)
+    }
+  })
+  return (
+    <group position={[spot.x, 0, spot.z]}>
+      <group ref={g}>
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.06, 0]}>
+          <ringGeometry args={[spot.r - 0.5, spot.r, 40]} />
+          <meshBasicMaterial color="#e879f9" transparent opacity={0.6} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]}>
+          <circleGeometry args={[spot.r - 0.5, 32]} />
+          <meshBasicMaterial color="#a855f7" transparent opacity={0.16} />
+        </mesh>
+      </group>
+      <pointLight color="#e879f9" intensity={5} distance={12} position={[0, 1.5, 0]} />
+      <mesh position={[0, 1.6, 0]}>
+        <octahedronGeometry args={[0.42]} />
+        <meshStandardMaterial color="#f0abfc" emissive="#e879f9" emissiveIntensity={1.4} />
+      </mesh>
+    </group>
   )
 }
 
