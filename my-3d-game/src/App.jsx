@@ -7,8 +7,14 @@ import { useRoom } from './net/useRoom.js'
 import { getWsUrl } from './net/config.js'
 import { encodeMobs, decodeMobs, sameIds, isMyKill } from './net/mobSync.js'
 import { partyCreate, partyAdd, partyRemove, partySetReady, partySnapshot } from './net/party.js'
-import { SKILL_SUFFIX, SKILL_TIER_OF, CLASS_ARCH_OF, SKILL_NAMES } from './game/skills.js'
+import { SKILL_SUFFIX, CLASS_ARCH_OF, SKILL_NAMES, skillTierAt, MOON_BASIC, MOON_SKILL_DMG_MUL, MOONLORD_MULT, SPELLBLADE_COMBO, FAIRY_CAP, FAIRY_GATHER_SEC, DARK_PASSIVE } from './game/skills.js'
+import { MOB_TYPES, MOB_SCALE, MAPS, MAP_BY_ID, MAP_COUNT, SPECIAL_SPOTS } from './game/world.js'
 import { MAIN_QUESTS, MQ_COUNT, MQ_GOAL_LEVEL, currentQuest, canTurnIn, allQuestsDone } from './game/quests.js'
+import {
+  MAX_GRADE, clampInt, gradeOf, rollDrop, sellPrice,
+  RUNE_DROP, ARTIFACT_DROP, artifactAllowed,
+} from './game/loot.js'
+import { classifyCode, isAdminPw } from './game/codes.js'
 import {
   DUNGEONS, DUNGEON_BY_ID, DG_WAVES, DG_HALF, dungeonWave, dungeonWaveReward,
   RAID_DIFFS, RAID_BY_ID, RAID_HALF, RAID_BOSS_ID, raidBossHp, raidPhase, raidMechanics,
@@ -60,10 +66,8 @@ const BASE_ATK = 12
 /* ---------------- 성장 ---------------- */
 const MAX_LEVEL = 60                       // 6차 전직(60Lv)까지
 const EXP_FOR = (l) => l * l * l * 100
-const RUNE_DROP = 0.003
-const GEAR_DROP = 0.06
 const GROWTH_STEP = 0.01                   // 기믹 1회 성공 = +0.01 (고정)
-const LIVER_DROP = 0.25                    // 튜토리얼 '토끼 간' 드랍률
+const LIVER_DROP = 0.70                    // 튜토리얼 '토끼 간' 드랍률 (사용자 확정)
 const LIVER_NEED = 10
 
 /* ==================================================================
@@ -82,7 +86,7 @@ const CLASSES = [
   { id: 'archer', name: '궁수', weapon: 'bow', icon: '🏹', color: '#4ade80', mode: 'arrow', fx: 'arrow',
     role: '원거리 정밀', statKey: 'atkBonus', statLabel: '명중',
     growHint: '수련관 과녁을 화살로 맞힐 때마다 공격력 +0.01 (영구)' },
-  { id: 'assassin', name: '암살자', weapon: 'dagger', icon: '🔪', color: '#94a3b8', mode: 'melee', fx: 'slash',
+  { id: 'assassin', name: '도적', weapon: 'dagger', icon: '🔪', color: '#94a3b8', mode: 'melee', fx: 'slash',
     role: 'PVP 성장', statKey: 'atkBonus', statLabel: '처형',
     growHint: 'PVP 투기장에서 적을 처치할 때마다 공격력 +0.01 (영구)' },
   { id: 'priest', name: '성직자', weapon: 'cross', icon: '✝️', color: '#fbbf24', mode: 'melee', fx: 'spell',
@@ -98,7 +102,66 @@ const CLASSES = [
     role: '광역 수확', statKey: 'atkBonus', statLabel: '수확',
     growHint: '한 번의 낫질로 2명 이상 동시에 벨 때마다 공격력 +0.01 (영구)' },
 ]
-const CLASS_BY_ID = Object.fromEntries(CLASSES.map((c) => [c.id, c]))
+
+/* ==================================================================
+   히든 직업 — 시작 시 고를 수 없고, 특정 행동으로만 얻는다 (사용자 확정)
+
+   from   : 이 직업(들)이어야 전직할 수 있다 (null = 아무 직업이나)
+   how    : 획득 조건 설명
+   where  : 조건을 만족시키는 장소 (world.js의 special 키)
+   ================================================================== */
+const HIDDEN_CLASSES = [
+  { id: 'spellblade', name: '마검사', weapon: 'sword', icon: '🗡️✨', color: '#818cf8', mode: 'melee', fx: 'slash',
+    role: '검·마법 병행 (극난이도)', statKey: 'atkBonus', statLabel: '검마 숙련',
+    hidden: true, from: null, where: 'magic_falls',
+    how: '마법의 폭포에서 폭포 안으로 들어간다',
+    growHint: '검과 마법을 번갈아 써야 위력이 오른다 — 익히기 매우 어렵다',
+    note: '충분히 강해지면 압도적이지만, 그 전까지 성장이 더뎌 포기하기 쉽다' },
+  { id: 'fairymancer', name: '요정술사', weapon: 'wand', icon: '🧚', color: '#5eead4', mode: 'spell', fx: 'spell',
+    role: '요정 소환 (자동 사냥)', statKey: 'atkBonus', statLabel: '교감',
+    hidden: true, from: null, where: 'fairy_grove',
+    how: '엘프의 숲에서 요정 10명을 모아 마법사 전직관에게 간다',
+    growHint: '요정의 레벨을 올리면 요정들이 알아서 사냥한다',
+    note: '자신을 지킬 수단이 거의 없어 도적·암살자 계열에 매우 취약하다' },
+  { id: 'darkassassin', name: '어둠의 암살자', weapon: 'dagger', icon: '🌑🔪', color: '#7c3aed', mode: 'melee', fx: 'slash',
+    role: '은신 암살 (스킬 5개)', statKey: 'atkBonus', statLabel: '암살',
+    hidden: true, from: ['assassin'], where: 'dark_altar',
+    how: '도적으로 PVP를 한방에 5번 끝낸 뒤 어둠의 제단에서 제사를 드린다',
+    growHint: '가만히 있다가 움직이면 은신한다 — 은신에서 시작하는 연계가 핵심',
+    note: '능력이 단 5가지지만 하나하나가 결정적이다' },
+  { id: 'moonlord', name: '달의 권위자', weapon: 'moonstaff', icon: '🌘👑', color: '#a5b4fc', mode: 'melee', fx: 'spell',
+    role: '저주 극대화 (전 스킬 각성)', statKey: 'debuffPower', statLabel: '권위',
+    hidden: true, from: ['moon'], where: 'moon_sea',
+    how: '달의 사제로 달조각 1000개를 모아 달의 바다 구덩이에서 스킬 3개를 쓴다',
+    growHint: '저주 위력이 100배가 되고 모든 스킬이 각성 스킬이 된다',
+    note: '마지막 스킬은 달을 떨어뜨려 모든 저주를 걸고 빈사의 적을 처형한다' },
+  { id: 'novice', name: '초초보자', weapon: 'sword', icon: '🌱', color: '#facc15', mode: 'melee', fx: 'slash',
+    role: '전 직업 융합', statKey: 'atkBonus', statLabel: '융합',
+    hidden: true, from: null, where: null,
+    how: '15레벨이 될 때까지 한 번도 전직하지 않는다',
+    growHint: '모든 직업의 무기와 스킬을 섞어 쓸 수 있다',
+    note: '이론상 모든 스킬을 쓰는 최강이 될 수 있다' },
+]
+const HIDDEN_BY_ID = Object.fromEntries(HIDDEN_CLASSES.map((c) => [c.id, c]))
+const ALL_CLASSES = [...CLASSES, ...HIDDEN_CLASSES]
+const CLASS_BY_ID = Object.fromEntries(ALL_CLASSES.map((c) => [c.id, c]))
+const isHiddenClass = (id) => !!HIDDEN_BY_ID[id]
+
+/* 히든 직업 해금 조건 판정 — 저장 데이터만 보고 결정한다 */
+function hiddenUnlockable(save, clsId, hid) {
+  const h = HIDDEN_BY_ID[hid]
+  if (!h) return false
+  if ((save.hidden || {})[hid]) return false                 // 이미 얻음
+  if (h.from && !h.from.includes(clsId)) return false         // 선행 직업 조건
+  switch (hid) {
+    case 'spellblade': return true                            // 폭포 안에 들어가면 즉시
+    case 'fairymancer': return (save.fairies || 0) >= 10
+    case 'darkassassin': return (save.oneShotPvp || 0) >= 5
+    case 'moonlord': return (save.fragments || 0) >= 1000
+    case 'novice': return (save.level || 1) >= 15 && (save.tier || 0) === 0
+    default: return false
+  }
+}
 
 /* ==================================================================
    무기 — 종류 · 한손/두손 · 직업 제한
@@ -119,25 +182,10 @@ const WEAPON_KEYS = Object.keys(WEAPON_TYPES)
 /* ==================================================================
    등급
    ================================================================== */
-const GRADES = [
-  { key: 0, name: '일반', color: '#cbd5e1', mult: 1 },
-  { key: 1, name: '희귀', color: '#60a5fa', mult: 1.8 },
-  { key: 2, name: '레어', color: '#a78bfa', mult: 3.0 },
-  { key: 3, name: '전설', color: '#fbbf24', mult: 5.0 },
-  { key: 4, name: '신화', color: '#f472b6', mult: 8.5 },
-  { key: 5, name: '에이펙스', color: '#ef4444', mult: 14 },
-]
-function clampInt(v, lo, hi) { return Math.max(lo, Math.min(hi, v | 0)) }
-const gradeOf = (g) => GRADES[clampInt(g, 0, GRADES.length - 1)]
-function rollGrade(max = 3, luck = 1) {
-  const r = Math.random() / luck
-  let g = 0
-  if (r < 0.02) g = 5
-  else if (r < 0.06) g = 4
-  else if (r < 0.15) g = 3
-  else if (r < 0.36) g = 2
-  else if (r < 0.66) g = 1
-  return Math.min(max, g)
+/* 등급·확률·거래가는 game/loot.js 가 소유한다 (단위 테스트 대상) */
+function rollGrade(max = MAX_GRADE, luck = 1) {
+  const g = rollDrop(luck)
+  return Math.min(max, g == null ? 0 : g)
 }
 
 /* ==================================================================
@@ -204,19 +252,21 @@ const JOB_TIERS = [
   { tier: 6, name: '초월', reqLv: 60, cost: 120000, title: '6차 전직', unlock: '궁극의 각성 — 이펙트 변화 · 패시브 극대화' },
 ]
 const MAX_TIER = 6
-/* 전직 퀘스트 (골드 대신 수행 가능) */
-const jobQuestNeed = (tier) => 5 + tier * 8
+/* 전직 퀘스트 — 난이도 상향 (사용자 확정).
+   처치 수 요구가 훨씬 커지고, 던전 클리어도 함께 요구한다. */
+const jobQuestNeed = (tier) => 40 + tier * 60
+const jobQuestDungeons = (tier) => Math.max(1, tier)
 
 /* 스킬 정의 생성 (직업 × 11 = 99개)
    각 티어의 첫 스킬 id는 예전 체계의 `${cls}_t${tier}`를 그대로 써서
    기존 세이브의 투자 레벨이 자동으로 이어진다. */
 function buildSkills() {
   const out = {}
-  CLASSES.forEach((c) => {
+  ALL_CLASSES.forEach((c) => {
     const arch = CLASS_ARCH_OF(c.id)
     let prevTier = -1, idxInTier = 0
     out[c.id] = arch.map((a, i) => {
-      const tier = SKILL_TIER_OF[i]
+      const tier = skillTierAt(c.id, i)
       idxInTier = tier === prevTier ? idxInTier + 1 : 0
       prevTier = tier
       const nm = SKILL_NAMES[c.id][i]
@@ -332,12 +382,12 @@ const NPCS = [
 const NPC_BY_ID = Object.fromEntries(NPCS.map((n) => [n.id, n]))
 const jobMasterFor = (clsId) => NPCS.find((n) => n.role === 'job' && n.cls === clsId)
 
-/* 상인 판매 목록 */
+/* 상인 판매 목록
+   룬과 아티팩트는 상점에서 살 수 없다 (사용자 확정 규칙)
+   — 룬은 사냥·룬 퀘스트로만, 아티팩트는 40레벨 이상 던전에서만 나온다. */
 const SHOP_STOCK = [
-  { key: 'rune', name: '봉인된 룬 상자', desc: '무작위 룬 1개', price: 900, icon: '🔮' },
-  { key: 'armor', name: '방어구 꾸러미', desc: '무작위 방어구 1개', price: 700, icon: '🛡️' },
-  { key: 'weapon', name: '무기 상자', desc: '내 직업 전용 무기 1개', price: 1200, icon: '⚔️' },
-  { key: 'artifact', name: '고대 유물 상자', desc: '무작위 아티팩트 1개', price: 5000, icon: '✨' },
+  { key: 'armor', name: '방어구 꾸러미', desc: '무작위 방어구 1개 (일반~에픽)', price: 1800, icon: '🛡️', gradeMax: 2 },
+  { key: 'weapon', name: '무기 상자', desc: '내 직업 전용 무기 1개 (일반~에픽)', price: 2600, icon: '⚔️', gradeMax: 2 },
   { key: 'sp', name: '깨달음의 서', desc: '스킬 포인트 +1', price: 2500, icon: '📖' },
 ]
 
@@ -356,37 +406,7 @@ const AI_DIFFS = [
 /* ==================================================================
    다중 맵(사냥터) — 레벨별로 입장하는 별도의 맵
    ================================================================== */
-const MAPS = [
-  { id: 0, name: '초보자 마을', reqLv: 1, town: true, half: 30,
-    ground: '#57a355', sky: '#8fd3f4', fog: [40, 120], mob: 'rabbit', count: 9,
-    desc: '모든 모험이 시작되는 평화로운 마을' },
-  { id: 1, name: '고블린 숲', reqLv: 8, half: 26,
-    ground: '#3d6b43', sky: '#7fae8c', fog: [30, 90], mob: 'goblin', count: 8,
-    desc: '고블린 무리가 우글거리는 어두운 숲' },
-  { id: 2, name: '늑대 협곡', reqLv: 16, half: 26,
-    ground: '#8a7a5e', sky: '#c9b98a', fog: [30, 90], mob: 'wolf', count: 8,
-    desc: '굶주린 늑대들이 배회하는 바위 협곡' },
-  { id: 3, name: '화염 동굴', reqLv: 26, half: 24,
-    ground: '#6b3327', sky: '#d9744a', fog: [24, 74], mob: 'imp', count: 8,
-    desc: '용암이 흐르는 뜨거운 지하 동굴' },
-  { id: 4, name: '심연의 던전', reqLv: 36, half: 24,
-    ground: '#332e46', sky: '#231f33', fog: [22, 66], mob: 'wraith', count: 8,
-    desc: '빛이 닿지 않는 심연. 망령이 떠돈다' },
-  { id: 5, name: '용의 둥지', reqLv: 48, half: 24,
-    ground: '#5c3340', sky: '#8f5560', fog: [22, 70], mob: 'drake', count: 7,
-    desc: '어린 용들이 둥지를 튼 최종 사냥터' },
-]
-const MAP_BY_ID = Object.fromEntries(MAPS.map((m) => [m.id, m]))
 
-/* 몬스터 원형 — 맵마다 종류·레벨·스펙이 다르다 */
-const MOB_TYPES = {
-  rabbit: { name: '토끼', lv: 1, hp: 22, dmg: 0, exp: 60, gold: 6, spd: 0, aggro: false, color: '#ffffff', range: 0, cool: 0, windup: 0 },
-  goblin: { name: '고블린', lv: 10, hp: 130, dmg: 12, exp: 300, gold: 24, spd: 3.5, aggro: true, color: '#6f9440', range: 2.4, cool: 1.6, windup: 0.5 },
-  wolf: { name: '굶주린 늑대', lv: 18, hp: 240, dmg: 21, exp: 680, gold: 44, spd: 5.4, aggro: true, color: '#7d7d8c', range: 2.4, cool: 1.2, windup: 0.38 },
-  imp: { name: '화염 임프', lv: 28, hp: 420, dmg: 32, exp: 1400, gold: 78, spd: 4.4, aggro: true, color: '#e2603a', range: 2.6, cool: 1.1, windup: 0.42 },
-  wraith: { name: '심연 망령', lv: 38, hp: 700, dmg: 46, exp: 2800, gold: 130, spd: 4.8, aggro: true, color: '#8b6ad6', range: 2.8, cool: 1.0, windup: 0.4 },
-  drake: { name: '어린 용', lv: 50, hp: 1200, dmg: 66, exp: 5600, gold: 240, spd: 5.0, aggro: true, color: '#c04a3c', range: 3.2, cool: 1.15, windup: 0.5 },
-}
 
 /* 맵별 포탈 배치 — 빛나는 기둥 */
 function portalsFor(mapId) {
@@ -423,8 +443,6 @@ function findWebStat(clsId, id) {
   return null
 }
 
-/* 몬스터 크기 배율 */
-const MOB_SCALE = { rabbit: 1, goblin: 1, wolf: 1.1, imp: 1, wraith: 1.15, drake: 1.35 }
 /* ==================================================================
    유틸
    ================================================================== */
@@ -765,6 +783,16 @@ const defaultSave = () => ({
   /* 메인 퀘스트 — 이장에게 받는 한 줄기 이야기 (현재 단계 번호) */
   mq: 0,
   dungeonClears: 0, raidClears: 0,
+  /* 맵별 NPC 사이드 퀘스트 — { questId: { state, base, got } } */
+  sq: {},
+  /* 쿠폰 코드 — 계정당 1회 */
+  usedCodes: {},
+  /* 히든 직업 — 얻은 것 기록 + 조건 카운터 */
+  hidden: {},                    // { classId: true }
+  fairies: 0,                    // 엘프의 숲에서 모은 요정 수
+  oneShotPvp: 0,                 // 한방에 끝낸 PVP 횟수 (어둠의 암살자 조건)
+  /* 관리자 (코드로 해금) */
+  admin: false,
   /* 스킬 */
   skills: {},                    // { skillId: level }
   jobQuest: {},                  // { npcId: { state, base } } 전직 퀘스트
@@ -782,9 +810,10 @@ const defaultSave = () => ({
 /* ==================================================================
    아이템 생성
    ================================================================== */
-function makeRune(save, gradeMax = 3) {
+/* exact=true 면 gradeMax를 "확정 등급"으로 쓴다 (드랍 판정이 이미 끝난 경우) */
+function makeRune(save, gradeMax = MAX_GRADE, exact) {
   const opt = pick(RUNE_OPTS)
-  const g = rollGrade(gradeMax)
+  const g = exact ? clampInt(gradeMax, 0, MAX_GRADE) : rollGrade(gradeMax)
   const gr = gradeOf(g)
   const value = +(opt.base * gr.mult).toFixed(1)
   return {
@@ -792,10 +821,10 @@ function makeRune(save, gradeMax = 3) {
     name: `${RUNE_PREFIX[Math.min(3, g)]} ${opt.name} 룬`,
   }
 }
-function makeArmor(save, gradeMax = 3) {
+function makeArmor(save, gradeMax = MAX_GRADE, exact) {
   const slot = pick(ARMOR_SLOTS)
   const setKey = pick(ARMOR_SET_KEYS)
-  const g = rollGrade(gradeMax)
+  const g = exact ? clampInt(gradeMax, 0, MAX_GRADE) : rollGrade(gradeMax)
   const gr = gradeOf(g)
   const value = +(slot.base * gr.mult).toFixed(1)
   return {
@@ -804,10 +833,10 @@ function makeArmor(save, gradeMax = 3) {
     name: `${ARMOR_SETS[setKey].name} ${slot.name}`,
   }
 }
-function makeWeapon(save, gradeMax = 3, wtypeForce) {
+function makeWeapon(save, gradeMax = MAX_GRADE, wtypeForce, exact) {
   const wtype = wtypeForce || pick(WEAPON_KEYS)
   const wt = WEAPON_TYPES[wtype]
-  const g = rollGrade(gradeMax)
+  const g = exact ? clampInt(gradeMax, 0, MAX_GRADE) : rollGrade(gradeMax)
   const gr = gradeOf(g)
   const atk = Math.round(wt.atk * gr.mult)
   return {
@@ -815,9 +844,9 @@ function makeWeapon(save, gradeMax = 3, wtypeForce) {
     name: `${gradeOf(g).name} ${wt.name}`,
   }
 }
-function makeArtifact(save, gradeMax = 5) {
+function makeArtifact(save, gradeMax = MAX_GRADE, exact) {
   const eff = pick(ARTIFACT_EFFECTS)
-  const g = rollGrade(gradeMax)
+  const g = exact ? clampInt(gradeMax, 0, MAX_GRADE) : rollGrade(gradeMax)
   const gr = gradeOf(g)
   // 등급이 오를수록 기하급수적으로 강해진다
   const value = +(eff.base * gr.mult).toFixed(1)
@@ -1317,15 +1346,21 @@ function Player({ cls, wtype, gradeColor, awakened, swing, world, live, camRef, 
     const wp = world.current.player
     wp.x = g.position.x; wp.z = g.position.z; wp.yaw = yaw.current
 
+    /* 관전 중이면 카메라만 상대에게 옮긴다 (관리자 기능) */
+    const spec = world.current.spectate ? world.current.peers.get(world.current.spectate) : null
+    const fx2 = spec ? (spec.rx ?? spec.x) : g.position.x
+    const fy2 = spec ? 0 : g.position.y
+    const fz2 = spec ? (spec.rz ?? spec.z) : g.position.z
+
     const horiz = Math.cos(cam.pitch) * CAM_DIST
     camGoal.set(
-      g.position.x + Math.sin(cy) * horiz,
-      g.position.y + LOOK_HEIGHT + Math.sin(cam.pitch) * CAM_DIST,
-      g.position.z + Math.cos(cy) * horiz,
+      fx2 + Math.sin(cy) * horiz,
+      fy2 + LOOK_HEIGHT + Math.sin(cam.pitch) * CAM_DIST,
+      fz2 + Math.cos(cy) * horiz,
     )
     if (!snapped.current) { camera.position.copy(camGoal); snapped.current = true }
     else camera.position.lerp(camGoal, damp(CAM_LAMBDA, dt))
-    lookAt.set(g.position.x, g.position.y + LOOK_HEIGHT, g.position.z)
+    lookAt.set(fx2, fy2 + LOOK_HEIGHT, fz2)
     camera.lookAt(lookAt)
   })
 
@@ -2749,6 +2784,71 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     /* 새 메시지가 오면 목록을 맨 아래로 */
     setTimeout(() => { const el = chatListRef.current; if (el) el.scrollTop = el.scrollHeight }, 30)
   }, [])
+  /* ---------- 쿠폰 코드 · 관리자 ----------
+     채팅창 위의 작은 입력칸. 보상 코드는 계정당 한 번만 쓸 수 있고,
+     관리자 아이디를 치면 비밀번호를 한 번 더 물어본다. */
+  const [codeOpen, setCodeOpen] = useState(false)
+  const [codeMsg, setCodeMsg] = useState(null)
+  const [askPw, setAskPw] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
+  const [spectate, setSpectate] = useState(null)   // 관전 중인 상대 id
+  const codeInputRef = useRef(null)
+
+  const submitCode = useCallback((raw) => {
+    const v = String(raw || '').trim()
+    if (!v) return
+    const s = S.current
+
+    /* 비밀번호 확인 단계 */
+    if (askPw) {
+      setAskPw(false)
+      if (isAdminPw(v)) {
+        s.admin = true
+        commit()
+        setAdminOpen(true)
+        setCodeMsg({ ok: true, txt: '관리자 모드가 열렸습니다' })
+      } else {
+        setCodeMsg({ ok: false, txt: '비밀번호가 올바르지 않습니다' })
+      }
+      return
+    }
+
+    const r = classifyCode(v)
+    if (!r || r.kind === 'unknown') { setCodeMsg({ ok: false, txt: '존재하지 않는 코드입니다' }); return }
+    if (r.kind === 'adminId') {
+      setAskPw(true)
+      setCodeMsg({ ok: true, txt: '비밀번호를 입력하세요' })
+      return
+    }
+    /* 보상 코드 — 중복 사용 방지 */
+    const used = s.usedCodes || {}
+    if (used[r.code.id]) { setCodeMsg({ ok: false, txt: '이미 사용한 코드입니다' }); return }
+    r.code.apply(s)
+    s.usedCodes = { ...used, [r.code.id]: true }
+    if (s.level > MAX_LEVEL) s.level = MAX_LEVEL
+    commit()
+    setCodeMsg({ ok: true, txt: `${r.code.label} 지급 완료!` })
+    addToast(`🎁 코드 보상 — ${r.code.label}`)
+  }, [askPw, commit, addToast])
+
+  /* ---- 관리자 기능 ---- */
+  const adminAct = useCallback((what, arg) => {
+    const s = S.current
+    if (!s.admin) return
+    if (what === 'gold') { s.gold += 10000; addToast('🛠 골드 +10,000') }
+    else if (what === 'levelup') { s.level = Math.min(MAX_LEVEL, s.level + 1); s.exp = 0; addToast(`🛠 레벨 ${s.level}`) }
+    else if (what === 'maxlevel') { s.level = MAX_LEVEL; s.exp = 0; addToast(`🛠 만렙 ${MAX_LEVEL} 달성`) }
+    else if (what === 'sp') { s.sp += 10; addToast('🛠 SP +10') }
+    else if (what === 'nick') {
+      const nn = String(arg || '').trim()
+      if (nn.length < 2 || nn.length > 10) { addToast('닉네임은 2~10자'); return }
+      const acc = { ...loadJSON(LS_ACCOUNT, {}), nick: nn }
+      saveJSON(LS_ACCOUNT, acc)
+      addToast(`🛠 닉네임 변경 — ${nn} (새로고침 후 적용)`)
+    }
+    commit()
+  }, [commit, addToast])
+
   const sendChat = useCallback((raw) => {
     const txt = (raw || '').trim().slice(0, 120)
     if (!txt) return
@@ -2857,9 +2957,16 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const under = p.members.filter((m) => (m.level || 1) < reqLv)
     if (under.length) { addToast(`⚠ 레벨 부족: ${under.map((m) => m.nick).join(', ')} (Lv.${reqLv} 필요)`); return }
 
-    /* 레이드는 최소 4명 — 사람이 모자라면 용병으로 채워 체험할 수 있게 한다 */
+    /* 용병은 메인 퀘스트를 진행하는 동안에만 자리를 채운다 (사용자 확정).
+       퀘스트를 다 끝낸 뒤에는 사람을 모아야 한다. */
+    const questNeedsAlly = !allQuestsDone(S.current)
     const minNeed = kind === 'raid' ? 4 : 1
-    const aiCount = Math.max(0, minNeed - p.members.length)
+    const shortfall = Math.max(0, minNeed - p.members.length)
+    if (shortfall > 0 && !questNeedsAlly) {
+      addToast(`⚠ ${kind === 'raid' ? '레이드' : '던전'}는 ${minNeed}명이 필요합니다 — 용병은 메인 퀘스트 중에만 도와줍니다`)
+      return
+    }
+    const aiCount = questNeedsAlly ? shortfall : 0
     const inst = (kind === 'dungeon' ? 'dg_' : 'rd_') + Date.now().toString(36)
     const size = p.members.length + aiCount
     net.room.send({ t: 'pStart', pid: p.id, kind, cid: id, inst, size, ai: aiCount })
@@ -3023,8 +3130,14 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     }
     const ev = applyExp(s, mt.exp * (1 + st.expGain / 100))
     if (s.unlocked) {
-      if (Math.random() < RUNE_DROP) addItem(makeRune(s))
-      else if (Math.random() < GEAR_DROP) addItem(Math.random() < 0.5 ? makeArmor(s) : makeWeapon(s))
+      const luck = 1 + (st.luck || 0) / 100
+      /* 룬은 사냥에서만, 아주 드물게 (상점에서는 살 수 없다) */
+      if (Math.random() < RUNE_DROP * luck) addItem(makeRune(s, MAX_GRADE))
+      else {
+        /* 무기·방어구 — 등급별 확률로 판정, 아무것도 안 나오는 게 대부분 */
+        const g = rollDrop(luck)
+        if (g != null) addItem(Math.random() < 0.5 ? makeArmor(s, g, true) : makeWeapon(s, g, undefined, true))
+      }
     }
     commit()
     ev.forEach(addToast)
@@ -3118,6 +3231,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   }, [cls, commit, bumpHud, addToast])
   world.current.hitPlayer = hitPlayer
   world.current.playerMaxHp = stats.maxHp
+  world.current.spectate = spectate
   /* AI 동료(힐러·성직자)가 나를 치유할 때 쓰는 통로 */
   world.current.healAlly = useCallback((amount) => {
     const L = live.current
@@ -3702,11 +3816,11 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
 
   const sellItem = useCallback((item) => {
     const s = S.current
-    const price = Math.round((10 + item.grade * 25) * (item.kind === 'artifact' ? 3 : 1))
+    const price = sellPrice(item)
     s.bag = s.bag.filter((b) => b.uid !== item.uid)
     s.gold += price
     commit()
-    addToast(`💰 ${item.name} 판매 (+${price} G)`)
+    addToast(`💰 [${gradeOf(item.grade).name}] ${item.name} 판매 (+${price.toLocaleString()} G)`)
   }, [commit, addToast])
 
   /* ---------- 스킬 배우기 ---------- */
@@ -3786,11 +3900,10 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     if (!s.unlocked) { lockedNotice(); return }
     if (s.gold < entry.price) { addToast('골드가 부족합니다'); return }
     s.gold -= entry.price
+    /* 상점은 일반~에픽까지만 취급한다 (룬·아티팩트는 판매하지 않는다) */
     if (entry.key === 'sp') { s.sp += 1; addToast('📖 깨달음의 서 — SP +1') }
-    else if (entry.key === 'rune') addItem(makeRune(s))
-    else if (entry.key === 'armor') addItem(makeArmor(s))
-    else if (entry.key === 'weapon') addItem(makeWeapon(s, 3, cls.weapon))
-    else addItem(makeArtifact(s))
+    else if (entry.key === 'armor') addItem(makeArmor(s, entry.gradeMax))
+    else if (entry.key === 'weapon') addItem(makeWeapon(s, entry.gradeMax, cls.weapon))
     commit()
   }, [cls, commit, addToast, addItem, lockedNotice])
 
@@ -3812,9 +3925,13 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   /* 전직 — 퀘스트 */
   const acceptJobQuest = useCallback((npc) => {
     const s = S.current
-    s.jobQuest[npc.id] = { state: 'active', base: s.kills }
+    const t = s.tier + 1
+    s.jobQuest[npc.id] = {
+      state: 'active', base: s.kills,
+      dgBase: (s.dungeonClears || 0) + (s.raidClears || 0),
+    }
     commit()
-    addToast(`📜 전직 시험 시작 — 몬스터 ${jobQuestNeed(s.tier + 1)}마리 처치`)
+    addToast(`📜 전직 시험 시작 — 몬스터 ${jobQuestNeed(t)}마리 · 던전 ${jobQuestDungeons(t)}회`)
     setNpcModal(null)
   }, [commit, addToast])
 
@@ -3825,8 +3942,10 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const q = s.jobQuest[npc.id]
     if (!q || q.state !== 'active') return
     const need = jobQuestNeed(next.tier)
-    if (s.kills - q.base < need) return
-    s.jobQuest[npc.id] = { state: 'none', base: 0 }
+    const dgNeed = jobQuestDungeons(next.tier)
+    const dgDone = (s.dungeonClears || 0) + (s.raidClears || 0) - (q.dgBase || 0)
+    if (s.kills - q.base < need || dgDone < dgNeed) return
+    s.jobQuest[npc.id] = { state: 'none', base: 0, dgBase: 0 }
     s.tier = next.tier
     s.sp += 2
     commit()
@@ -3867,26 +3986,67 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   }, [commit, addToast, lockedNotice, spawnForMap])
 
   /* ---------- 직업 변경 (닉네임은 영구 고정, 직업은 자유) ---------- */
-  const changeClass = useCallback((newId) => {
+  /* ---------- 직업 포기 → 재전직 (사용자 확정 규칙) ----------
+     전직관에서 직접 포기해야 하며, 모든 스킬과 스킬 포인트를 잃는다.
+     포기 후에는 전직 단계도 0으로 돌아가 처음부터 다시 올라가야 한다. */
+  const abandonClass = useCallback(() => {
     const s = S.current
     if (!s.unlocked) { lockedNotice(); return }
-    if (newId === cls.id) { addToast('이미 해당 직업입니다'); return }
+    s.skills = {}                 // 모든 스킬 상실
+    s.sp = 0                      // 스킬 포인트 전부 상실
+    s.tier = 0                    // 전직 단계 초기화
+    s.jobQuest = {}
+    s.abandoned = true            // 재전직 대기 상태
+    const w = s.equip.weapon
+    if (w) { s.bag.push(w); s.equip.weapon = null }
+    commit()
+    live.current.cd = {}
+    addToast('💔 직업을 포기했습니다 — 모든 스킬과 SP를 잃었습니다')
+    addToast('전직관에서 새 직업을 선택하세요')
+    setNpcModal(null)
+  }, [commit, addToast, lockedNotice])
+
+  /* 포기한 뒤에만 새 직업을 고를 수 있다 */
+  const pickNewClass = useCallback((newId) => {
+    const s = S.current
+    if (!s.unlocked) { lockedNotice(); return }
+    if (!s.abandoned) { addToast('먼저 현재 직업을 포기해야 합니다'); return }
     const nc = CLASS_BY_ID[newId]
-    if (!nc) return
+    if (!nc || nc.hidden) return
+    s.abandoned = false
+    s.skills = {}
+    s.sp = 1                      // 새 출발용 최소 1포인트
+    commit()
+    live.current.cd = {}
+    addToast(`✨ [${nc.name}]로 새로 시작합니다 — SP 1 지급`)
+    setNpcModal(null)
+    onChangeClass(newId)
+  }, [commit, addToast, lockedNotice, onChangeClass])
+
+  /* 히든 직업 전직 — 조건을 만족한 경우에만 호출된다 */
+  const becomeHidden = useCallback((hid) => {
+    const s = S.current
+    const h = HIDDEN_BY_ID[hid]
+    if (!h) return
+    if (!hiddenUnlockable(s, cls.id, hid)) { addToast('조건을 만족하지 않았습니다'); return }
+    s.hidden = { ...(s.hidden || {}), [hid]: true }
+    /* 히든 직업은 새 스킬 체계를 쓰므로 기존 스킬 투자는 SP로 돌려준다 */
     let refund = 0
     Object.keys(s.skills).forEach((k) => { if (k.startsWith(cls.id + '_')) refund += s.skills[k] })
     const kept = {}
     Object.keys(s.skills).forEach((k) => { if (!k.startsWith(cls.id + '_')) kept[k] = s.skills[k] })
     s.skills = kept
-    s.sp += refund
+    s.sp += Math.max(1, refund)
     const w = s.equip.weapon
-    if (w && !WEAPON_TYPES[w.wtype].classes.includes(newId)) { s.bag.push(w); s.equip.weapon = null }
+    if (w && !WEAPON_TYPES[w.wtype].classes.includes(hid)) { s.bag.push(w); s.equip.weapon = null }
     commit()
     live.current.cd = {}
-    addToast('[' + nc.name + ']로 직업을 변경했습니다! SP ' + refund + ' 환급')
+    addToast(`🌟 히든 직업 [${h.name}] 전직 성공!`)
+    addToast(h.note)
+    pushChat({ sys: true, txt: `${account.nick}님이 히든 직업 [${h.name}]에 전직했습니다!` })
     setNpcModal(null)
-    onChangeClass(newId)
-  }, [cls, commit, addToast, lockedNotice, onChangeClass])
+    onChangeClass(hid)
+  }, [cls, commit, addToast, onChangeClass, pushChat, account.nick])
 
   /* ---------- PVP ---------- */
   /* ==================================================================
@@ -3935,11 +4095,19 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
   const grantInstReward = useCallback((exp, gold, gradeMax) => {
     const s = S.current
     const st = statsRef.current
+    const cur = instRef.current
     s.gold += Math.round(gold * (1 + st.goldGain / 100))
     const ev = applyExp(s, exp * (1 + st.expGain / 100))
     if (gradeMax) {
-      const roll = Math.random()
-      addItem(roll < 0.4 ? makeWeapon(s, gradeMax) : roll < 0.75 ? makeArmor(s, gradeMax) : makeArtifact(s, gradeMax))
+      /* 아티팩트는 40레벨 이상 던전에서 아주 드물게만 나온다 (사용자 확정) */
+      const reqLv = cur && cur.kind === 'dungeon' ? (DUNGEON_BY_ID[cur.cid]?.reqLv || 0)
+        : cur ? (RAID_BY_ID[cur.cid]?.reqLv || 0) : 0
+      if (artifactAllowed(reqLv) && Math.random() < ARTIFACT_DROP * 1000) {
+        /* 던전 클리어는 사냥 한 번보다 훨씬 귀한 기회다 */
+        addItem(makeArtifact(s, gradeMax))
+      } else {
+        addItem(Math.random() < 0.5 ? makeWeapon(s, gradeMax) : makeArmor(s, gradeMax))
+      }
     }
     commit()
     ev.forEach(addToast)
@@ -4930,6 +5098,47 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         </div>
       )}
 
+      {/* ── 코드 입력창 (채팅창 바로 위) ── */}
+      <div data-ui className={`absolute left-4 z-40 w-[19rem] max-w-[85vw] ${isMobile
+        ? (room.connected ? 'bottom-[19.5rem]' : 'bottom-40')
+        : (room.connected ? 'bottom-[17.5rem]' : 'bottom-24')}`}>
+        {codeOpen ? (
+          <div className="rounded-2xl border border-white/15 bg-black/70 p-2 backdrop-blur-sm">
+            <div className="flex items-center justify-between px-1 pb-1">
+              <span className="text-[11px] font-bold text-slate-300">🎟 코드 입력</span>
+              <button onClick={() => { setCodeOpen(false); setCodeMsg(null); setAskPw(false) }}
+                className="px-1 text-slate-400 transition hover:text-white">✕</button>
+            </div>
+            <form onSubmit={(e) => {
+              e.preventDefault()
+              if (codeInputRef.current) { submitCode(codeInputRef.current.value); codeInputRef.current.value = '' }
+            }}>
+              <input ref={codeInputRef} maxLength={32}
+                type={askPw ? 'password' : 'text'}
+                placeholder={askPw ? '비밀번호' : '코드를 입력하세요'}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setCodeOpen(false); e.currentTarget.blur() } }}
+                className="w-full rounded-lg border border-white/15 bg-black/50 px-3 py-1.5 text-[12px] text-white outline-none transition focus:border-amber-400" />
+            </form>
+            {codeMsg && (
+              <div className={`px-1 pt-1 text-[11px] ${codeMsg.ok ? 'text-emerald-300' : 'text-rose-300'}`}>
+                {codeMsg.ok ? '✓' : '✕'} {codeMsg.txt}
+              </div>
+            )}
+          </div>
+        ) : (
+          <button onClick={() => { setCodeOpen(true); setTimeout(() => codeInputRef.current && codeInputRef.current.focus(), 60) }}
+            className="rounded-full border border-white/15 bg-black/50 px-3 py-1 text-[11px] font-bold text-slate-300 backdrop-blur-sm transition hover:bg-black/70">
+            🎟 코드
+          </button>
+        )}
+        {saveUI.admin && (
+          <button onClick={() => setAdminOpen(true)}
+            className="ml-1.5 mt-1.5 rounded-full border border-rose-400/40 bg-rose-600/70 px-3 py-1 text-[11px] font-bold text-white backdrop-blur-sm transition hover:bg-rose-600">
+            🛠 관리자
+          </button>
+        )}
+      </div>
+
       {/* ── 채팅 (온라인 전용) ── */}
       {room.connected && (
         <div data-ui className={`absolute left-4 z-40 w-[19rem] max-w-[85vw] ${isMobile ? 'bottom-40' : 'bottom-24'}`}>
@@ -4977,7 +5186,8 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         <SkillTreeModal save={saveUI} cls={cls} stats={stats} onInvest={investSkill} onClose={() => setTreeOpen(false)} />
       )}
       {npcModal && (
-        <NpcModal npc={npcModal} save={saveUI} cls={cls} nick={account.nick} onChangeClass={changeClass}
+        <NpcModal npc={npcModal} save={saveUI} cls={cls} nick={account.nick}
+          onAbandonClass={abandonClass} onPickNewClass={pickNewClass} onBecomeHidden={becomeHidden}
           onStartTutorial={startTutorial} onTurnInQuest={turnInQuest}
           onBuy={buyItem} onAdvanceGold={advanceByGold}
           onAcceptJobQuest={acceptJobQuest} onCompleteJobQuest={completeJobQuest} onTrainSp={trainSp}
@@ -4992,6 +5202,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         <PartyModal
           myId={netRef.current ? netRef.current.myId : null}
           party={party} roster={roster} saveLevel={saveUI.level}
+          allyOk={!allQuestsDone(saveUI)}
           contentSel={contentSel} setContentSel={setContentSel}
           onInvite={inviteToParty} onLeave={leaveParty} onReady={toggleReady} onStart={startParty}
           onTrade={requestTrade} onDuel={requestDuel}
@@ -5019,6 +5230,10 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
           accentFrom="from-rose-500" accentTo="to-red-500"
           onAccept={acceptDuel}
           onDecline={() => { const r = duelReq; setDuelReq(null); if (r) netRef.current?.room.send({ t: 'dlDec', to: r.from, nick: account.nick }) }} />
+      )}
+      {adminOpen && saveUI.admin && (
+        <AdminPanel save={saveUI} roster={roster} spectate={spectate}
+          onAct={adminAct} onSpectate={setSpectate} onClose={() => setAdminOpen(false)} />
       )}
       {trade && (
         <TradeModal trade={trade} bag={saveUI.bag} myGold={saveUI.gold}
@@ -5063,8 +5278,13 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
 function ItemChip({ item, onClick, compact, disabled }) {
   if (!item) return null
   const g = gradeOf(item.grade)
+  /* 등급별 시세를 알려줘 거래할 때 값을 가늠할 수 있게 한다 */
+  const [lo, hi] = g.price
+  const mul = item.kind === 'artifact' ? 2.5 : item.kind === 'rune' ? 1.6 : 1
+  const market = `시세 ${Math.round(lo * mul).toLocaleString()}~${Math.round(hi * mul).toLocaleString()} G`
   return (
     <button onClick={onClick} disabled={disabled}
+      title={`[${g.name}] ${item.name}\n${itemStatLine(item)}\n${market}`}
       className={`w-full rounded-lg border px-2 py-1.5 text-left transition ${disabled ? 'opacity-50' : 'hover:brightness-125'}`}
       style={{ borderColor: g.color + '66', background: g.color + '14' }}>
       <div className="flex items-center justify-between gap-1">
@@ -5072,6 +5292,7 @@ function ItemChip({ item, onClick, compact, disabled }) {
         {!compact && <span className="shrink-0 text-[9px] text-slate-400">{g.name}</span>}
       </div>
       <div className="truncate text-[10px] text-slate-300">{itemStatLine(item)}</div>
+      {!compact && <div className="truncate text-[9px] text-amber-300/70">🪙 {market}</div>}
     </button>
   )
 }
@@ -5444,13 +5665,19 @@ function SkillTreeModal({ save, cls, stats, onInvest, onClose }) {
     </div>
   )
 }
-function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onTurnInQuest, onBuy,
+function NpcModal({ npc, save, cls, nick, onAbandonClass, onPickNewClass, onBecomeHidden,
+  onStartTutorial, onTurnInQuest, onBuy,
   onAdvanceGold, onAcceptJobQuest, onCompleteJobQuest, onTrainSp, onClose }) {
   const isMobile = useIsMobile()
   const next = canAdvance(save)
   const jq = save.jobQuest[npc.id]
   const questNeed = next ? jobQuestNeed(next.tier) : 0
   const questCur = jq && jq.state === 'active' ? Math.min(questNeed, save.kills - jq.base) : 0
+  /* 전직 시험은 던전 클리어도 요구한다 (난이도 상향) */
+  const dgNeed = next ? jobQuestDungeons(next.tier) : 0
+  const dgCur = jq && jq.state === 'active'
+    ? Math.min(dgNeed, (save.dungeonClears || 0) + (save.raidClears || 0) - (jq.dgBase || 0)) : 0
+  const questOk = questCur >= questNeed && dgCur >= dgNeed
 
   return (
     <div data-ui className="absolute inset-0 z-[55] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -5561,31 +5788,64 @@ function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onTurn
         {npc.role === 'changer' && (
           <>
             <p className="mt-4 rounded-xl bg-black/30 p-3 text-sm leading-relaxed text-slate-200">
-              “<b className="text-cyan-300">{nick}</b>, 이름은 평생 따라다니지만 길은 언제든 바꿀 수 있다네.
-              원한다면 지금의 <b style={{ color: cls.color }}>{cls.name}</b>를 버리고 다른 길을 걸어보게.”
+              “<b className="text-cyan-300">{nick}</b>, 길을 바꾸려면 지금의 길을 <b className="text-rose-300">완전히 버려야</b> 하네.
+              쌓아온 것을 전부 내려놓을 각오가 있는가?”
             </p>
-            <div className="mt-2 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-3 py-2 text-[11px] leading-relaxed text-cyan-200">
-              ⚠ 닉네임은 <b>영구 고정</b>이라 변경할 수 없습니다.<br />
-              직업을 바꾸면 이전 직업 스킬에 쓴 <b>SP는 전액 환급</b>되고, 레벨·전직 단계·아이템은 유지됩니다.
+            <div className="mt-2 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[11px] leading-relaxed text-rose-200">
+              ⚠ 직업을 포기하면 <b>모든 스킬과 스킬 포인트(SP)를 잃습니다</b>.<br />
+              전직 단계도 <b>0차로 초기화</b>되어 처음부터 다시 올라가야 합니다.<br />
+              레벨·골드·아이템은 유지되고, 닉네임은 영구 고정입니다.
             </div>
-            <div className="mt-3 grid max-h-[46vh] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
-              {CLASSES.map((c) => {
-                const cur = c.id === cls.id
-                return (
-                  <button key={c.id} onClick={() => onChangeClass(c.id)} disabled={cur}
-                    className={`rounded-xl border p-3 text-left transition ${cur ? 'cursor-default opacity-70' : 'hover:brightness-125'}`}
-                    style={{ borderColor: c.color + (cur ? '99' : '44'), background: c.color + (cur ? '22' : '10') }}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{c.icon}</span>
-                      <span className="text-sm font-bold" style={{ color: c.color }}>{c.name}</span>
-                      {cur && <span className="ml-auto text-[10px] font-bold text-white/70">현재 직업</span>}
-                    </div>
-                    <div className="mt-1 text-[10px] text-slate-400">{c.role} · {WEAPON_TYPES[c.weapon].name}</div>
-                    <div className="mt-1 text-[10px] leading-snug text-slate-300">{c.growHint}</div>
-                  </button>
-                )
-              })}
-            </div>
+
+            {!save.abandoned ? (
+              <>
+                <div className="mt-3 rounded-xl bg-black/30 p-3 text-[12px] text-slate-300">
+                  현재 <b style={{ color: cls.color }}>{cls.icon} {cls.name}</b>
+                  <span className="ml-1 text-slate-500">
+                    · {JOB_TIERS[save.tier].title} · SP {save.sp} · 배운 스킬 {Object.values(save.skills || {}).filter((v) => v > 0).length}개
+                  </span>
+                </div>
+                <button onClick={onAbandonClass}
+                  className="mt-3 w-full rounded-xl bg-gradient-to-r from-rose-600 to-red-600 py-3 font-black text-white transition hover:brightness-110">
+                  💔 직업 포기 (스킬·SP 전부 상실)
+                </button>
+                <div className="mt-1.5 text-center text-[10px] text-slate-500">
+                  포기한 뒤에 새 직업을 고를 수 있습니다
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-200">
+                  ✓ 직업을 포기한 상태입니다 — 새로 걸을 길을 고르세요
+                </div>
+                <div className="mt-3 grid max-h-[42vh] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                  {CLASSES.map((c) => (
+                    <button key={c.id} onClick={() => onPickNewClass(c.id)}
+                      className="rounded-xl border p-3 text-left transition hover:brightness-125"
+                      style={{ borderColor: c.color + '44', background: c.color + '10' }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{c.icon}</span>
+                        <span className="text-sm font-bold" style={{ color: c.color }}>{c.name}</span>
+                      </div>
+                      <div className="mt-1 text-[10px] text-slate-400">{c.role} · {WEAPON_TYPES[c.weapon].name}</div>
+                      <div className="mt-1 text-[10px] leading-snug text-slate-300">{c.growHint}</div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* 이 전직관에서 받을 수 있는 히든 직업 */}
+            {HIDDEN_CLASSES.filter((h) => h.id === 'fairymancer' && npc.cls === 'mage'
+              ? hiddenUnlockable(save, cls.id, h.id)
+              : h.id === 'novice' ? hiddenUnlockable(save, cls.id, h.id) : false).map((h) => (
+              <button key={h.id} onClick={() => onBecomeHidden(h.id)}
+                className="mt-3 w-full rounded-xl border-2 border-amber-400/60 bg-gradient-to-r from-amber-500/20 to-fuchsia-500/20 p-3 text-left transition hover:brightness-125">
+                <div className="text-sm font-black text-amber-200">🌟 히든 직업 해금! {h.icon} {h.name}</div>
+                <div className="mt-0.5 text-[10px] text-slate-300">{h.note}</div>
+                <div className="mt-1 text-[11px] font-bold text-amber-300">눌러서 전직하기 →</div>
+              </button>
+            ))}
           </>
         )}
 
@@ -5658,22 +5918,31 @@ function NpcModal({ npc, save, cls, nick, onChangeClass, onStartTutorial, onTurn
                     {(!jq || jq.state !== 'active') ? (
                       <button onClick={() => onAcceptJobQuest(npc)}
                         className="mt-2 w-full rounded-xl border border-white/15 py-3 font-bold text-slate-200 transition hover:bg-white/5">
-                        ⚔ 시험 받기 (몬스터 {questNeed}마리 처치)
+                        ⚔ 시험 받기 (몬스터 {questNeed}마리 · 던전 {dgNeed}회)
                       </button>
                     ) : (
                       <>
-                        <div className="mt-3 rounded-xl bg-black/30 p-3">
-                          <div className="text-[11px] text-slate-400">전직 시험 — 몬스터 처치</div>
-                          <div className="mt-1 h-2 overflow-hidden rounded-full bg-black/50">
-                            <div className="h-full bg-emerald-400" style={{ width: `${(questCur / questNeed) * 100}%` }} />
+                        <div className="mt-3 space-y-2 rounded-xl bg-black/30 p-3">
+                          <div>
+                            <div className="text-[11px] text-slate-400">전직 시험 ① 몬스터 처치</div>
+                            <div className="mt-1 h-2 overflow-hidden rounded-full bg-black/50">
+                              <div className="h-full bg-emerald-400" style={{ width: `${(questCur / questNeed) * 100}%` }} />
+                            </div>
+                            <div className="mt-1 text-right text-[11px] font-bold text-white">{questCur} / {questNeed}</div>
                           </div>
-                          <div className="mt-1 text-right text-[11px] font-bold text-white">{questCur} / {questNeed}</div>
+                          <div>
+                            <div className="text-[11px] text-slate-400">전직 시험 ② 던전·레이드 클리어</div>
+                            <div className="mt-1 h-2 overflow-hidden rounded-full bg-black/50">
+                              <div className="h-full bg-sky-400" style={{ width: `${(dgCur / dgNeed) * 100}%` }} />
+                            </div>
+                            <div className="mt-1 text-right text-[11px] font-bold text-white">{dgCur} / {dgNeed}</div>
+                          </div>
                         </div>
-                        <button onClick={() => onCompleteJobQuest(npc)} disabled={questCur < questNeed}
+                        <button onClick={() => onCompleteJobQuest(npc)} disabled={!questOk}
                           className={`mt-2 w-full rounded-xl py-3 font-bold transition ${
-                            questCur >= questNeed ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:brightness-110' : 'cursor-not-allowed bg-slate-700/50 text-slate-500'
+                            questOk ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:brightness-110' : 'cursor-not-allowed bg-slate-700/50 text-slate-500'
                           }`}>
-                          {questCur >= questNeed ? '⭐ 시험 통과 — 전직하기' : '아직 부족합니다'}
+                          {questOk ? '⭐ 시험 통과 — 전직하기' : '아직 부족합니다'}
                         </button>
                       </>
                     )}
@@ -5775,6 +6044,77 @@ function TradeModal({ trade, bag, myGold, onGold, onToggleItem, onLock, onConfir
         </div>
         <div className="mt-2 text-center text-[11px] text-slate-500">
           양쪽 모두 잠그고 확정해야 교환이 이뤄집니다
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ==================================================================
+   관리자 패널 — 코드로 해금된 사람만 열 수 있다
+   ================================================================== */
+function AdminPanel({ save, roster, spectate, onAct, onSpectate, onClose }) {
+  const [nick, setNick] = useState('')
+  const btn = 'rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-[12px] font-bold text-white transition hover:bg-white/10'
+  return (
+    <div data-ui className="absolute inset-0 z-[72] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-3xl border border-rose-400/40 bg-slate-900 p-6 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-black text-rose-300">🛠 관리자 패널</div>
+          <button onClick={onClose} className="rounded-lg px-2 py-1 text-slate-400 transition hover:bg-white/10 hover:text-white">✕</button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button className={btn} onClick={() => onAct('gold')}>🪙 골드 +10,000</button>
+          <button className={btn} onClick={() => onAct('levelup')}>⬆ 레벨 업</button>
+          <button className={btn} onClick={() => onAct('maxlevel')}>👑 만렙 찍기</button>
+          <button className={btn} onClick={() => onAct('sp')}>✨ SP +10</button>
+        </div>
+
+        <div className="mt-3">
+          <label className="text-[11px] text-slate-400">닉네임 바꾸기</label>
+          <div className="mt-1 flex gap-2">
+            <input value={nick} onChange={(e) => setNick(e.target.value)} maxLength={10}
+              placeholder="새 닉네임 (2~10자)"
+              className="flex-1 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-[12px] text-white outline-none focus:border-rose-400" />
+            <button onClick={() => { onAct('nick', nick); setNick('') }}
+              className="rounded-lg bg-rose-600/85 px-3 py-2 text-[12px] font-bold text-white transition hover:brightness-110">변경</button>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-[11px] text-slate-400">다른 사람 관전하기</div>
+          {roster.length === 0 ? (
+            <div className="mt-1 rounded-lg bg-white/5 px-3 py-2 text-[11px] text-slate-500">
+              같은 공간에 다른 사람이 없습니다
+            </div>
+          ) : (
+            <div className="mt-1 space-y-1">
+              {roster.map((p) => {
+                const on = spectate === p.id
+                const c = CLASS_BY_ID[p.cls]
+                return (
+                  <button key={p.id} onClick={() => onSpectate(on ? null : p.id)}
+                    className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${on
+                      ? 'border-rose-400/60 bg-rose-500/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
+                    <span>{c ? c.icon : '👤'}</span>
+                    <span className="text-[12px] font-bold text-white">{p.nick}</span>
+                    <span className="ml-auto text-[10px] text-slate-400">{on ? '관전 중 — 해제' : '관전'}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {spectate && (
+            <div className="mt-2 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-1.5 text-[10px] text-rose-200">
+              카메라가 상대를 따라갑니다 — 다시 눌러 해제하세요
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-lg bg-white/5 px-3 py-2 text-[10px] leading-relaxed text-slate-500">
+          Lv.{save.level} · 🪙 {save.gold.toLocaleString()} · SP {save.sp}
         </div>
       </div>
     </div>
@@ -6011,7 +6351,7 @@ function DungeonArena({ inst, mobs, world, live, onKill, onRespawn }) {
 /* ==================================================================
    파티 — 초대해서 팀을 만들고, 전원 준비되면 파티장이 던전/레이드를 연다
    ================================================================== */
-function PartyModal({ myId, party, roster, contentSel, setContentSel, saveLevel,
+function PartyModal({ myId, party, roster, contentSel, setContentSel, saveLevel, allyOk,
   onInvite, onLeave, onReady, onStart, onTrade, onDuel, onClose }) {
   const isLeader = !!party && party.leaderId === myId
   const size = party ? party.members.length : 1
@@ -6132,42 +6472,83 @@ function PartyModal({ myId, party, roster, contentSel, setContentSel, saveLevel,
             ))}
           </div>
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            {(contentSel.kind === 'dungeon' ? DUNGEONS : RAID_DIFFS).map((d) => {
-              const on = contentSel.id === d.id
-              const lvOk = saveLevel >= d.reqLv
-              return (
-                <button key={d.id} onClick={() => setContentSel({ kind: contentSel.kind, id: d.id })}
-                  className={`rounded-xl border px-3 py-2 text-left transition ${on
-                    ? 'border-amber-400/60 bg-amber-500/12' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
-                  <div className="text-[13px] font-black text-white">{d.icon} {d.name}</div>
-                  <div className={`text-[10px] ${lvOk ? 'text-slate-400' : 'text-rose-400'}`}>
-                    Lv.{d.reqLv} 이상{contentSel.kind === 'raid' ? ` · ${d.phases}페이즈` : ''}
+          {/* 던전이 많아 레벨 구간별로 묶어 보여준다 */}
+          <div className="mt-3 max-h-56 overflow-y-auto pr-1">
+            {contentSel.kind === 'raid' ? (
+              <div className="grid gap-2 sm:grid-cols-3">
+                {RAID_DIFFS.map((d) => {
+                  const on = contentSel.id === d.id
+                  const lvOk = saveLevel >= d.reqLv
+                  return (
+                    <button key={d.id} onClick={() => setContentSel({ kind: 'raid', id: d.id })}
+                      className={`rounded-xl border px-3 py-2 text-left transition ${on
+                        ? 'border-amber-400/60 bg-amber-500/12' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
+                      <div className="text-[13px] font-black text-white">{d.icon} {d.name}</div>
+                      <div className={`text-[10px] ${lvOk ? 'text-slate-400' : 'text-rose-400'}`}>
+                        Lv.{d.reqLv} 이상 · {d.phases}페이즈
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              [...new Set(DUNGEONS.map((d) => d.reqLv))].map((lv) => {
+                const group = DUNGEONS.filter((d) => d.reqLv === lv)
+                const lvOk = saveLevel >= lv
+                return (
+                  <div key={lv} className="mb-2">
+                    <div className={`mb-1 text-[10px] font-bold ${lvOk ? 'text-slate-400' : 'text-rose-400/70'}`}>
+                      Lv.{lv} {lvOk ? '' : '(부족)'} — {group.length}개
+                    </div>
+                    <div className="grid gap-1.5 sm:grid-cols-3">
+                      {group.map((d) => {
+                        const on = contentSel.id === d.id
+                        return (
+                          <button key={d.id} onClick={() => setContentSel({ kind: 'dungeon', id: d.id })}
+                            title={d.desc}
+                            className={`rounded-xl border px-2.5 py-1.5 text-left transition ${on
+                              ? 'border-amber-400/60 bg-amber-500/12'
+                              : lvOk ? 'border-white/10 bg-white/5 hover:bg-white/10'
+                              : 'border-white/8 bg-black/20 opacity-60'}`}>
+                            <div className="truncate text-[12px] font-black text-white">{d.icon} {d.name}</div>
+                            {d.reqLv >= 40 && <div className="text-[9px] text-fuchsia-300">✨ 아티팩트 가능</div>}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                </button>
-              )
-            })}
+                )
+              })
+            )}
           </div>
 
           {aiFill > 0 && lvOk && (
-            <div className="mt-3 rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-200">
-              🤝 인원이 <b>{aiFill}명</b> 모자라 <b>마을 용병</b>이 함께 갑니다 — 혼자서도 체험할 수 있어요
-            </div>
+            allyOk ? (
+              <div className="mt-3 rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-200">
+                🤝 인원이 <b>{aiFill}명</b> 모자라 <b>마을 용병</b>이 함께 갑니다 — 메인 퀘스트 중에만 도와줍니다
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-200">
+                ⚠ 인원이 <b>{aiFill}명</b> 부족합니다 — 용병은 <b>메인 퀘스트 중에만</b> 도와줍니다. 사람을 모아주세요.
+              </div>
+            )
           )}
 
           {!party || isLeader ? (
             <>
-              <button onClick={onStart} disabled={!lvOk || (party && !canStart)}
-                className={`mt-3 w-full rounded-xl py-3 font-black text-white transition ${lvOk && (!party || canStart)
+              <button onClick={onStart} disabled={!lvOk || (party && !canStart) || (aiFill > 0 && !allyOk)}
+                className={`mt-3 w-full rounded-xl py-3 font-black text-white transition ${lvOk && (!party || canStart) && (aiFill === 0 || allyOk)
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110'
                   : 'cursor-not-allowed bg-slate-700/60 text-slate-500'}`}>
                 {!lvOk ? `Lv.${content.reqLv} 이상 필요`
                   : !sizeOk ? `최대 ${lim.max}명까지입니다 (현재 ${size}명)`
+                  : aiFill > 0 && !allyOk ? `${lim.min}명이 필요합니다 (현재 ${size}명)`
                   : notReady.length ? `준비 대기: ${notReady.map((m) => m.nick).join(', ')}`
                   : `▶ ${content.name} 입장${aiFill > 0 ? ` (+용병 ${aiFill})` : ''}`}
               </button>
               <div className="mt-2 text-center text-[11px] text-slate-500">
-                {party ? '파티원 전원이 준비를 완료하면 입장할 수 있습니다' : '혼자 시작하면 용병이 자리를 채웁니다'}
+                {party ? '파티원 전원이 준비를 완료하면 입장할 수 있습니다'
+                  : allyOk ? '혼자 시작하면 용병이 자리를 채웁니다' : '용병은 메인 퀘스트 중에만 함께합니다'}
               </div>
             </>
           ) : (

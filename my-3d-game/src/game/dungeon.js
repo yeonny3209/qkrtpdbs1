@@ -11,27 +11,105 @@
    파티 4~10명. 페이즈가 오를수록 기믹이 추가된다.
    ================================================================== */
 
-/* 레벨 구간마다 하나씩 — 사냥터(MAPS)의 요구 레벨과 짝을 맞춘다.
+/* 레벨 구간마다 1~3개씩 (사용자 확정).
    tier는 보상 등급 계산에 쓰인다 (뒤로 갈수록 후하다). */
 export const DUNGEONS = [
+  /* --- Lv3 (2개) --- */
   { id: 0, name: '버려진 지하실', icon: '🕯️', reqLv: 3, mob: 'rabbit', tier: 0,
     ground: '#3a3a44', sky: '#16161c', fog: [16, 52], accent: '#94a3b8',
     desc: '마을 아래 잊혀진 창고 — 첫 모험에 알맞다' },
-  { id: 1, name: '고블린 소굴', icon: '🏕️', reqLv: 8, mob: 'goblin', tier: 1,
+  { id: 1, name: '이끼 낀 우물', icon: '🪣', reqLv: 3, mob: 'slime', tier: 0,
+    ground: '#2f4a42', sky: '#14211d', fog: [16, 50], accent: '#5eead4',
+    desc: '마을 우물 아래 슬라임이 고인 좁은 공간' },
+  /* --- Lv5 (2개) --- */
+  { id: 2, name: '들판 사냥터', icon: '🐗', reqLv: 5, mob: 'boar', tier: 0,
+    ground: '#4f5a34', sky: '#232a17', fog: [16, 52], accent: '#b08968',
+    desc: '멧돼지 떼가 몰려드는 울타리 안쪽' },
+  { id: 3, name: '허물어진 사당', icon: '⛩️', reqLv: 5, mob: 'slime', tier: 1,
+    ground: '#4a4436', sky: '#221f18', fog: [16, 50], accent: '#d6c48a',
+    desc: '오래 전 버려진 사당 — 무언가 잠들어 있다' },
+  /* --- Lv8 (3개) --- */
+  { id: 4, name: '고블린 소굴', icon: '🏕️', reqLv: 8, mob: 'goblin', tier: 1,
     ground: '#2e4231', sky: '#18231b', fog: [16, 52], accent: '#8bc34a',
     desc: '고블린 무리의 본거지 — 우두머리가 도사린다' },
-  { id: 2, name: '늑대 협곡 심부', icon: '🐺', reqLv: 16, mob: 'wolf', tier: 2,
+  { id: 5, name: '고블린 광산', icon: '⛏️', reqLv: 8, mob: 'goblin', tier: 1,
+    ground: '#3b352a', sky: '#1a1712', fog: [15, 48], accent: '#a3a35c',
+    desc: '고블린들이 파헤친 갱도 — 좁고 어둡다' },
+  { id: 6, name: '숲의 옛 무덤', icon: '🪦', reqLv: 8, mob: 'spider', tier: 1,
+    ground: '#33402f', sky: '#161c14', fog: [15, 46], accent: '#7f8c6a',
+    desc: '숲 깊은 곳의 무덤 — 거미가 둥지를 텄다' },
+  /* --- Lv12 (2개) --- */
+  { id: 7, name: '산적 은거지', icon: '🗡️', reqLv: 12, mob: 'bandit', tier: 2,
+    ground: '#4a3f30', sky: '#1f1a14', fog: [16, 50], accent: '#c08a5a',
+    desc: '산적 두목이 숨어 있는 비밀 은거지' },
+  { id: 8, name: '거미 여왕의 방', icon: '🕷️', reqLv: 12, mob: 'spider', tier: 2,
+    ground: '#3a3542', sky: '#191620', fog: [14, 44], accent: '#8b8b9e',
+    desc: '거미줄로 뒤덮인 여왕의 산실' },
+  /* --- Lv16 (2개) --- */
+  { id: 9, name: '늑대 협곡 심부', icon: '🐺', reqLv: 16, mob: 'wolf', tier: 2,
     ground: '#4a4238', sky: '#211d18', fog: [16, 50], accent: '#b8a88a',
     desc: '협곡 깊은 곳, 늑대왕의 사냥터' },
-  { id: 3, name: '화염 심장부', icon: '🌋', reqLv: 26, mob: 'imp', tier: 3,
+  { id: 10, name: '얼어붙은 골짜기', icon: '❄️', reqLv: 16, mob: 'wolf', tier: 3,
+    ground: '#5a6a78', sky: '#243040', fog: [18, 56], accent: '#bae6fd',
+    desc: '눈보라가 몰아치는 얼음 골짜기' },
+  /* --- Lv20 (3개) --- */
+  { id: 11, name: '폭포 뒤 동굴', icon: '💧', reqLv: 20, mob: 'harpy', tier: 3,
+    ground: '#2f5560', sky: '#132328', fog: [16, 50], accent: '#67e8f9',
+    desc: '마법의 폭포 뒤에 숨겨진 동굴' },
+  { id: 12, name: '하피 절벽', icon: '🪶', reqLv: 20, mob: 'harpy', tier: 3,
+    ground: '#4a4a56', sky: '#20202a', fog: [16, 52], accent: '#a5f3fc',
+    desc: '하피들이 둥지를 튼 아찔한 절벽' },
+  { id: 13, name: '수몰된 신전', icon: '🌊', reqLv: 20, mob: 'spider', tier: 3,
+    ground: '#2a4450', sky: '#111d22', fog: [14, 44], accent: '#7dd3fc',
+    desc: '물에 잠긴 고대 신전의 내부' },
+  /* --- Lv26 (2개) --- */
+  { id: 14, name: '화염 심장부', icon: '🌋', reqLv: 26, mob: 'imp', tier: 4,
     ground: '#4a2620', sky: '#2a1210', fog: [14, 46], accent: '#ff7043',
     desc: '용암 한가운데, 화염 군주의 옥좌' },
-  { id: 4, name: '심연의 미궁', icon: '🕳️', reqLv: 36, mob: 'wraith', tier: 4,
+  { id: 15, name: '재의 회랑', icon: '🔥', reqLv: 26, mob: 'imp', tier: 4,
+    ground: '#3d2b26', sky: '#1c1310', fog: [14, 44], accent: '#fb923c',
+    desc: '타고 남은 재가 무릎까지 쌓인 회랑' },
+  /* --- Lv30 (2개) --- */
+  { id: 16, name: '석상의 무덤', icon: '🗿', reqLv: 30, mob: 'golem', tier: 4,
+    ground: '#5c5e64', sky: '#26282c', fog: [16, 52], accent: '#cbd5e1',
+    desc: '깨어난 석상들이 침입자를 짓누른다' },
+  { id: 17, name: '무너진 채석장', icon: '🪨', reqLv: 30, mob: 'golem', tier: 5,
+    ground: '#4e4a44', sky: '#211f1c', fog: [16, 50], accent: '#a8a29e',
+    desc: '붕괴한 채석장 깊은 갱' },
+  /* --- Lv36 (3개) --- */
+  { id: 18, name: '심연의 미궁', icon: '🕳️', reqLv: 36, mob: 'wraith', tier: 5,
     ground: '#2a2438', sky: '#12101c', fog: [12, 42], accent: '#a78bfa',
     desc: '빛이 닿지 않는 미궁 — 망령의 왕이 기다린다' },
-  { id: 5, name: '용의 둥지 심층', icon: '🐲', reqLv: 48, mob: 'drake', tier: 5,
+  { id: 19, name: '망령의 회랑', icon: '👻', reqLv: 36, mob: 'wraith', tier: 5,
+    ground: '#26243a', sky: '#100f1a', fog: [12, 40], accent: '#c4b5fd',
+    desc: '끝없이 이어지는 망령들의 복도' },
+  { id: 20, name: '봉인된 지하묘', icon: '⚰️', reqLv: 36, mob: 'shade', tier: 5,
+    ground: '#221c2c', sky: '#0e0b14', fog: [12, 38], accent: '#8b5cf6',
+    desc: '봉인이 풀리기 시작한 지하 묘실' },
+  /* --- Lv40 (2개) — 여기서부터 아티팩트가 나온다 --- */
+  { id: 21, name: '그림자 심층', icon: '🌑', reqLv: 40, mob: 'shade', tier: 6,
+    ground: '#1e1828', sky: '#0b0910', fog: [12, 38], accent: '#7c3aed',
+    desc: '그림자가 실체를 가지는 가장 깊은 층' },
+  { id: 22, name: '달빛 심연', icon: '🌘', reqLv: 40, mob: 'moonbeast', tier: 6,
+    ground: '#243052', sky: '#0f1428', fog: [14, 44], accent: '#c7d2fe',
+    desc: '달의 바다 아래 잠긴 심연' },
+  /* --- Lv45 (2개) --- */
+  { id: 23, name: '리치의 지하실', icon: '💀', reqLv: 45, mob: 'lich', tier: 7,
+    ground: '#333a2a', sky: '#151810', fog: [14, 44], accent: '#a3e635',
+    desc: '리치가 실험을 벌이는 비밀 지하실' },
+  { id: 24, name: '뼈의 왕좌', icon: '🦴', reqLv: 45, mob: 'lich', tier: 7,
+    ground: '#3e3a30', sky: '#1a1814', fog: [14, 42], accent: '#e7e5e4',
+    desc: '수많은 뼈로 쌓아올린 왕좌의 방' },
+  /* --- Lv48 (3개) --- */
+  { id: 25, name: '용의 둥지 심층', icon: '🐲', reqLv: 48, mob: 'drake', tier: 8,
     ground: '#4a2c34', sky: '#241419', fog: [12, 44], accent: '#f43f5e',
     desc: '어린 용들의 둥지 가장 깊은 곳' },
+  { id: 26, name: '용암 산란장', icon: '🥚', reqLv: 48, mob: 'drake', tier: 8,
+    ground: '#52281f', sky: '#26120c', fog: [12, 42], accent: '#fb7185',
+    desc: '용의 알이 용암에 반쯤 잠겨 있다' },
+  { id: 27, name: '고룡의 안식처', icon: '🐉', reqLv: 48, mob: 'drake', tier: 9,
+    ground: '#3a2230', sky: '#1a0f18', fog: [12, 40], accent: '#e879f9',
+    desc: '가장 오래된 용이 잠든 최심부' },
 ]
 export const DUNGEON_BY_ID = Object.fromEntries(DUNGEONS.map((d) => [d.id, d]))
 
