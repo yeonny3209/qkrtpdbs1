@@ -21,6 +21,7 @@ import {
 import {
   DUNGEONS, DUNGEON_BY_ID, DG_WAVES, DG_HALF, dungeonWave, dungeonWaveReward,
   RAID_DIFFS, RAID_BY_ID, RAID_HALF, RAID_BOSS_ID, raidBossHp, raidPhase, raidMechanics,
+  soloRaidBossHp, soloRaidDmg,
 } from './game/dungeon.js'
 
 /* ==================================================================
@@ -3104,10 +3105,28 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     net.room.send({ t: 'pReady', pid: p.id, ready: !me.ready })
   }, [])
 
-  const startParty = useCallback(() => {
+  const startParty = useCallback((solo) => {
     const net = netRef.current
     if (!net) return
     const { kind, id } = contentSelRef.current
+
+    /* 솔로 레이드 — 파티 없이 혼자 들어간다. 대신 보스가 약해진다 (사용자 확정).
+       인원 요구·용병 채움 로직을 전부 건너뛰는 별도 경로다. */
+    if (solo) {
+      if (kind !== 'raid') return
+      if (partyRef.current && partyRef.current.members.length > 1) {
+        addToast('⚠ 파티원이 있으면 솔로 레이드를 시작할 수 없습니다 — 파티를 나가주세요')
+        return
+      }
+      const reqLv = RAID_BY_ID[id].reqLv
+      if (S.current.level < reqLv) { addToast(`⚠ Lv.${reqLv} 이상 필요`); return }
+      const inst = 'rd_' + Date.now().toString(36)
+      net.room.send({ t: 'pStart', pid: net.myId, kind: 'raid', cid: id, inst, size: 1, ai: 0, solo: true })
+      if (enterInstanceRef.current) enterInstanceRef.current('raid', id, inst, net.myId, 1, 0, true)
+      setPartyOpen(false)
+      return
+    }
+
     /* 파티가 없어도 혼자 들어갈 수 있다 — 모자란 자리는 AI 동료가 채운다 */
     let p = partyRef.current
     if (!p) {
@@ -3196,7 +3215,7 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     const net = netRef.current
     const p = partyRef.current
     if (!net || !p || m.pid !== p.id || m.id !== p.leaderId) return
-    if (enterInstanceRef.current) enterInstanceRef.current(m.kind, m.cid, m.inst, p.leaderId, m.size, m.ai || 0)
+    if (enterInstanceRef.current) enterInstanceRef.current(m.kind, m.cid, m.inst, p.leaderId, m.size, m.ai || 0, !!m.solo)
   }, [])
 
   /* 파티장이 소리 없이 사라지면(하트비트 유실) 파티를 정리한다 */
@@ -3472,6 +3491,8 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     const L = live.current
     const st = statsRef.current
     if (L.dead || L.iframe > 0) return
+    /* 어둠의 암살자는 빙의 중에는 몸이 없는 것과 같다 — 피해를 받지 않는다 (사용자 확정) */
+    if (L.possess) return
     if (Math.random() * 100 < st.dodge) { addToast('✨ 회피!'); return }
     /* 성직자 축복 반영 — 방어력 보정치와 피해 감소 버프 */
     const defF = buffSum(L, 'defF')
@@ -4039,12 +4060,13 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
      어둠의 암살자 — 5가지 능력 (사용자 확정 설계)
 
      패시브: 4초간 가만히 있다가 움직이면 은신. 은신 중 남들에게 안 보인다.
-     1) 은신 중에만 — 상대에게 파고들어 잔상 2개와 함께 3연속 공격
+     1) 쓰는 즉시 은신하며 상대에게 파고들어 잔상 2개와 함께 3연속 공격.
+        은신이 풀리지 않는다.
      2) 잔상을 전방에 발사, 5초 안에 재사용하면 그 자리로 순간이동.
         잔상은 내가 공격할 때 같은 공격을 전방으로 복제한다.
      3) 주변을 원으로 벤다 — 은신이 풀리지 않는다
-     4) 상대에게 들어간다. 5초 안에 재사용하거나 5초가 지나면 자동으로
-        튀어나오며, 잔상 10개가 원을 그리며 중심으로 돌진한다.
+     4) 상대에게 들어가 무적이 된다. 5초 안에 재사용하거나 5초가 지나면
+        자동으로 튀어나오며, 잔상 10개가 원을 그리며 중심으로 돌진한다.
         직후 한 번 더 쓰면 즉시 은신하며 멀리 돌진한다.
 
      잔상은 모두 "흐릿한 내 모습"으로 그려진다 (Afterimages 컴포넌트).
@@ -4119,10 +4141,11 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     }
 
     if (sk.kind === 'dark_strike') {
-      /* 은신 중에만 발동 */
-      if (!L.stealth) { addToast('🌑 은신 중에만 쓸 수 있습니다'); L.cd[sk.id] = 0; return }
       const foe = nearestFoe(sk.range)
       if (!foe) { addToast('🌑 근처에 대상이 없습니다'); L.cd[sk.id] = 0; return }
+      /* 쓰는 즉시 은신 — 이미 은신 중이었어도, 아니었어도 진입한다 */
+      L.stealth = true
+      if (world.current.onStealth) world.current.onStealth(true)
       /* 상대에게 파고든다 — 붙어서 따라다닌다 */
       w.teleport = { x: foe.x - fx2 * 1.2, z: foe.z - fz2 * 1.2, yaw: Math.atan2(foe.x - p.x, foe.z - p.z) }
       L.followFoe = { until: performance.now() + 1400, mob: foe.mob || null, peerId: foe.peer ? foe.peer.peerId : null }
@@ -4139,8 +4162,8 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
           pushFx({ kind: 'slash', x: foe.x + (i - 1) * 0.7, z: foe.z, yaw: cy, range: 2.6, arc: 1.6, color: '#7c3aed' })
         }, i * 130)
       }
-      L.stealth = false
-      addToast('🌑 그림자 침투 — 3연속!')
+      /* 이 스킬은 은신을 풀지 않는다 — 계속 은신 상태로 남는다 */
+      addToast('🌑 그림자 침투 — 3연속! (은신 유지)')
       return
     }
 
@@ -4678,16 +4701,18 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
   const nextInstMobId = useRef(100000)
 
   /* 인스턴스 몹 배치 — 원형 맵 가장자리에 고르게 흩뿌린다 */
-  const spawnInstWave = useCallback((kind, cid, wave, size) => {
+  const spawnInstWave = useCallback((kind, cid, wave, size, solo) => {
     const half = kind === 'dungeon' ? DG_HALF : RAID_HALF
     if (kind === 'raid') {
       const diff = RAID_BY_ID[cid]
-      const hp = raidBossHp(diff, size)
+      /* 솔로 레이드는 인원 보정 없이 기준치에 약화 배율만 적용한다 (사용자 확정) */
+      const hp = solo ? soloRaidBossHp(diff) : raidBossHp(diff, size)
+      const dmg = solo ? soloRaidDmg(diff) : diff.dmg
       return [{
         id: RAID_BOSS_ID, type: 'drake', scale: 3.0, rank: 'boss',
         x: 0, z: -half * 0.45,
         hpMul: hp / MOB_TYPES.drake.hp,
-        dmgMul: diff.dmg / MOB_TYPES.drake.dmg,
+        dmgMul: dmg / MOB_TYPES.drake.dmg,
         spdMul: 0.85, aggroR: 999,
       }]
     }
@@ -4754,7 +4779,7 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
   }, [addToast, spawnForMap])
 
   const [allies, setAllies] = useState([])
-  const enterInstance = useCallback((kind, cid, instId, leaderId, size, aiCount = 0) => {
+  const enterInstance = useCallback((kind, cid, instId, leaderId, size, aiCount = 0, solo = false) => {
     const s = S.current
     if (!s.unlocked) { lockedNotice(); return }
     const def = kind === 'dungeon' ? DUNGEON_BY_ID[cid] : RAID_BY_ID[cid]
@@ -4769,9 +4794,9 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     if (net) net.simOwner = !!isLeader
     setBotCls(null); setBotDiff(null)
     setMode(kind)
-    setInst({ kind, cid, inst: instId, leaderId, size, wave: 1, phase: 1, done: null })
+    setInst({ kind, cid, inst: instId, leaderId, size, wave: 1, phase: 1, done: null, solo })
     /* 몹 구성은 파티장이 정하고 뿌린다 — 팔로워는 스냅샷으로 받는다 */
-    const first = isLeader ? spawnInstWave(kind, cid, 1, size) : []
+    const first = isLeader ? spawnInstWave(kind, cid, 1, size, solo) : []
     waveIdsRef.current = isLeader ? first.map((m) => m.id) : null
     setMobs(first)
     const L = live.current
@@ -4919,7 +4944,8 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       if (!boss || !boss.alive) return
       const mech = raidMechanics(cur.phase)
       const enr = mech.enrage ? 1.35 : 1
-      const dmg = Math.round(diff.dmg * enr)
+      const baseDmg = cur.solo ? soloRaidDmg(diff) : diff.dmg
+      const dmg = Math.round(baseDmg * enr)
 
       /* 내려찍기 — 보스 주변 */
       if (mech.slam) fire(boss.x, boss.z, 6.5, dmg, '#ef4444')
@@ -5695,6 +5721,7 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
         <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-2xl border border-white/15 bg-black/60 px-5 py-2 text-center backdrop-blur-sm">
           <div className="text-[11px] tracking-[0.25em] text-amber-200/80">
             {inst.kind === 'dungeon' ? DUNGEON_BY_ID[inst.cid].name : RAID_BY_ID[inst.cid].name}
+            {inst.solo && <span className="ml-1.5 rounded-full bg-sky-500/25 px-1.5 py-0.5 text-[9px] font-black text-sky-200">🧍 솔로</span>}
           </div>
           {inst.kind === 'dungeon' ? (
             <>
@@ -7407,7 +7434,13 @@ function PartyModal({ myId, party, roster, contentSel, setContentSel, saveLevel,
 
           {!party || isLeader ? (
             <>
-              <button onClick={onStart} disabled={!lvOk || (party && !canStart) || (aiFill > 0 && !allyOk)}
+              {contentSel.kind === 'raid' && size <= 1 && lvOk && (
+                <button onClick={() => onStart(true)}
+                  className="mt-3 w-full rounded-xl border border-sky-400/40 bg-sky-500/10 py-2.5 text-sm font-black text-sky-200 transition hover:bg-sky-500/20">
+                  🧍 혼자 레이드 입장 (보스 약화)
+                </button>
+              )}
+              <button onClick={() => onStart(false)} disabled={!lvOk || (party && !canStart) || (aiFill > 0 && !allyOk)}
                 className={`mt-3 w-full rounded-xl py-3 font-black text-white transition ${lvOk && (!party || canStart) && (aiFill === 0 || allyOk)
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110'
                   : 'cursor-not-allowed bg-slate-700/60 text-slate-500'}`}>

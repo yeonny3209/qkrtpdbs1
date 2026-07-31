@@ -149,18 +149,59 @@ export function dungeonWaveReward(dungeonId, wave) {
 }
 
 /* ==================================================================
-   레이드 — 심연의 군주
+   레이드 — 심연의 군주 + 30종 추가 레이드
    ================================================================== */
 /* 초급은 메인 퀘스트 도중(레벨 10 이전)에 체험할 수 있어야 하므로 문턱을 낮게 둔다.
-   중급·하드는 그 뒤의 성장 목표다. */
-export const RAID_DIFFS = [
-  { id: 0, name: '초급 레이드', phases: 3, reqLv: 5, icon: '🌑',
-    hp: 12000, dmg: 22, color: '#7c6cd6', gold: 2600, exp: 26000, gradeMax: 4 },
-  { id: 1, name: '중급 레이드', phases: 4, reqLv: 25, icon: '🌘',
-    hp: 90000, dmg: 55, color: '#a052d6', gold: 7000, exp: 90000, gradeMax: 5 },
-  { id: 2, name: '하드 레이드', phases: 5, reqLv: 45, icon: '🌒',
-    hp: 240000, dmg: 84, color: '#e0409a', gold: 20000, exp: 300000, gradeMax: 5 },
+   중급·하드는 그 뒤의 성장 목표다.
+
+   추가 30종의 체력·공격력·보상은 이 세 기준점(Lv5→12000, Lv25→90000, Lv45→240000 등)을
+   그대로 지나는 2차 함수로 계산한다 — 레벨대가 올라갈수록 매끄럽게 강해지고,
+   기존 세 레이드와 이어 붙여도 성장 곡선이 끊기지 않는다. */
+const raidHpAt = (lv) => 90 * lv * lv + 1200 * lv + 3750
+const raidDmgAt = (lv) => -0.005 * lv * lv + 1.8 * lv + 13.125
+const raidGoldAt = (lv) => 10.75 * lv * lv - 102.5 * lv + 2843.75
+const raidExpAt = (lv) => 182.5 * lv * lv - 2275 * lv + 32812.5
+const raidPhasesAt = (lv) => (lv < 20 ? 3 : lv < 40 ? 4 : 5)
+const raidGradeMaxAt = (lv) => (lv >= 25 ? 5 : 4)
+
+/* 레벨 구간마다 3종씩(사용자 확정 취지 — 던전처럼 골고루) — 이름·아이콘·색만 다르고
+   같은 구간이면 강함은 동일하다 (구간이 오르면 공식에 따라 확실히 더 강해진다). */
+const EXTRA_RAID_BANDS = [8, 12, 16, 20, 30, 35, 40, 48, 54, 58]
+const EXTRA_RAID_FLAVOR = [
+  ['늪지 히드라의 굴', '🐍', '#4ade80'], ['안개 낀 폐허', '🌫️', '#94a3b8'], ['불타는 전차의 무덤', '🔥', '#f97316'],
+  ['얼어붙은 왕좌', '❄️', '#7dd3fc'], ['가시 정원', '🌵', '#84cc16'], ['잊혀진 등대', '🏮', '#fbbf24'],
+  ['핏빛 콜로세움', '🩸', '#dc2626'], ['균열의 협곡', '⚡', '#a78bfa'], ['모래바다의 스핑크스', '🏜️', '#eab308'],
+  ['철갑 요새', '⚙️', '#64748b'], ['악몽의 온실', '🥀', '#c026d3'], ['달빛 늑대의 소굴', '🌕', '#e2e8f0'],
+  ['불꽃 도가니', '🔨', '#ea580c'], ['수정 동굴', '💎', '#38bdf8'], ['타락한 성소', '⛪', '#7c3aed'],
+  ['폭풍의 첨탑', '🌪️', '#0ea5e9'], ['해골 군단의 진지', '☠️', '#d4d4d8'], ['용암 협곡', '🌋', '#ef4444'],
+  ['그림자 회랑', '🌑', '#6d28d9'], ['천공의 파편', '☁️', '#93c5fd'], ['심해의 제단', '🐙', '#0891b2'],
+  ['불사조의 둥지', '🔥', '#fb923c'], ['백골의 사막', '🦴', '#e7e5e4'], ['거울 미궁', '🪞', '#f0abfc'],
+  ['천둥새 봉우리', '🐦', '#facc15'], ['악령의 성채', '👹', '#991b1b'], ['별빛 폐허', '✨', '#818cf8'],
+  ['혼돈의 균열', '🌀', '#db2777'], ['종언의 제단', '⚰️', '#312e81'], ['태초의 어둠', '🕳️', '#020617'],
 ]
+
+/* 기존 세 레이드 + 추가 30종을 한데 모아 레벨순으로 정렬한다.
+   (레벨대가 뒤섞이면 "올라갈수록 강해진다"는 규칙이 깨진다) */
+const RAID_UNSORTED = [
+  { name: '초급 레이드', phases: 3, reqLv: 5, icon: '🌑',
+    hp: 12000, dmg: 22, color: '#7c6cd6', gold: 2600, exp: 26000, gradeMax: 4 },
+  { name: '중급 레이드', phases: 4, reqLv: 25, icon: '🌘',
+    hp: 90000, dmg: 55, color: '#a052d6', gold: 7000, exp: 90000, gradeMax: 5 },
+  { name: '하드 레이드', phases: 5, reqLv: 45, icon: '🌒',
+    hp: 240000, dmg: 84, color: '#e0409a', gold: 20000, exp: 300000, gradeMax: 5 },
+  ...EXTRA_RAID_BANDS.flatMap((lv, bi) => [0, 1, 2].map((k) => {
+    const [name, icon, color] = EXTRA_RAID_FLAVOR[bi * 3 + k]
+    return {
+      name, icon, color, reqLv: lv,
+      phases: raidPhasesAt(lv), gradeMax: raidGradeMaxAt(lv),
+      hp: Math.round(raidHpAt(lv)), dmg: Math.round(raidDmgAt(lv)),
+      gold: Math.round(raidGoldAt(lv)), exp: Math.round(raidExpAt(lv)),
+    }
+  })),
+]
+export const RAID_DIFFS = RAID_UNSORTED
+  .sort((a, b) => a.reqLv - b.reqLv)
+  .map((r, i) => ({ id: i, ...r }))
 export const RAID_BY_ID = Object.fromEntries(RAID_DIFFS.map((r) => [r.id, r]))
 export const RAID_HALF = 21        // 레이드 맵 반경
 export const RAID_BOSS_ID = 9999   // 보스의 고정 몹 id
@@ -168,6 +209,14 @@ export const RAID_BOSS_ID = 9999   // 보스의 고정 몹 id
 /* 인원 비례 보스 체력 (4명 기준 1.0, 10명이면 2.2배) */
 export const raidBossHp = (diff, partySize) =>
   Math.round(diff.hp * (1 + 0.2 * (Math.max(4, Math.min(10, partySize)) - 4)))
+
+/* ---- 솔로 레이드(사용자 확정) ----
+   혼자 들어가는 대신 보스가 약해진다. 파티 인원 보정(위 함수)은 아예 적용하지 않고,
+   기준 체력·공격력에 이 배율만 곱한다. */
+export const SOLO_RAID_HP_MUL = 0.42
+export const SOLO_RAID_DMG_MUL = 0.7
+export const soloRaidBossHp = (diff) => Math.round(diff.hp * SOLO_RAID_HP_MUL)
+export const soloRaidDmg = (diff) => Math.round(diff.dmg * SOLO_RAID_DMG_MUL)
 
 /* 현재 HP 비율 → 페이즈 (1부터). 페이즈 수만큼 균등 분할.
    예: 3페이즈면 100~67% P1, 67~33% P2, 33~0% P3 */
