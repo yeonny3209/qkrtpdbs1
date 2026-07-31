@@ -1481,6 +1481,78 @@ function RemotePlayers({ roster, world }) {
 }
 
 /* ==================================================================
+   잔상 — 어둠의 암살자가 남기는 "흐릿한 자기 자신"
+
+   world.current.afterimages 배열을 매 프레임 읽어 고정 풀에 그린다.
+   React state를 쓰면 10개가 동시에 뜨고 사라질 때 리렌더가 몰리므로,
+   ref 배열 + useFrame으로 처리한다.
+
+   entry = { x, z, yaw, born, life,
+             cx, cz, a, r0 }   ← cx가 있으면 중심으로 파고드는 돌진 잔상
+   ================================================================== */
+const AFTERIMAGE_POOL = 12
+
+function AfterimageSlot({ index, world, cls, wtype }) {
+  const root = useRef()
+  const armPivot = useRef()
+  const mats = useRef(null)
+
+  useFrame((state, rawDelta) => {
+    const g = root.current
+    if (!g) return
+    /* 재질은 인스턴스마다 새로 만들어지므로 한 번만 모아서 반투명으로 바꾼다 */
+    if (!mats.current) {
+      const list = []
+      g.traverse((o) => {
+        if (!o.isMesh || !o.material) return
+        const m = o.material
+        m.transparent = true
+        m.depthWrite = false
+        if (m.emissive) { m.emissive.set('#7c3aed'); m.emissiveIntensity = 0.45 }
+        list.push(m)
+      })
+      mats.current = list
+    }
+
+    const e = world.current.afterimages[index]
+    if (!e) { if (g.visible) g.visible = false; return }
+
+    const t = (performance.now() - e.born) / e.life        // 0 → 1
+    if (t >= 1) { if (g.visible) g.visible = false; return }
+    g.visible = true
+
+    if (e.cx != null) {
+      /* 돌진 잔상 — 원주에서 중심으로 파고든다 */
+      const r = e.r0 * (1 - t)
+      g.position.x = e.cx + Math.cos(e.a) * r
+      g.position.z = e.cz + Math.sin(e.a) * r
+      g.rotation.y = -e.a + Math.PI / 2                    // 중심을 바라본다
+    } else {
+      g.position.x = e.x
+      g.position.z = e.z
+      g.rotation.y = e.yaw
+    }
+    /* 나타날 때 살짝 떠오르고, 사라질 때 흐려진다 */
+    g.position.y = Math.sin(state.clock.elapsedTime * 3 + index) * 0.04
+    const op = 0.42 * (1 - t * t)
+    for (const m of mats.current) m.opacity = op
+    void rawDelta
+  })
+
+  return (
+    <group ref={root} visible={false}>
+      <CharacterBody cls={cls} wtype={wtype} armPivot={armPivot} tint={false} />
+    </group>
+  )
+}
+
+function Afterimages({ world, cls, wtype }) {
+  return Array.from({ length: AFTERIMAGE_POOL }, (_, i) => (
+    <AfterimageSlot key={i} index={i} world={world} cls={cls} wtype={wtype} />
+  ))
+}
+
+/* ==================================================================
    네트워크 펌프 — 주기적으로 내 상태를 보내고, 호스트면 몬스터 상태를 뿌린다.
 
    [왜 useFrame이 아니라 타이머인가]
@@ -2425,8 +2497,13 @@ function GameLogic({ world, live, mode, mapId, statsRef, bumpHud, onFragment, on
       }
       /* 빙의 중이면 대상 위치를 따라간다 */
       if (L.possess) {
-        if (now >= L.possess.until) { L.possess = null }
-        else {
+        if (now >= L.possess.until) {
+          /* 5초가 다하면 자동으로 튀어나온다 — 재사용했을 때와 똑같이 잔상이 돌진한다 */
+          const { x: bx, z: bz, burst } = L.possess
+          L.possess = null
+          L.possessRecast = now + 4000        // 자동 해제 뒤에도 은신 돌진으로 이을 수 있다
+          if (burst) burst(bx, bz)
+        } else {
           const tgt = L.possess.mob || (L.possess.peerId ? world.current.peers.get(L.possess.peerId) : null)
           if (tgt) { L.possess.x = tgt.x; L.possess.z = tgt.z }
           world.current.teleport = { x: L.possess.x, z: L.possess.z }
@@ -2440,8 +2517,11 @@ function GameLogic({ world, live, mode, mapId, statsRef, bumpHud, onFragment, on
           if (tgt && tgt.alive !== false) world.current.teleport = { x: tgt.x - 1.1, z: tgt.z }
         }
       }
-      /* 잔상 수명 */
-      if (L.mirror && now >= L.mirror.until) L.mirror = null
+      /* 잔상 수명 — 순간이동에 쓰지 않고 흘려보냈으면 그때 쿨타임이 들어간다 */
+      if (L.mirror && now >= L.mirror.until) {
+        if (L.mirror.skId) L.cd[L.mirror.skId] = L.mirror.cd || 10
+        L.mirror = null
+      }
     }
 
     for (const k in L.cd) { if (L.cd[k] > 0) L.cd[k] = Math.max(0, L.cd[k] - dt) }
@@ -2833,6 +2913,7 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     /* 공유 사냥터 — 방에 들어가기 전에는 net이 null이라 혼자 하던 것과 같다 */
     peers: new Map(), net: null, mapId: S.current.map || 0,
     inst: null, instLeader: null,      // 던전/레이드/결투 인스턴스
+    afterimages: [],                   // 어둠의 암살자 잔상 (Afterimages가 매 프레임 읽는다)
   })
   const camRef = useRef({ yaw: Math.PI, pitch: 0.62 })
   const swing = useRef({ t: -1, hitDone: true, impact: null })
@@ -3957,13 +4038,16 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
   /* ==================================================================
      어둠의 암살자 — 5가지 능력 (사용자 확정 설계)
 
-     패시브: 10초간 가만히 있다가 움직이면 은신. 은신 중 남들에게 안 보인다.
+     패시브: 4초간 가만히 있다가 움직이면 은신. 은신 중 남들에게 안 보인다.
      1) 은신 중에만 — 상대에게 파고들어 잔상 2개와 함께 3연속 공격
-     2) 잔상을 전방에 발사, 재사용 시 그 자리로 순간이동.
+     2) 잔상을 전방에 발사, 5초 안에 재사용하면 그 자리로 순간이동.
         잔상은 내가 공격할 때 같은 공격을 전방으로 복제한다.
      3) 주변을 원으로 벤다 — 은신이 풀리지 않는다
-     4) 상대에게 5초간 들어간다. 재사용 시 잔상 10개와 함께 튀어나오고,
+     4) 상대에게 들어간다. 5초 안에 재사용하거나 5초가 지나면 자동으로
+        튀어나오며, 잔상 10개가 원을 그리며 중심으로 돌진한다.
         직후 한 번 더 쓰면 즉시 은신하며 멀리 돌진한다.
+
+     잔상은 모두 "흐릿한 내 모습"으로 그려진다 (Afterimages 컴포넌트).
      ================================================================== */
   const darkHit = useCallback((originX, originZ, yaw, range, arc, dmg) => {
     /* 특정 지점을 기준으로 광역 판정 (잔상 공격에 쓴다) */
@@ -3979,6 +4063,32 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     })
     return hits
   }, [])
+
+  /* 잔상 하나를 띄운다. 풀 크기를 넘으면 오래된 것부터 밀려난다. */
+  const pushAfterimage = useCallback((e) => {
+    const arr = world.current.afterimages
+    const now = performance.now()
+    /* 수명이 끝난 칸부터 재활용한다 */
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (now - arr[i].born >= arr[i].life) arr.splice(i, 1)
+    }
+    arr.push({ born: now, life: 900, ...e })
+    while (arr.length > AFTERIMAGE_POOL) arr.shift()
+  }, [])
+
+  /* 빙의에서 튀어나오는 순간 — 잔상 10개가 원을 그리며 중심으로 돌진한다.
+     수동 재사용과 5초 자동 해제가 똑같이 이걸 쓴다. */
+  const darkBurst = useCallback((px, pz, dmgOf) => {
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2
+      pushAfterimage({ cx: px, cz: pz, a, r0: 5.5, life: 620 })
+      setTimeout(() => {
+        const d2 = Math.round(dmgOf() * 0.45)
+        darkHit(px + Math.cos(a) * 1.2, pz + Math.sin(a) * 1.2, 0, 2.4, Math.PI, d2)
+        pushFx({ kind: 'slash', x: px + Math.cos(a) * 1.4, z: pz + Math.sin(a) * 1.4, yaw: a, range: 2.2, arc: 1.4, color: '#7c3aed' })
+      }, 300 + i * 40)
+    }
+  }, [darkHit, pushAfterimage, pushFx])
 
   const castDark = useCallback((sk, lv) => {
     const L = live.current
@@ -4016,7 +4126,11 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       /* 상대에게 파고든다 — 붙어서 따라다닌다 */
       w.teleport = { x: foe.x - fx2 * 1.2, z: foe.z - fz2 * 1.2, yaw: Math.atan2(foe.x - p.x, foe.z - p.z) }
       L.followFoe = { until: performance.now() + 1400, mob: foe.mob || null, peerId: foe.peer ? foe.peer.peerId : null }
-      /* 본체 + 잔상 2개 = 3연속 */
+      /* 본체 + 잔상 2개 = 3연속 (양옆에 흐릿한 내 모습이 선다) */
+      const facing = Math.atan2(foe.x - p.x, foe.z - p.z)
+      for (const side of [-1, 1]) {
+        pushAfterimage({ x: foe.x + side * 1.15, z: foe.z - 0.4, yaw: facing, life: 700 })
+      }
       for (let i = 0; i < 3; i++) {
         setTimeout(() => {
           const d2 = dmg()
@@ -4032,16 +4146,25 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
 
     if (sk.kind === 'dark_mirror') {
       if (L.mirror) {
-        /* 재사용 — 잔상 위치로 순간이동 */
+        /* 5초 안에 재사용 — 잔상이 선 자리로 순간이동 */
         w.teleport = { x: L.mirror.x, z: L.mirror.z, yaw: p.yaw }
         pushFx({ kind: 'spell', x: L.mirror.x, z: L.mirror.z, range: 1.6, color: '#7c3aed' })
+        /* 원래 내가 있던 자리에 잔상이 잠깐 남는다 */
+        pushAfterimage({ x: p.x, z: p.z, yaw: p.yaw, life: 600 })
         L.mirror = null
+        L.cd[sk.id] = sk.cd              // 순간이동까지 마쳤으니 이제 정식 쿨타임
         addToast('🌑 잔상 위치로 순간이동')
       } else {
         const mx = p.x + fx2 * sk.range, mz = p.z + fz2 * sk.range
-        L.mirror = { x: mx, z: mz, yaw: cy, until: performance.now() + 8000 }
+        const life = (sk.mirrorLife || 5) * 1000
+        L.mirror = { x: mx, z: mz, yaw: cy, until: performance.now() + life, skId: sk.id, cd: sk.cd }
+        /* 흐릿한 내 모습이 그 자리에 서 있는다 */
+        pushAfterimage({ x: mx, z: mz, yaw: cy, life })
         pushFx({ kind: 'spell', x: mx, z: mz, range: 1.4, color: '#7c3aed' })
-        addToast('🌑 잔상 배치 — 다시 누르면 순간이동')
+        /* 잔상을 세워둔 동안은 쿨타임에 걸리면 안 된다 — 걸리면 재사용 자체가 불가능하다.
+           쿨타임은 순간이동했을 때, 또는 잔상이 그냥 사라졌을 때 들어간다. */
+        L.cd[sk.id] = 0.4
+        addToast(`🌑 잔상 투사 — ${sk.mirrorLife || 5}초 안에 다시 누르면 순간이동`)
       }
       return
     }
@@ -4064,21 +4187,14 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
 
     if (sk.kind === 'dark_possess') {
       if (L.possess) {
-        /* 나오면서 잔상 10개로 공격 */
+        /* 5초가 되기 전에 직접 튀어나온다 */
         const px = L.possess.x, pz = L.possess.z
         L.possess = null
-        for (let i = 0; i < 10; i++) {
-          setTimeout(() => {
-            const a = (i / 10) * Math.PI * 2
-            const d2 = Math.round(dmg() * 0.45)
-            darkHit(px + Math.cos(a) * 1.2, pz + Math.sin(a) * 1.2, 0, 2.4, Math.PI, d2)
-            pushFx({ kind: 'slash', x: px + Math.cos(a) * 1.4, z: pz + Math.sin(a) * 1.4, yaw: a, range: 2.2, arc: 1.4, color: '#7c3aed' })
-          }, i * 60)
-        }
+        darkBurst(px, pz, dmg)
         /* 직후 한 번 더 쓰면 은신 + 장거리 돌진 */
         L.possessRecast = performance.now() + 4000
         L.cd[sk.id] = 1.2
-        addToast('🌑 빙의 해제 — 잔상 10개! (지금 다시 누르면 은신 돌진)')
+        addToast('🌑 빙의 해제 — 잔상 10개 돌진! (지금 다시 누르면 은신 돌진)')
         return
       }
       if (L.possessRecast && performance.now() < L.possessRecast) {
@@ -4091,12 +4207,17 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       }
       const foe = nearestFoe(sk.range)
       if (!foe) { addToast('🌑 근처에 대상이 없습니다'); L.cd[sk.id] = 0; return }
-      L.possess = { x: foe.x, z: foe.z, until: performance.now() + sk.dur * 1000, mob: foe.mob || null, peerId: foe.peer ? foe.peer.peerId : null }
+      L.possess = {
+        x: foe.x, z: foe.z, until: performance.now() + sk.dur * 1000,
+        mob: foe.mob || null, peerId: foe.peer ? foe.peer.peerId : null,
+        /* 시간이 다해 자동으로 빠져나올 때도 같은 연출이 나오도록 들려 보낸다 */
+        burst: (bx, bz) => darkBurst(bx, bz, dmg),
+      }
       L.stealth = true
-      addToast(`🌑 빙의 — ${sk.dur}초 (다시 누르면 튀어나온다)`)
+      addToast(`🌑 빙의 — ${sk.dur}초 (다시 누르거나 시간이 다하면 잔상 10개 돌진)`)
       return
     }
-  }, [darkHit, pushFx, addToast])
+  }, [darkHit, darkBurst, pushAfterimage, pushFx, addToast])
 
   /* 달의 권위자 궁극기 — 달을 떨어뜨려 모든 저주를 걸고 빈사의 적을 처형한다
      (사용자 확정: 일반 30% 미만 · 보스 5% 미만 즉사) */
@@ -5363,6 +5484,8 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
           return <HealFx key={f.id} fx={f} onDone={fxDone} />
         })}
         <ArrowPool live={live} />
+        {/* 어둠의 암살자 잔상 — 흐릿한 내 모습 */}
+        {cls.id === 'darkassassin' && <Afterimages world={world} cls={cls} wtype={wtype} />}
         {/* 같은 zone에 있는 다른 플레이어 (필드 · 던전 · 레이드 · 결투) */}
         {(mode !== 'arena' || world.current.inst) && <RemotePlayers roster={roster} world={world} />}
         <GameLogic world={world} live={live} mode={mode} mapId={mapId} statsRef={statsRef}
