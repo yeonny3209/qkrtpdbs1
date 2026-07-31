@@ -938,6 +938,9 @@ function computeStats(cls, save) {
   st.atk += g.atk
   st.atk = (BASE_ATK + st.atk) * g.mult
 
+  /* 어둠의 암살자는 전직하는 순간부터 이동속도가 영구히 +300% (사용자 확정) */
+  if (cls.id === 'darkassassin') st.moveSpd += 300
+
   /* 7) 각성 패시브 극대화 */
   if (st.awakenAtk) st.atk *= (1 + st.awakenAtk)
   if (st.awakenHp) st.maxHp *= (1 + st.awakenHp)
@@ -1305,7 +1308,9 @@ function Player({ cls, wtype, gradeColor, awakened, swing, world, live, camRef, 
       vel.set(fwdX * 6, 0, fwdZ * 6)
     }
 
-    const spdMul = 1 + (st.moveSpd || 0) / 100 + buffSum(L, 'spdP') / 100
+    const burstActive = L.burst && performance.now() < L.burst.until
+    if (L.burst && !burstActive) L.burst = null
+    const spdMul = 1 + (st.moveSpd || 0) / 100 + buffSum(L, 'spdP') / 100 + (burstActive ? 5 : 0)
     want.set(ix, 0, iz)
     const mag = Math.min(1, want.length())
     if (mag > 0.001) want.normalize().multiplyScalar((k.run || TOUCH.run ? RUN_SPEED : WALK_SPEED) * spdMul * mag)
@@ -3493,6 +3498,8 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     if (L.dead || L.iframe > 0) return
     /* 어둠의 암살자는 빙의 중에는 몸이 없는 것과 같다 — 피해를 받지 않는다 (사용자 확정) */
     if (L.possess) return
+    /* 어둠의 암살자 — F 폭주 중에는 받는 피해가 완전히 무효화된다 (사용자 확정) */
+    if (L.burst && performance.now() < L.burst.until) return
     if (Math.random() * 100 < st.dodge) { addToast('✨ 회피!'); return }
     /* 성직자 축복 반영 — 방어력 보정치와 피해 감소 버프 */
     const defF = buffSum(L, 'defF')
@@ -5341,6 +5348,17 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       }[e.code]
       if (n) { castRef.current(n); return }
       if (e.code === 'KeyE') { live.current.eHeld = true; promptRef.current() }
+      else if (e.code === 'KeyF') {
+        /* 어둠의 암살자 전용 — 5초간 속도 500% 증폭 + 무적, 쿨타임 5초 (사용자 확정) */
+        if (cls.id !== 'darkassassin') return
+        const L = live.current
+        if (L.dead || controlRef.current.lock) return
+        if ((L.cd['dark_burst'] || 0) > 0) return
+        const now = performance.now()
+        L.cd['dark_burst'] = 5
+        L.burst = { until: now + 5000 }
+        addToast('🌀 은신 폭주 — 5초간 속도 500% + 무적!')
+      }
       else if (e.code === 'KeyC') {
         /* 채팅 — 온라인 같이 하기 중에만 (사용자 확정 규칙) */
         if (!netRef.current) return
@@ -5380,7 +5398,7 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlurE)
     }
-  }, [lockedNotice])
+  }, [lockedNotice, cls, addToast])
 
   /* ---------- 파생 표시값 ---------- */
   const L = live.current
@@ -5650,6 +5668,7 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
         <div className="pointer-events-none absolute bottom-4 left-4 rounded-xl bg-black/40 px-3 py-2 text-[10px] leading-relaxed text-white/70">
           <b>우클릭 드래그</b> 카메라 · <b>WASD</b> 이동(카메라 기준)<br />
           <b>좌클릭</b> {cls.mode === 'spell' ? '마법(수학)' : cls.mode === 'heal' ? '치유/공격' : '공격'} · <b>1~9 0 -</b> 스킬 · <b>E</b> 상호작용 · <b>I</b> 인벤토리 · <b>K</b> 스킬트리
+          {cls.id === 'darkassassin' && <><br /><b>F</b> 은신 폭주 (5초간 속도 500%+무적, 쿨5초)</>}
           {room.connected && <><br /><b>P</b> 파티 · <b>C</b> 채팅</>}
         </div>
       )}
