@@ -2934,6 +2934,8 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       s.adminBoost = { ...cur, [kind]: next }
       const label = kind === 'exp' ? '경험치' : kind === 'drop' ? '아이템 확률' : '골드 획득'
       addToast(next === 1 ? `🛠 ${label} 배율 해제` : `🛠 ${label} ×${next} 적용`)
+      /* 방 전체에 방송 — 나뿐 아니라 접속한 모든 플레이어에게 적용된다 */
+      netRef.current?.room.send({ t: 'srvBoost', boost: s.adminBoost })
     }
     commit()
   }, [commit, addToast, onResetCharacter])
@@ -3536,6 +3538,21 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       supportRef.current.pushChat?.({ nick: m.nick || '???', txt: m.txt.slice(0, 120) })
     })
 
+    /* 관리자 서버 전체 버프 — 받는 즉시 내 세이브에도 적용된다 (방 전체 공용) */
+    const offSrvBoost = r.on('srvBoost', (m) => {
+      if (!m.boost) return
+      S.current.adminBoost = m.boost
+      commit()
+    })
+
+    /* 새로 들어온 사람에게는 현재 켜진 서버 버프를 다시 알려준다 (늦게 접속해도 놓치지 않도록) */
+    const offJoin = r.on('join', () => {
+      const b = S.current.admin && S.current.adminBoost
+      if (b && (b.exp > 1 || b.drop > 1 || b.gold > 1)) {
+        r.send({ t: 'srvBoost', boost: b })
+      }
+    })
+
     /* ---------- 파티 메시지 ---------- */
     const offPInv = r.on('pInv', (m) => {
       if (m.to !== net.myId) return
@@ -3601,14 +3618,14 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
       offTrReq(); offTrAcc(); offTrOffer(); offTrLock(); offTrConf(); offTrCancel()
       offDlReq(); offDlAcc(); offDlDec(); offDlHit(); offDlEnd()
       offState(); offHit(); offMobHit(); offMobs(); offLeave()
-      offBuff(); offHeal(); offMobDebuff(); offChat()
+      offBuff(); offHeal(); offMobDebuff(); offChat(); offSrvBoost(); offJoin()
       offPInv(); offPAcc(); offPDec(); offPSnap(); offPReady(); offPLeave(); offPStart()
       w.net = null
       netRef.current = null
       w.peers.clear()
       setRoster([])
     }
-  }, [roomConnected, roomRef, addToast])
+  }, [roomConnected, roomRef, addToast, commit])
 
   /* 호스트 승계는 언제든 일어날 수 있다 — 매 프레임 읽히는 ref에 반영 */
   useEffect(() => {
