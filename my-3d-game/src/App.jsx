@@ -504,13 +504,9 @@ function getPeerId() {
   } catch { return makePlayerId() }
 }
 
-/* 방 코드 — 사람이 불러주기 쉽게 헷갈리는 글자(0/O, 1/I)는 뺀다 */
-const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-const makeRoomCode = () => Array.from(
-  { length: 4 },
-  () => ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)],
-).join('')
-const normalizeRoomCode = (raw) => (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+/* 세상은 하나다 — 접속하면 코드 입력 없이 모두 같은 월드로 들어온다.
+   맵 구분은 zone(아래 zoneOf)이 이미 해주므로 방을 나눌 이유가 없다. */
+const WORLD_ROOM = 'WORLD'
 
 /* zone — 오픈 필드는 맵 id, 던전/레이드/결투는 인스턴스 id로 구분한다.
    같은 zone에 있는 사람끼리만 서로 보이고 같은 몹을 공유한다. */
@@ -3673,21 +3669,28 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
     }))))
   }, [])
 
-  const joinRoom = useCallback((rawCode) => {
-    const code = normalizeRoomCode(rawCode)
-    if (code.length < 3) return '방 코드는 3자 이상이어야 합니다'
-    room.join(code, {
+  /* 혼자 하기를 직접 고른 경우에만 자동 접속을 멈춘다 */
+  const soloRef = useRef(false)
+
+  const joinRoom = useCallback((silent) => {
+    soloRef.current = false
+    room.join(WORLD_ROOM, {
       id: getPeerId(), nick: account.nick, cls: cls.id, level: S.current.level, mapId: mapIdRef.current,
     })
-    setRoomOpen(false)
-    addToast(`🌐 [${code}] 방에 입장했습니다`)
-    return null
+    if (!silent) { setRoomOpen(false); addToast('🌐 월드에 접속했습니다') }
   }, [room, account.nick, cls.id, addToast])
 
   const leaveRoom = useCallback(() => {
+    soloRef.current = true
     room.leave()
-    addToast('🌐 혼자 하기로 돌아왔습니다')
+    addToast('🌐 혼자 하기로 전환했습니다')
   }, [room, addToast])
+
+  /* 맵에 들어오면 코드 입력 없이 곧바로 월드에 연결한다 */
+  useEffect(() => {
+    if (roomConnected || soloRef.current) return
+    joinRoom(true)
+  }, [roomConnected, joinRoom])
 
   useNetPump({
     world, live, netRef, mapIdRef, modeRef, identityRef,
@@ -5529,8 +5532,8 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
             ? 'border-emerald-400/50 bg-emerald-600/80 text-white hover:bg-emerald-600'
             : 'border-white/15 bg-slate-900/85 text-white hover:bg-slate-800'}`}>
           {room.connected
-            ? <>🌐 {room.code} <span className="ml-1 rounded-full bg-black/35 px-2 py-0.5 text-[10px]">{room.members.length}명</span></>
-            : <>🌐 같이 하기</>}
+            ? <>🌐 월드 <span className="ml-1 rounded-full bg-black/35 px-2 py-0.5 text-[10px]">{room.members.length}명</span></>
+            : <>🚪 혼자 하기</>}
         </button>
         {room.connected && (
           <button onClick={() => setPartyOpen(true)}
@@ -7308,34 +7311,27 @@ function PartyModal({ myId, party, roster, contentSel, setContentSel, saveLevel,
 }
 
 /* ==================================================================
-   방 — 같은 코드를 입력한 사람끼리 사냥터를 공유한다
+   월드 — 맵에 들어오면 코드 없이 자동으로 모두와 연결된다
    ================================================================== */
 function RoomModal({ room, isHost, onJoin, onLeave, onClose }) {
-  const [code, setCode] = useState('')
-  const [err, setErr] = useState(null)
   const online = !!getWsUrl()          // 인터넷 서버가 설정되어 있는가
   const link = room.link
-
-  const submit = () => {
-    const msg = onJoin(code)
-    if (msg) setErr(msg)
-  }
 
   return (
     <div data-ui className="absolute inset-0 z-[60] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
       <div className="w-[23rem] rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
         <div className="flex items-center justify-between">
-          <div className="text-lg font-black text-white">🌐 같이 하기</div>
+          <div className="text-lg font-black text-white">🌐 월드</div>
           <button onClick={onClose} className="rounded-lg px-2 py-1 text-slate-400 transition hover:bg-white/10 hover:text-white">✕</button>
         </div>
 
         {room.connected ? (
           <>
             <div className="mt-4 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-center">
-              <div className="text-[11px] tracking-[0.3em] text-emerald-300/80">ROOM CODE</div>
-              <div className="mt-1 font-mono text-3xl font-black tracking-[0.3em] text-emerald-300">{room.code}</div>
+              <div className="text-3xl">🌍</div>
+              <div className="mt-1 text-sm font-black text-emerald-300">월드에 접속 중</div>
               <div className="mt-1.5 text-[11px] text-slate-400">
-                친구에게 이 코드를 알려주세요
+                같은 맵에 있는 사람과 자동으로 만나집니다
               </div>
             </div>
 
@@ -7378,44 +7374,31 @@ function RoomModal({ room, isHost, onJoin, onLeave, onClose }) {
 
             <button onClick={() => { onLeave(); onClose() }}
               className="mt-4 w-full rounded-xl border border-white/15 py-3 text-sm font-bold text-slate-200 transition hover:bg-white/5">
-              방 나가기
+              혼자 하기
             </button>
           </>
         ) : (
           <>
-            <p className="mt-3 text-[13px] leading-relaxed text-slate-300">
-              같은 방 코드를 입력하면 같은 사냥터에서 함께 놀 수 있습니다.
-            </p>
-            <div className="mt-4">
-              <label className="text-xs font-bold text-slate-400">방 코드</label>
-              <input
-                autoFocus
-                value={code}
-                onChange={(e) => { setCode(normalizeRoomCode(e.target.value)); setErr(null) }}
-                onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
-                placeholder="예: ABCD"
-                maxLength={6}
-                className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/40 px-4 py-3 text-center font-mono text-2xl font-black tracking-[0.3em] text-white outline-none transition focus:border-indigo-400"
-              />
-              {err && <div className="mt-2 text-xs font-bold text-rose-400">{err}</div>}
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-center">
+              <div className="text-3xl">🚪</div>
+              <div className="mt-1 text-sm font-black text-slate-200">혼자 하는 중</div>
+              <div className="mt-1.5 text-[11px] text-slate-400">
+                다시 접속하면 다른 사람들과 만날 수 있습니다
+              </div>
             </div>
 
-            <button onClick={submit}
+            <button onClick={() => { onJoin(); onClose() }}
               className="mt-4 w-full rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 py-3 font-black text-white transition hover:brightness-110">
-              입장하기
-            </button>
-            <button onClick={() => { const c = makeRoomCode(); setCode(c); setErr(null) }}
-              className="mt-2 w-full rounded-xl border border-white/15 py-2.5 text-sm font-bold text-slate-300 transition hover:bg-white/5">
-              🎲 새 방 코드 만들기
+              🌐 월드에 다시 접속
             </button>
 
             <div className="mt-4 rounded-xl bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-slate-400">
               {online ? (
                 <>🌏 <b className="text-slate-300">인터넷 서버</b>를 통해 연결됩니다 —
-                다른 기기·다른 곳의 가족·친구와 같은 코드로 입장하세요.</>
+                맵에 들어오면 다른 기기의 사람들과 자동으로 만나집니다.</>
               ) : (
                 <>지금은 <b className="text-slate-300">같은 컴퓨터의 다른 탭</b>끼리 연결됩니다.
-                서버를 붙이면 같은 코드로 인터넷 너머의 친구와도 만날 수 있습니다.</>
+                서버를 붙이면 인터넷 너머의 친구와도 자동으로 만날 수 있습니다.</>
               )}
             </div>
           </>
