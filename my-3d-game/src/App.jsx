@@ -2883,6 +2883,9 @@ function Bot({ botCls, diff, world, live, onDead }) {
 function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter }) {
   const isMobile = useIsMobile()
   const rpgSetVec = useCallback((x, y) => { TOUCH.mx = x; TOUCH.my = y }, [])
+  /* 모바일 달리기 토글 — 키보드의 Shift와 동등한 기능을 터치로 제공한다 */
+  const [runOn, setRunOn] = useState(false)
+  const toggleRun = useCallback(() => { TOUCH.run = !TOUCH.run; setRunOn(TOUCH.run) }, [])
   /* ---------- 영구 저장 ---------- */
   const S = useRef(null)
   if (S.current === null) {
@@ -5678,6 +5681,12 @@ function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter })
         <>
           <div className="absolute bottom-5 left-4 z-40">
             <VirtualJoystick size={118} onVec={rpgSetVec} />
+          </div>
+          <div className="absolute bottom-[9.5rem] left-8 z-40">
+            <TouchBtn label="🏃" sub="달리기" size={56} textSize="text-lg"
+              bg={runOn ? 'rgba(52,211,153,.4)' : 'rgba(255,255,255,.14)'}
+              border={runOn ? 'rgba(52,211,153,.85)' : 'rgba(255,255,255,.32)'}
+              onPress={toggleRun} />
           </div>
           <div className="absolute bottom-5 right-4 z-40 flex flex-col items-center gap-2.5">
             {promptLabel && !sermon.active && (
@@ -9636,6 +9645,8 @@ function TowerGame() {
   const camRef = useRef({ yaw: Math.PI, pitch: 0.42, dist: 9 })
   const simRef = useRef({ t: 0, prev: 0 })
   const [shiftLock, setShiftLock] = useState(false)
+  const [runOn, setRunOn] = useState(false)
+  const setLockRef = useRef(() => {})   // 아래 effect가 채운다 — 모바일 버튼에서도 같은 함수를 쓴다
   const [, setTick] = useState(0)
   const bumpHud = useCallback(() => setTick((n) => n + 1), [])
   const [best, setBest] = useState(() => loadJSON(LS_TOWER, { time: null, height: 0, clears: 0 }))
@@ -9733,6 +9744,7 @@ function TowerGame() {
         document.exitPointerLock()
       }
     }
+    setLockRef.current = setLock   // 모바일 버튼도 같은 함수로 켠다 (포인터락은 모바일에서 조용히 무시된다)
 
     /* 사용자가 Esc로 포인터락을 풀면 시프트락도 함께 해제 */
     const onLockChange = () => {
@@ -9774,6 +9786,14 @@ function TowerGame() {
   }, [flash])
 
   const twSetVec = useCallback((x, y) => { TOUCH.mx = x; TOUCH.my = y }, [])
+
+  /* 모바일 전용 — 시프트락 · 달리기 토글 (키보드가 없어도 같은 기능을 쓸 수 있게) */
+  const toggleShiftLock = useCallback(() => {
+    const on = !live.current.shiftLock
+    setLockRef.current(on)
+    flash(on ? '🖱 시프트락 ON — 항상 카메라 방향을 본다 (다시 누르면 해제)' : '🖱 시프트락 OFF')
+  }, [flash])
+  const toggleRun = useCallback(() => { TOUCH.run = !TOUCH.run; setRunOn(TOUCH.run) }, [])
 
   const restart = useCallback(() => {
     const L = live.current
@@ -9866,6 +9886,7 @@ function TowerGame() {
       <div className="pointer-events-none absolute bottom-4 left-4 rounded-xl bg-black/45 px-3 py-2 text-[11px] leading-relaxed text-white/85">
         {isMobile ? (
           <>왼쪽 <b>조이스틱</b> 이동 · 오른쪽 <b>점프</b> 버튼<br />
+          <b>🏃 달리기</b> · <b>🎯 시프트락</b> 버튼은 다시 누르면 꺼집니다<br />
           빈 화면을 <b>드래그</b>하면 시점이 돌아갑니다</>
         ) : (
           <><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Ctrl</b> 달리기(누르면 켜짐, 다시 누르면 꺼짐)<br />
@@ -9879,6 +9900,16 @@ function TowerGame() {
         <>
           <div className="absolute bottom-6 left-5 z-40">
             <VirtualJoystick size={124} onVec={twSetVec} />
+          </div>
+          <div className="absolute bottom-[10.5rem] left-9 z-40 flex gap-2">
+            <TouchBtn label="🏃" sub="달리기" size={52} textSize="text-base"
+              bg={runOn ? 'rgba(52,211,153,.4)' : 'rgba(255,255,255,.14)'}
+              border={runOn ? 'rgba(52,211,153,.85)' : 'rgba(255,255,255,.32)'}
+              onPress={toggleRun} />
+            <TouchBtn label="🎯" sub="시프트락" size={52} textSize="text-base"
+              bg={shiftLock ? 'rgba(56,189,248,.4)' : 'rgba(255,255,255,.14)'}
+              border={shiftLock ? 'rgba(56,189,248,.85)' : 'rgba(255,255,255,.32)'}
+              onPress={toggleShiftLock} />
           </div>
           <div className="absolute bottom-7 right-5 z-40 flex flex-col items-center gap-3">
             <TouchBtn
