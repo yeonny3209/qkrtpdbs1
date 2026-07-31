@@ -796,6 +796,7 @@ const defaultSave = () => ({
   oneShotPvp: 0,                 // 한방에 끝낸 PVP 횟수 (어둠의 암살자 조건)
   /* 관리자 (코드로 해금) */
   admin: false,
+  adminBoost: { exp: 1, drop: 1, gold: 1 },   // 경험치·확률·골드 배율 (관리자 패널 토글)
   /* 스킬 */
   skills: {},                    // { skillId: level }
   jobQuest: {},                  // { npcId: { state, base } } 전직 퀘스트
@@ -962,11 +963,15 @@ function rollDamage(st, mul = 1) {
   return { dmg: Math.max(1, Math.round(dmg)), crit }
 }
 
+/* 관리자 배율 — 기본 1배, 패널에서 켠 값만큼 적용된다.
+   한 곳에서만 곱해서 모든 exp/골드/드랍 경로에 자동으로 반영되게 한다. */
+const adminMul = (save, key) => (save.adminBoost && save.adminBoost[key]) || 1
+
 /* 레벨업 — 튜토리얼 완료(unlocked) 전에는 경험치가 쌓이지 않는다 */
 function applyExp(save, amount) {
   const events = []
   if (!save.unlocked) return events
-  save.exp += Math.max(0, Math.round(amount))
+  save.exp += Math.max(0, Math.round(amount * adminMul(save, 'exp')))
   while (save.level < MAX_LEVEL && save.exp >= EXP_FOR(save.level)) {
     save.exp -= EXP_FOR(save.level)
     save.level += 1
@@ -2793,7 +2798,7 @@ function Bot({ botCls, diff, world, live, onDead }) {
 /* ==================================================================
    메인 게임 화면
    ================================================================== */
-function GameScreen({ account, cls, addToast, onChangeClass }) {
+function GameScreen({ account, cls, addToast, onChangeClass, onResetCharacter }) {
   const isMobile = useIsMobile()
   const rpgSetVec = useCallback((x, y) => { TOUCH.mx = x; TOUCH.my = y }, [])
   /* ---------- 영구 저장 ---------- */
@@ -2916,9 +2921,22 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       const acc = { ...loadJSON(LS_ACCOUNT, {}), nick: nn }
       saveJSON(LS_ACCOUNT, acc)
       addToast(`🛠 닉네임 변경 — ${nn} (새로고침 후 적용)`)
+    } else if (what === 'newchar') {
+      addToast('🛠 캐릭터를 새로 만듭니다 — 직업 선택으로 이동')
+      onResetCharacter({ admin: s.admin, usedCodes: s.usedCodes })
+      return                              // 화면이 곧 바뀌므로 commit()은 의미 없다
+    } else if (what === 'boost') {
+      /* arg = { kind: 'exp'|'drop'|'gold', mul } — 다시 누르면 꺼진다(토글) */
+      const { kind, mul } = arg || {}
+      if (!kind) return
+      const cur = s.adminBoost || { exp: 1, drop: 1, gold: 1 }
+      const next = cur[kind] === mul ? 1 : mul
+      s.adminBoost = { ...cur, [kind]: next }
+      const label = kind === 'exp' ? '경험치' : kind === 'drop' ? '아이템 확률' : '골드 획득'
+      addToast(next === 1 ? `🛠 ${label} 배율 해제` : `🛠 ${label} ×${next} 적용`)
     }
     commit()
-  }, [commit, addToast])
+  }, [commit, addToast, onResetCharacter])
 
   const sendChat = useCallback((raw) => {
     const txt = (raw || '').trim().slice(0, 120)
@@ -3114,6 +3132,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     }
   }, [syncParty, addToast])
   const [roster, setRoster] = useState([])       // 같은 맵에 있는 접속자 (렌더용)
+  const [allPlayers, setAllPlayers] = useState([])   // 방 전체 접속자 (다른 맵 포함 — 관리자 관전용)
   const [roomOpen, setRoomOpen] = useState(false)
   const identityRef = useRef({ nick: account.nick, cls: cls.id, wtype: null })
 
@@ -3211,7 +3230,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const q = SQ_BY_ID[id]
     if (!q || !sqComplete(s, q)) return
     s.sq = { ...(s.sq || {}), [id]: { state: 'done', base: 0, got: 0 } }
-    s.gold += q.gold
+    s.gold += Math.round(q.gold * adminMul(s, 'gold'))
     const ev = applyExp(s, q.exp * (1 + statsRef.current.expGain / 100))
     /* 룬 퀘스트 — 상점에서 살 수 없는 룬을 여기서 확정 지급한다 */
     if (q.rune) addItem(makeRune(s, Math.min(MAX_GRADE, 1 + Math.floor(q.reqLv / 12))))
@@ -3279,7 +3298,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const st = statsRef.current
     s.kills += 1
     const mt = MOB_TYPES[(entry && entry.type) || 'rabbit']
-    s.gold += Math.round((mt.gold + Math.floor(Math.random() * (mt.gold * 0.4 + 2))) * (1 + st.goldGain / 100))
+    s.gold += Math.round((mt.gold + Math.floor(Math.random() * (mt.gold * 0.4 + 2))) * (1 + st.goldGain / 100) * adminMul(s, 'gold'))
     /* 튜토리얼: 토끼 간 */
     if (s.tutorial === 'active' && s.livers < LIVER_NEED && Math.random() < LIVER_DROP) {
       s.livers += 1
@@ -3293,7 +3312,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
         const e = s.sq[q.id]
         if (!e || e.state !== 'active' || q.type !== 'collect') continue
         if ((e.got || 0) >= q.need) continue
-        if (Math.random() < (q.drop || 0.4)) {
+        if (Math.random() < Math.min(1, (q.drop || 0.4) * adminMul(s, 'drop'))) {
           e.got = (e.got || 0) + 1
           picked = `${q.item} (${e.got}/${q.need})`
           if (e.got >= q.need) picked += ' — 다 모았다!'
@@ -3303,7 +3322,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     }
     const ev = applyExp(s, mt.exp * (1 + st.expGain / 100))
     if (s.unlocked) {
-      const luck = 1 + (st.luck || 0) / 100
+      const luck = (1 + (st.luck || 0) / 100) * adminMul(s, 'drop')
       /* 룬은 사냥에서만, 아주 드물게 (상점에서는 살 수 없다) */
       if (Math.random() < RUNE_DROP * luck) addItem(makeRune(s, MAX_GRADE))
       else {
@@ -3602,7 +3621,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     if (roomRef.current) roomRef.current.update({ cls: cls.id, level: saveUI.level, mapId })
   }, [account.nick, cls.id, wtype, saveUI.level, mapId, roomRef])
 
-  /* 화면에 그릴 접속자 명단 — 나와 같은 zone에 있는 사람만 */
+  /* 화면에 그릴 접속자 명단 — 나와 같은 zone에 있는 사람만 (파티·거래·대결용) */
   const refreshRoster = useCallback(() => {
     const here = []
     for (const p of world.current.peers.values()) {
@@ -3611,6 +3630,21 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     setRoster((prev) => {
       if (prev.length === here.length && prev.every((x, i) => x.id === here[i].id && x.cls === here[i].cls && x.wtype === here[i].wtype)) return prev
       return here
+    })
+
+    /* 관리자 관전용 — 맵이 달라도 방에 있는 사람 전원을 본다 */
+    const all = []
+    for (const p of world.current.peers.values()) {
+      all.push({
+        id: p.peerId, nick: p.nick, cls: p.cls,
+        mapId: p.mapId, mapName: MAP_BY_ID[p.mapId] ? MAP_BY_ID[p.mapId].name : '?',
+        inst: p.inst || null, arena: !!p.arena, dead: !!p.dead,
+      })
+    }
+    setAllPlayers((prev) => {
+      if (prev.length === all.length && prev.every((x, i) => x.id === all[i].id && x.mapId === all[i].mapId
+        && x.inst === all[i].inst && x.dead === all[i].dead)) return prev
+      return all
     })
   }, [])
 
@@ -4541,7 +4575,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const s = S.current
     const st = statsRef.current
     const cur = instRef.current
-    s.gold += Math.round(gold * (1 + st.goldGain / 100))
+    s.gold += Math.round(gold * (1 + st.goldGain / 100) * adminMul(s, 'gold'))
     const ev = applyExp(s, exp * (1 + st.expGain / 100))
     if (gradeMax) {
       /* 아티팩트는 40레벨 이상 던전에서 아주 드물게만 나온다 (사용자 확정) */
@@ -4981,7 +5015,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
       const s = S.current
       const st = statsRef.current
       s.pvpKills += 1
-      s.gold += Math.round(120 * (1 + st.goldGain / 100))
+      s.gold += Math.round(120 * (1 + st.goldGain / 100) * adminMul(s, 'gold'))
       /* 도적이 한 방(피격 없이 단번)에 끝냈으면 어둠의 암살자 조건이 쌓인다 */
       if (cls.id === 'assassin' && (live.current.duelHits || 0) <= 1) {
         s.oneShotPvp = (s.oneShotPvp || 0) + 1
@@ -5047,7 +5081,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
     const s = S.current
     const st = statsRef.current
     const diff = botDiff || AI_DIFFS[1]
-    s.gold += Math.round(diff.gold * (1 + st.goldGain / 100))
+    s.gold += Math.round(diff.gold * (1 + st.goldGain / 100) * adminMul(s, 'gold'))
     s.pvpKills += 1
     if (diff.id > s.bestDiff) s.bestDiff = diff.id
     const ev = applyExp(s, diff.exp * (1 + st.expGain / 100))
@@ -5712,7 +5746,7 @@ function GameScreen({ account, cls, addToast, onChangeClass }) {
           onAccept={acceptSq} onTurnIn={turnInSq} onClose={() => setSqModal(null)} />
       )}
       {adminOpen && saveUI.admin && (
-        <AdminPanel save={saveUI} roster={roster} spectate={spectate}
+        <AdminPanel save={saveUI} players={allPlayers} spectate={spectate}
           onAct={adminAct} onSpectate={setSpectate} onClose={() => setAdminOpen(false)} />
       )}
       {trade && (
@@ -6615,8 +6649,34 @@ function SideQuestModal({ quest, save, onAccept, onTurnIn, onClose }) {
 /* ==================================================================
    관리자 패널 — 코드로 해금된 사람만 열 수 있다
    ================================================================== */
-function AdminPanel({ save, roster, spectate, onAct, onSpectate, onClose }) {
+/* 배율 토글 한 줄 — 켜진 배율을 다시 누르면 꺼진다(1배로 복귀) */
+function BoostRow({ label, icon, kind, options, current, onAct }) {
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] text-slate-400">{icon} {label}</label>
+        {current > 1 && <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-black text-emerald-300">×{current} 적용 중</span>}
+      </div>
+      <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+        {options.map((mul) => {
+          const on = current === mul
+          return (
+            <button key={mul} onClick={() => onAct('boost', { kind, mul })}
+              className={`rounded-lg border py-2 text-[12px] font-black transition ${on
+                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
+                : 'border-white/12 bg-white/5 text-slate-300 hover:bg-white/10'}`}>
+              ×{mul}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function AdminPanel({ save, players, spectate, onAct, onSpectate, onClose }) {
   const [nick, setNick] = useState('')
+  const [confirmNew, setConfirmNew] = useState(false)
   const btn = 'rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-[12px] font-bold text-white transition hover:bg-white/10'
   return (
     <div data-ui className="absolute inset-0 z-[72] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm" onClick={onClose}>
@@ -6634,6 +6694,14 @@ function AdminPanel({ save, roster, spectate, onAct, onSpectate, onClose }) {
           <button className={btn} onClick={() => onAct('sp')}>✨ SP +10</button>
         </div>
 
+        {/* 경험치·확률·골드 배율 — 다시 누르면 꺼진다 */}
+        <BoostRow label="경험치 배율" icon="📘" kind="exp" options={[2, 4, 8, 16]}
+          current={(save.adminBoost && save.adminBoost.exp) || 1} onAct={onAct} />
+        <BoostRow label="아이템 확률 배율" icon="🎲" kind="drop" options={[10]}
+          current={(save.adminBoost && save.adminBoost.drop) || 1} onAct={onAct} />
+        <BoostRow label="골드 획득 배율" icon="🪙" kind="gold" options={[2]}
+          current={(save.adminBoost && save.adminBoost.gold) || 1} onAct={onAct} />
+
         <div className="mt-3">
           <label className="text-[11px] text-slate-400">닉네임 바꾸기</label>
           <div className="mt-1 flex gap-2">
@@ -6645,15 +6713,34 @@ function AdminPanel({ save, roster, spectate, onAct, onSpectate, onClose }) {
           </div>
         </div>
 
+        <div className="mt-3">
+          <label className="text-[11px] text-slate-400">캐릭터 새로 만들기</label>
+          {!confirmNew ? (
+            <button onClick={() => setConfirmNew(true)}
+              className="mt-1 w-full rounded-xl border border-orange-400/40 bg-orange-500/10 py-2.5 text-[12px] font-bold text-orange-200 transition hover:bg-orange-500/20">
+              🔄 지금 직업·레벨·아이템을 전부 지우고 새로 시작
+            </button>
+          ) : (
+            <div className="mt-1 flex gap-2">
+              <button onClick={() => setConfirmNew(false)}
+                className="flex-1 rounded-xl border border-white/15 py-2.5 text-[12px] font-bold text-slate-300 transition hover:bg-white/5">취소</button>
+              <button onClick={() => onAct('newchar')}
+                className="flex-1 rounded-xl bg-gradient-to-r from-orange-500 to-rose-600 py-2.5 text-[12px] font-black text-white transition hover:brightness-110">
+                정말 초기화 (되돌릴 수 없음)
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="mt-4">
-          <div className="text-[11px] text-slate-400">다른 사람 관전하기</div>
-          {roster.length === 0 ? (
+          <div className="text-[11px] text-slate-400">다른 사람 관전하기 <span className="text-slate-600">— 다른 맵에 있어도 가능</span></div>
+          {players.length === 0 ? (
             <div className="mt-1 rounded-lg bg-white/5 px-3 py-2 text-[11px] text-slate-500">
-              같은 공간에 다른 사람이 없습니다
+              방에 다른 접속자가 없습니다
             </div>
           ) : (
-            <div className="mt-1 space-y-1">
-              {roster.map((p) => {
+            <div className="mt-1 max-h-48 space-y-1 overflow-y-auto pr-1">
+              {players.map((p) => {
                 const on = spectate === p.id
                 const c = CLASS_BY_ID[p.cls]
                 return (
@@ -6661,8 +6748,14 @@ function AdminPanel({ save, roster, spectate, onAct, onSpectate, onClose }) {
                     className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${on
                       ? 'border-rose-400/60 bg-rose-500/15' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
                     <span>{c ? c.icon : '👤'}</span>
-                    <span className="text-[12px] font-bold text-white">{p.nick}</span>
-                    <span className="ml-auto text-[10px] text-slate-400">{on ? '관전 중 — 해제' : '관전'}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[12px] font-bold text-white">{p.nick}{p.dead && ' 💀'}</div>
+                      <div className="truncate text-[10px] text-slate-400">
+                        {p.inst ? (p.inst.startsWith('dg_') ? '파티 던전' : p.inst.startsWith('rd_') ? '파티 레이드' : '결투 중')
+                          : p.arena ? '투기장' : p.mapName}
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-[10px] text-slate-400">{on ? '관전 중 — 해제' : '관전'}</span>
                   </button>
                 )
               })}
@@ -6670,7 +6763,7 @@ function AdminPanel({ save, roster, spectate, onAct, onSpectate, onClose }) {
           )}
           {spectate && (
             <div className="mt-2 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-1.5 text-[10px] text-rose-200">
-              카메라가 상대를 따라갑니다 — 다시 눌러 해제하세요
+              카메라가 상대를 따라갑니다 (다른 맵이면 그 사람의 좌표만 비춥니다) — 다시 눌러 해제하세요
             </div>
           )}
         </div>
@@ -7494,6 +7587,15 @@ function RpgGame() {
     setAccount((prev) => { const acc = { ...prev, cls: id }; saveJSON(LS_ACCOUNT, acc); return acc })
   }, [])
 
+  /* 관리자 전용 — 캐릭터 새로 만들기. 저장 데이터를 초기화하고
+     닉네임은 그대로 둔 채 직업 선택 화면으로 되돌아간다.
+     관리자 권한과 코드 사용 이력은 기기(계정) 단위 설정이라 그대로 넘겨준다. */
+  const resetCharacter = useCallback((preserve) => {
+    saveJSON(LS_SAVE, { ...defaultSave(), ...preserve })
+    setAccount((prev) => { const acc = { nick: prev.nick }; saveJSON(LS_ACCOUNT, acc); return acc })
+    setScreen('CLASS_SELECT')
+  }, [])
+
   const cls = CLASS_BY_ID[account?.cls] || null
   const view = screen === 'GAME' && !cls ? 'CLASS_SELECT' : screen
 
@@ -7502,7 +7604,8 @@ function RpgGame() {
       {view === 'LOGIN' && <LoginScreen onCreate={createAccount} />}
       {view === 'CLASS_SELECT' && account && <ClassSelectScreen nick={account.nick} onPick={pickClass} />}
       {view === 'GAME' && account && cls && (
-        <GameScreen key={cls.id} account={account} cls={cls} addToast={addToast} onChangeClass={changeClass} />
+        <GameScreen key={cls.id} account={account} cls={cls} addToast={addToast}
+          onChangeClass={changeClass} onResetCharacter={resetCharacter} />
       )}
 
       <div className="pointer-events-none fixed left-1/2 top-20 z-[70] flex -translate-x-1/2 flex-col items-center gap-2">
