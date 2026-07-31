@@ -8999,11 +8999,13 @@ function platAABB(p, t) {
 function useTowerKeys(live) {
   const keys = useRef({ f: false, b: false, l: false, r: false, run: false })
   useEffect(() => {
-    /* Shift는 시프트락(마우스 조준) 전용이라 달리기는 Ctrl로 옮겼다 */
+    /* Shift는 시프트락(마우스 조준) 전용이라 달리기는 Ctrl로 옮겼다.
+       Ctrl을 누르고 있는 채로 W를 치면 브라우저의 창 닫기(Ctrl+W)가 발동하므로,
+       Ctrl은 누르고 있는 게 아니라 한 번 눌러 켜고 다시 눌러 끄는 토글로 만든다
+       (사용자 확정) — 이러면 W를 누를 때 Ctrl을 붙잡고 있을 필요가 없다. */
     const MAP = {
       KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b',
       KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r',
-      ControlLeft: 'run', ControlRight: 'run',
     }
     const onDown = (e) => {
       if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return
@@ -9013,6 +9015,10 @@ function useTowerKeys(live) {
         live.current.jumpHeld = true
         return
       }
+      if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+        if (!e.repeat) keys.current.run = !keys.current.run
+        return
+      }
       const k = MAP[e.code]
       if (!k) return
       if (e.code.startsWith('Arrow')) e.preventDefault()
@@ -9020,6 +9026,8 @@ function useTowerKeys(live) {
     }
     const onUp = (e) => {
       if (e.code === 'Space') { live.current.jumpHeld = false; return }
+      /* Ctrl은 뗄 때 아무 것도 하지 않는다 — 토글은 누르는 순간에만 바뀐다 */
+      if (e.code === 'ControlLeft' || e.code === 'ControlRight') return
       const k = MAP[e.code]
       if (k) keys.current[k] = false
     }
@@ -9860,7 +9868,7 @@ function TowerGame() {
           <>왼쪽 <b>조이스틱</b> 이동 · 오른쪽 <b>점프</b> 버튼<br />
           빈 화면을 <b>드래그</b>하면 시점이 돌아갑니다</>
         ) : (
-          <><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Ctrl</b> 달리기<br />
+          <><b>WASD</b> 이동 · <b>Space</b> 점프 · <b>Ctrl</b> 달리기(누르면 켜짐, 다시 누르면 꺼짐)<br />
           <b>Shift</b> 시프트락(마우스 조준) · <b>Esc</b> 해제<br />
           <b>마우스 드래그</b> 시점 회전 · <b>휠</b> 줌 · <b>R</b> 체크포인트 복귀</>
         )}
