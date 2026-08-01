@@ -77,16 +77,17 @@ export const ESC_COLORS = [
   { key: 'p', name: '보라', hex: '#a855f7' },
 ]
 
-/* ---------------- 소품 종류 ---------------- */
+/* ---------------- 소품 종류 ----------------
+   wall: 벽에 거는 물건. 벽면까지 밀어 붙여 그리고, 몸으로 부딪히지 않는다. */
 export const PROP_KINDS = [
-  { kind: 'desk', name: '책상', lockable: true },
-  { kind: 'cabinet', name: '캐비닛', lockable: true },
-  { kind: 'shelf', name: '책장', lockable: false },
-  { kind: 'painting', name: '액자', lockable: false },
-  { kind: 'clock', name: '벽시계', lockable: false },
-  { kind: 'crate', name: '나무 상자', lockable: true },
-  { kind: 'plant', name: '화분', lockable: false },
-  { kind: 'lamp', name: '스탠드', lockable: false },
+  { kind: 'desk', name: '책상', lockable: true, wall: false },
+  { kind: 'cabinet', name: '캐비닛', lockable: true, wall: false },
+  { kind: 'shelf', name: '책장', lockable: false, wall: false },
+  { kind: 'painting', name: '액자', lockable: false, wall: true },
+  { kind: 'clock', name: '벽시계', lockable: false, wall: true },
+  { kind: 'crate', name: '나무 상자', lockable: true, wall: false },
+  { kind: 'plant', name: '화분', lockable: false, wall: false },
+  { kind: 'lamp', name: '스탠드', lockable: false, wall: false },
 ]
 export const PROP_BY_KIND = Object.fromEntries(PROP_KINDS.map((p) => [p.kind, p]))
 
@@ -94,48 +95,58 @@ export const PROP_BY_KIND = Object.fromEntries(PROP_KINDS.map((p) => [p.kind, p]
    잠금장치 생성 — 정답과 "그 정답으로 이어지는 단서"를 함께 만든다
    ================================================================== */
 
+/* 잠금장치 이름표.
+   지옥 난이도처럼 같은 종류가 두 개 있으면 "키패드 3번째 자리는 7" 이라는 단서가
+   어느 키패드 것인지 알 수 없다. 그래서 장치마다 기호를 붙이고 단서에도 같이 적는다. */
+export const LOCK_TAGS = ['가', '나', '다', '라', '마']
+const tagOf = (id) => LOCK_TAGS[id] || `#${id + 1}`
+
 /* 키패드 — N자리 숫자. 단서는 "n번째 자리는 d" 로 쪼개 흩뿌린다. */
 function makeKeypad(rng, id, len) {
+  const t = tagOf(id)
   const digits = Array.from({ length: len }, () => ri(rng, 10))
   return {
-    lock: { id, kind: 'keypad', len, answer: digits.join(''), label: `${len}자리 키패드` },
-    clues: digits.map((d, i) => ({ lockId: id, text: `키패드 ${i + 1}번째 자리는 ${d}` })),
+    lock: { id, tag: t, kind: 'keypad', len, answer: digits.join(''), label: `[${t}] ${len}자리 키패드` },
+    clues: digits.map((d, i) => ({ lockId: id, text: `[${t}] 키패드 ${i + 1}번째 자리는 ${d}` })),
   }
 }
 
 /* 색 버튼 — 순서대로 눌러야 한다. */
 function makeColorpad(rng, id, len) {
+  const t = tagOf(id)
   const seq = shuffled(rng, ESC_COLORS).slice(0, len)
   return {
-    lock: { id, kind: 'colorpad', len, answer: seq.map((c) => c.key).join(''), label: `색 버튼 ${len}개` },
-    clues: seq.map((c, i) => ({ lockId: id, text: `${i + 1}번째로 누를 색은 ${c.name}` })),
+    lock: { id, tag: t, kind: 'colorpad', len, answer: seq.map((c) => c.key).join(''), label: `[${t}] 색 버튼 ${len}개` },
+    clues: seq.map((c, i) => ({ lockId: id, text: `[${t}] ${i + 1}번째로 누를 색은 ${c.name}` })),
   }
 }
 
 /* 스위치 — 올릴 자리를 맞춘다. 전부 같은 방향이면 퍼즐이 아니므로 섞는다. */
 function makeSwitchboard(rng, id, len) {
+  const t = tagOf(id)
   const bits = Array.from({ length: len }, () => (rng() < 0.5 ? 1 : 0))
   if (bits.every((b) => b === 0)) bits[ri(rng, len)] = 1
   if (bits.every((b) => b === 1)) bits[ri(rng, len)] = 0
   return {
-    lock: { id, kind: 'switchboard', len, answer: bits.join(''), label: `스위치 ${len}개` },
-    clues: bits.map((b, i) => ({ lockId: id, text: `${i + 1}번 스위치는 ${b ? '올림' : '내림'}` })),
+    lock: { id, tag: t, kind: 'switchboard', len, answer: bits.join(''), label: `[${t}] 스위치 ${len}개` },
+    clues: bits.map((b, i) => ({ lockId: id, text: `[${t}] ${i + 1}번 스위치는 ${b ? '올림' : '내림'}` })),
   }
 }
 
 /* 다이얼 — 계산 결과를 맞춘다. */
 function makeDial(rng, id) {
+  const t = tagOf(id)
   const a = rint(rng, 2, 12)
   const b = rint(rng, 2, 12)
   const c = rint(rng, 1, 30)
   const answer = String(a * b + c)
   return {
-    lock: { id, kind: 'dial', len: answer.length, answer, label: '숫자 다이얼', max: 999 },
+    lock: { id, tag: t, kind: 'dial', len: answer.length, answer, label: `[${t}] 숫자 다이얼`, max: 999 },
     clues: [
-      { lockId: id, text: '벽에 새겨진 식: (첫째 수 × 둘째 수) + 셋째 수' },
-      { lockId: id, text: `첫째 수 = ${a}` },
-      { lockId: id, text: `둘째 수 = ${b}` },
-      { lockId: id, text: `셋째 수 = ${c}` },
+      { lockId: id, text: `[${t}] 벽에 새겨진 식: (첫째 수 × 둘째 수) + 셋째 수` },
+      { lockId: id, text: `[${t}] 첫째 수 = ${a}` },
+      { lockId: id, text: `[${t}] 둘째 수 = ${b}` },
+      { lockId: id, text: `[${t}] 셋째 수 = ${c}` },
     ],
   }
 }
@@ -196,14 +207,14 @@ export function buildRoom(diffId, seed = Date.now()) {
 
   const props = []
   for (let i = 0; i < propCount; i++) {
-    const { x, z } = wallSlot((propSlots[i] + 0.5) / slotCount, half - 1.2)
+    const { x, z, ry } = wallSlot((propSlots[i] + 0.5) / slotCount, half - 1.2)
     const kindDef = PROP_KINDS[ri(rng, PROP_KINDS.length)]
     props.push({
       id: i,
       kind: kindDef.kind,
       name: kindDef.name,
-      x: +x.toFixed(2), z: +z.toFixed(2),
-      ry: +faceCenter(x, z).toFixed(3),
+      wall: !!kindDef.wall,                 // 벽걸이는 벽면까지 붙이고 충돌은 없다
+      x: +x.toFixed(2), z: +z.toFixed(2), ry: +ry.toFixed(3),
       clue: clues[i] ? clues[i].text : null,
       lockId: clues[i] ? clues[i].lockId : null,
       locked: false, needKey: null, item: null, searched: false,
@@ -231,9 +242,8 @@ export function buildRoom(diffId, seed = Date.now()) {
 
   /* 5) 잠금장치는 자기 몫으로 비워 둔 슬롯의 벽면에 붙인다 (눈높이) */
   locks.forEach((lk, i) => {
-    const { x, z } = wallSlot((lockSlotList[i] + 0.5) / slotCount, half - 0.22)
-    lk.x = +x.toFixed(2); lk.z = +z.toFixed(2)
-    lk.ry = +faceCenter(x, z).toFixed(3)
+    const { x, z, ry } = wallSlot((lockSlotList[i] + 0.5) / slotCount, half - 0.22)
+    lk.x = +x.toFixed(2); lk.z = +z.toFixed(2); lk.ry = +ry.toFixed(3)
     lk.solved = false
   })
 
@@ -256,14 +266,13 @@ const DOOR_GAP = 0.12
 export function wallSlot(t, r) {
   const u = ((DOOR_U + DOOR_GAP / 2 + (((t % 1) + 1) % 1) * (1 - DOOR_GAP)) % 1 + 1) % 1
   const s = u * 8 * r                       // 둘레 위 이동 거리
-  if (s < 2 * r) return { x: -r + s, z: r }                 // 남 (서→동)
-  if (s < 4 * r) return { x: r, z: r - (s - 2 * r) }        // 동 (남→북)
-  if (s < 6 * r) return { x: r - (s - 4 * r), z: -r }       // 북 (동→서)
-  return { x: -r, z: -r + (s - 6 * r) }                     // 서 (북→남)
+  /* ry = 그 벽의 "안쪽 방향" — 모델은 +Z가 정면이다.
+     방 중앙을 향하게 하면 모퉁이 근처 물건이 비스듬히 서서 벽을 파고든다. */
+  if (s < 2 * r) return { x: -r + s, z: r, ry: Math.PI }              // 남 → 북쪽을 본다
+  if (s < 4 * r) return { x: r, z: r - (s - 2 * r), ry: -Math.PI / 2 } // 동 → 서쪽
+  if (s < 6 * r) return { x: r - (s - 4 * r), z: -r, ry: 0 }          // 북 → 남쪽
+  return { x: -r, z: -r + (s - 6 * r), ry: Math.PI / 2 }              // 서 → 동쪽
 }
-
-/* 방 중앙을 바라보는 yaw (모델은 +Z를 정면으로 만든다) */
-export const faceCenter = (x, z) => Math.atan2(-x, -z)
 
 /* ==================================================================
    판정

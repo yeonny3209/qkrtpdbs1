@@ -66,7 +66,8 @@ function PropModel({ kind, glow }) {
           {[0.45, 0.95, 1.45].map((y, i) => (
             <mesh key={i} position={[0, y, 0.31]}><boxGeometry args={[0.86, 0.4, 0.03]} /><meshStandardMaterial color="#5c4028" roughness={0.8} /></mesh>
           ))}
-          <mesh position={[0.3, 0.95, 0.34]}><cylinderGeometry args={[0.045, 0.045, 0.06, 10]} rotation={[Math.PI / 2, 0, 0]} /><meshStandardMaterial {...METAL} /></mesh>
+          {/* 손잡이 — 회전은 mesh에 줘야 한다 (geometry에 rotation을 주면 무시된다) */}
+          <mesh position={[0.3, 0.95, 0.34]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.045, 0.045, 0.06, 10]} /><meshStandardMaterial {...METAL} /></mesh>
         </group>
       )
     case 'shelf':
@@ -97,7 +98,8 @@ function PropModel({ kind, glow }) {
     case 'clock':
       return (
         <group position={[0, 1.75, 0]}>
-          <mesh castShadow><cylinderGeometry args={[0.4, 0.4, 0.1, 24]} rotation={[Math.PI / 2, 0, 0]} /><meshStandardMaterial color="#3c3c46" roughness={0.6} {...em} /></mesh>
+          {/* 몸통은 방을 향해 눕혀야 한다 — 회전을 geometry에 주면 무시되어 원통이 선다 */}
+          <mesh castShadow rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.4, 0.4, 0.1, 24]} /><meshStandardMaterial color="#3c3c46" roughness={0.6} {...em} /></mesh>
           <mesh position={[0, 0, 0.06]}><circleGeometry args={[0.34, 24]} /><meshStandardMaterial color="#e8e4d8" roughness={0.9} /></mesh>
           <mesh position={[0, 0.09, 0.08]}><boxGeometry args={[0.03, 0.19, 0.01]} /><meshStandardMaterial color="#222" /></mesh>
           <mesh position={[0.07, 0, 0.08]} rotation={[0, 0, Math.PI / 2]}><boxGeometry args={[0.03, 0.15, 0.01]} /><meshStandardMaterial color="#222" /></mesh>
@@ -134,24 +136,32 @@ function PropModel({ kind, glow }) {
         <group>
           <mesh position={[0, 0.05, 0]} castShadow><cylinderGeometry args={[0.26, 0.3, 0.1, 16]} /><meshStandardMaterial {...METAL} {...em} /></mesh>
           <mesh position={[0, 0.66, 0]} castShadow><cylinderGeometry args={[0.035, 0.035, 1.2, 10]} /><meshStandardMaterial {...METAL} /></mesh>
-          <mesh position={[0, 1.36, 0]} castShadow><coneGeometry args={[0.32, 0.4, 18, 1, true]} /><meshStandardMaterial color="#e6d8a8" roughness={0.7} side={THREE.DoubleSide} emissive="#ffe9a8" emissiveIntensity={0.5} /></mesh>
-          <pointLight position={[0, 1.2, 0]} intensity={6} distance={6} color="#ffd9a0" />
+          <mesh position={[0, 1.36, 0]} castShadow><coneGeometry args={[0.32, 0.4, 18, 1, true]} /><meshStandardMaterial color="#e6d8a8" roughness={0.7} side={THREE.DoubleSide} emissive="#ffe9a8" emissiveIntensity={0.9} /></mesh>
+          {/* 전구는 발광 재질로만 표현한다 — 스탠드마다 실제 조명을 달면
+              지옥 난이도(소품 34개)에서 광원이 10개를 넘어 모바일이 버티지 못한다 */}
+          <mesh position={[0, 1.24, 0]}><sphereGeometry args={[0.09, 10, 8]} /><meshBasicMaterial color="#fff2cf" /></mesh>
         </group>
       )
   }
 }
 
-/* 소품 하나 — 조준되면 테두리가 빛난다 */
+/* 소품 하나 — 조준되면 테두리가 빛난다.
+   액자·시계 같은 벽걸이는 좌표(벽에서 1.2m)보다 뒤, 벽면에 붙여 그린다.
+   ry가 그 벽의 안쪽 방향이므로 local -Z가 정확히 벽 쪽이다. */
+const WALL_BACK = 1.14
+
 function PropObj({ prop, aimed }) {
   return (
     <group position={[prop.x, 0, prop.z]} rotation-y={prop.ry}>
-      <PropModel kind={prop.kind} glow={aimed} />
-      {prop.locked && (
-        <mesh position={[0, 1.15, 0.34]}>
-          <torusGeometry args={[0.1, 0.03, 8, 16]} />
-          <meshStandardMaterial color="#fbbf24" emissive="#fbbf24" emissiveIntensity={0.6} />
-        </mesh>
-      )}
+      <group position={[0, 0, prop.wall ? -WALL_BACK : 0]}>
+        <PropModel kind={prop.kind} glow={aimed} />
+        {prop.locked && (
+          <mesh position={[0, 1.15, 0.34]}>
+            <torusGeometry args={[0.1, 0.03, 8, 16]} />
+            <meshStandardMaterial color="#fbbf24" emissive="#fbbf24" emissiveIntensity={0.6} />
+          </mesh>
+        )}
+      </group>
     </group>
   )
 }
@@ -184,7 +194,8 @@ function LockPanel({ lock, aimed }) {
           <meshStandardMaterial color={lock.solved ? '#2c4a34' : '#39404e'} roughness={0.6} />
         </mesh>
       )))}
-      <pointLight position={[0, 0.26, 0.4]} intensity={lock.solved ? 3 : 1.6} distance={3} color={c} />
+      {/* 장치마다 실제 광원을 달면 지옥 난이도에서 광원이 너무 많아진다 —
+          화면은 발광 재질(emissive)만으로도 충분히 눈에 띈다 */}
     </group>
   )
 }
@@ -247,13 +258,14 @@ function RoomShell({ half, open }) {
         <cylinderGeometry args={[0.42, 0.42, 0.08, 20]} />
         <meshStandardMaterial color="#fff3d8" emissive="#ffe9b8" emissiveIntensity={1.1} />
       </mesh>
-      {/* 네 귀퉁이 보조등 — 큰 방에서 벽 쪽이 새까매지지 않게 */}
+      {/* 네 귀퉁이 보조등 — 큰 방에서 벽 쪽이 새까매지지 않게.
+          스탠드·잠금장치의 개별 광원을 걷어낸 만큼 여기서 밝기를 메운다 */}
       {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
         <pointLight key={i} position={[sx * half * 0.62, H - 0.7, sz * half * 0.62]}
-          intensity={half * 3.2} distance={half * 2.4} color="#ffe3bb" />
+          intensity={half * 5.5} distance={half * 2.9} color="#ffe3bb" />
       ))}
-      <ambientLight intensity={0.85} />
-      <hemisphereLight args={['#cfd8ff', '#3a2f22', 0.5]} />
+      <ambientLight intensity={1.15} />
+      <hemisphereLight args={['#cfd8ff', '#3a2f22', 0.7]} />
     </group>
   )
 }
@@ -320,14 +332,24 @@ function FpsController({ live, roomRef, onAim, paused }) {
       L.x = clamp(L.x, -lim, lim)
       L.z = clamp(L.z, -lim, lim)
 
-      /* 소품 밀어내기 */
+      /* 소품 밀어내기 — 벽에 걸린 액자·시계는 통과한다 (벽 앞 허공에 막히면 안 된다) */
+      const MIN_GAP = PROP_R + 0.34
       for (const p of room.props) {
-        const d = dist2(L.x, L.z, p.x, p.z)
-        if (d < PROP_R + 0.34 && d > 0.0001) {
-          const push = (PROP_R + 0.34 - d)
-          L.x += ((L.x - p.x) / d) * push
-          L.z += ((L.z - p.z) / d) * push
+        if (p.wall) continue
+        const dx = L.x - p.x, dz = L.z - p.z
+        const d = Math.hypot(dx, dz)
+        if (d >= MIN_GAP) continue
+        if (d < 1e-4) {
+          /* 정확히 소품 한가운데 겹치면 밀어낼 방향이 없다 —
+             예전에는 그냥 건너뛰어서 소품 안에 갇혔다. 방 안쪽으로 꺼내준다. */
+          const away = Math.atan2(-p.x, -p.z)
+          L.x = p.x + Math.sin(away) * MIN_GAP
+          L.z = p.z + Math.cos(away) * MIN_GAP
+          continue
         }
+        const push = MIN_GAP - d
+        L.x += (dx / d) * push
+        L.z += (dz / d) * push
       }
     }
 
@@ -599,7 +621,8 @@ export default function EscapeGame() {
   const [hintsLeft, setHintsLeft] = useState(0)
   const [toast, setToast] = useState(null)
   const [elapsed, setElapsed] = useState(0)
-  const [result, setResult] = useState(null)        // {win, time}
+  const [result, setResult] = useState(null)        // {win, time, isBest}
+  const [runOn, setRunOn] = useState(false)         // 모바일 달리기 토글 표시용
   const toastT = useRef(null)
 
   const flash = useCallback((m) => {
@@ -617,27 +640,30 @@ export default function EscapeGame() {
     roomRef.current = r
     setRoom(r)
     setDiffId(id)
-    /* 남쪽 벽 앞에서 시작해 방 안쪽(문이 있는 북쪽)을 바라본다 — yaw 0 = -Z */
-    live.current = { x: 0, z: r.half - 2.2, yaw: 0, pitch: 0 }
+    /* 방 남쪽에서 시작해 안쪽(문이 있는 북쪽)을 바라본다 — yaw 0 = -Z.
+       소품은 벽에서 1.2m 안쪽에 서므로, 시작하자마자 밀려나지 않도록 넉넉히 띄운다. */
+    live.current = { x: 0, z: r.half * 0.55, yaw: 0, pitch: 0 }
     setAim(null); setModal(null); setNote(null); setBookOpen(false)
     setBag([]); setClues([]); setResult(null)
     setHintsLeft(ESC_DIFF_BY_ID[id].hints)
     setElapsed(0)
     TOUCH.clear()
+    setRunOn(false)          // TOUCH.clear()가 run도 끄므로 표시도 맞춘다
   }, [])
 
-  /* ---- 타이머 ---- */
+  /* ---- 타이머 ----
+     setState 갱신 함수 안에서 다른 setState를 부르면 안 된다 (순수해야 하고,
+     StrictMode는 갱신 함수를 두 번 호출해 검사한다). 시간 초과 판정은 따로 뺀다. */
   useEffect(() => {
     if (!room || result) return
-    const iv = setInterval(() => {
-      setElapsed((t) => {
-        const nt = t + 1
-        if (room.timeLimit > 0 && nt >= room.timeLimit) setResult({ win: false, time: nt })
-        return nt
-      })
-    }, 1000)
+    const iv = setInterval(() => setElapsed((t) => t + 1), 1000)
     return () => clearInterval(iv)
   }, [room, result])
+
+  useEffect(() => {
+    if (!room || result) return
+    if (room.timeLimit > 0 && elapsed >= room.timeLimit) setResult({ win: false, time: elapsed })
+  }, [room, result, elapsed])
 
   /* ---- 조준 대상 (프레임마다 들어오므로 바뀔 때만 리렌더) ---- */
   const onAim = useCallback((a) => {
@@ -664,13 +690,16 @@ export default function EscapeGame() {
 
     if (a.type === 'door') {
       if (allSolved(r)) {
-        setResult({ win: true, time: elapsed })
+        /* 신기록 여부는 여기서 확정해 결과에 담는다.
+           나중에 records와 비교하면 "같은 기록"일 때도 신기록으로 보인다. */
         const best = loadJSON(LS_ESCAPE, {})
-        if (best[r.diffId] == null || elapsed < best[r.diffId]) {
+        const isBest = best[r.diffId] == null || elapsed < best[r.diffId]
+        if (isBest) {
           best[r.diffId] = elapsed
           saveJSON(LS_ESCAPE, best)
           setRecords({ ...best })
         }
+        setResult({ win: true, time: elapsed, isBest })
       } else {
         const { solved, total } = roomProgress(r)
         flash(`🔒 잠겨 있습니다 — 잠금장치 ${solved}/${total} 해제됨`)
@@ -732,8 +761,17 @@ export default function EscapeGame() {
       flash(unsolved ? `💡 단서는 다 모았습니다 — ${unsolved.label}를 다시 보세요` : '💡 문으로 가세요!')
       return
     }
-    const t = unread[Math.floor(Math.random() * unread.length)]
-    const dir = t.z < live.current.z ? '앞쪽' : '뒤쪽'
+    /* 가장 가까운 것부터 알려준다 (헤매게 만들면 힌트가 아니다) */
+    const L = live.current
+    const t = unread.reduce((a, b) =>
+      (dist2(L.x, L.z, b.x, b.z) < dist2(L.x, L.z, a.x, a.z) ? b : a))
+    /* 방향은 "지금 보고 있는 쪽" 기준으로 말해야 한다.
+       예전에는 -Z를 본다고 가정해 엉뚱한 방향을 알려줬다. */
+    const rel = Math.atan2(t.x - L.x, t.z - L.z) - (L.yaw + Math.PI)
+    const a = Math.atan2(Math.sin(rel), Math.cos(rel))       // -π..π 로 정규화
+    const dir = Math.abs(a) < Math.PI / 4 ? '앞쪽'
+      : Math.abs(a) > (Math.PI * 3) / 4 ? '뒤쪽'
+        : a > 0 ? '왼쪽' : '오른쪽'      /* atan2(x,z)는 +X쪽이 음수가 된다 */
     setHintsLeft((h) => h - 1)
     flash(`💡 ${dir}의 [${t.name}]을(를) 조사해 보세요`)
   }, [hintsLeft, clues, flash])
@@ -781,6 +819,13 @@ export default function EscapeGame() {
   }, [room])
 
   const escSetVec = useCallback((x, y) => { TOUCH.mx = x; TOUCH.my = y }, [])
+  /* TOUCH.run은 ref라 바꿔도 다시 그려지지 않는다 — 버튼 색을 위해 state로 따라간다 */
+  const toggleRun = useCallback(() => {
+    TOUCH.run = !TOUCH.run
+    setRunOn(TOUCH.run)
+    flash(TOUCH.run ? '🏃 달리기 ON' : '🚶 달리기 OFF')
+  }, [flash])
+
 
   /* ---------------- 화면 ---------------- */
   if (!room || diffId == null) {
@@ -879,9 +924,9 @@ export default function EscapeGame() {
           </div>
           <div className="absolute bottom-7 right-5 z-40 flex flex-col items-center gap-3">
             <TouchBtn label="🏃" sub="달리기" size={52} textSize="text-base"
-              bg={TOUCH.run ? 'rgba(52,211,153,.4)' : undefined}
-              border={TOUCH.run ? 'rgba(52,211,153,.85)' : undefined}
-              onPress={() => { TOUCH.run = !TOUCH.run; flash(TOUCH.run ? '🏃 달리기 ON' : '🚶 달리기 OFF') }} />
+              bg={runOn ? 'rgba(52,211,153,.4)' : undefined}
+              border={runOn ? 'rgba(52,211,153,.85)' : undefined}
+              onPress={toggleRun} />
             <TouchBtn label="🔍" sub="조사" size={86} textSize="text-2xl"
               bg="rgba(251,191,36,.3)" border="rgba(251,191,36,.75)"
               disabled={!aim}
@@ -1004,7 +1049,7 @@ export default function EscapeGame() {
                   <div className="text-[10px] text-slate-400">걸린 시간</div>
                   <div className="font-mono text-3xl font-black text-amber-300">{fmtTime(result.time)}</div>
                 </div>
-                {records[room.diffId] === result.time && (
+                {result.isBest && (
                   <div className="mt-2 text-xs font-bold text-emerald-300">✨ 신기록!</div>
                 )}
               </>
