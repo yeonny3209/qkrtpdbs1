@@ -10010,18 +10010,26 @@ export default function App() {
     setDevice(id)
   }, [])
 
-  /* 모바일에선 브라우저 기본 제스처(스크롤·핀치줌·더블탭줌)를 막는다 */
+  /* 모바일에선 브라우저 기본 제스처(핀치줌·더블탭줌·당겨서 새로고침)를 막는다.
+
+     단 'none'을 쓰면 안 된다 — touch-action은 조상까지 함께 계산되므로
+     body에 none을 주면 그 안의 목록·모달까지 손가락으로 스크롤할 수 없게 된다
+     (방탈출 방 목록 15개가 아예 끝까지 내려가지 않았다).
+     'manipulation'은 더블탭 확대만 막고 스크롤은 살려둔다. */
   useEffect(() => {
     if (device !== 'mobile') return
     const prevTouch = document.body.style.touchAction
     const prevSelect = document.body.style.userSelect
-    document.body.style.touchAction = 'none'
+    const prevOver = document.body.style.overscrollBehavior
+    document.body.style.touchAction = 'manipulation'
     document.body.style.userSelect = 'none'
+    document.body.style.overscrollBehavior = 'none'
     const stopPinch = (e) => { if (e.touches && e.touches.length > 1) e.preventDefault() }
     document.addEventListener('touchmove', stopPinch, { passive: false })
     return () => {
       document.body.style.touchAction = prevTouch
       document.body.style.userSelect = prevSelect
+      document.body.style.overscrollBehavior = prevOver
       document.removeEventListener('touchmove', stopPinch)
     }
   }, [device])

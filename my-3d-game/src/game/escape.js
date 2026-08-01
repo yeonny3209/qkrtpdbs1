@@ -37,36 +37,99 @@ function shuffled(rng, arr) {
   return a
 }
 
-/* ---------------- 난이도 (5단계) ---------------- */
+/* ---------------- 난이도 (5단계) ----------------
+   난이도는 "얼마나 빡센가"만 정한다 (잠금 개수·시간·힌트·가짜 단서·잠긴 서랍).
+   실제로 어떤 장치가 나오는지와 방의 분위기는 아래 ESC_STAGES가 정한다. */
 export const ESC_DIFFS = [
   {
     id: 0, name: '입문', icon: '🚪', color: '#4ade80',
     desc: '방 하나, 자물쇠 하나. 조작법을 익히는 방입니다.',
-    half: 6, locks: ['keypad'], codeLen: 3, timeLimit: 0, hints: 3, decoys: 0, keyLocks: 0,
+    lockCount: 1, codeLen: 3, timeLimit: 0, hints: 3, decoys: 0, keyLocks: 0, minHalf: 6,
   },
   {
     id: 1, name: '초급', icon: '🔑', color: '#38bdf8',
     desc: '잠긴 서랍이 있습니다. 열쇠부터 찾으세요.',
-    half: 7, locks: ['keypad', 'colorpad'], codeLen: 4, timeLimit: 0, hints: 3, decoys: 1, keyLocks: 1,
+    lockCount: 2, codeLen: 4, timeLimit: 0, hints: 3, decoys: 1, keyLocks: 1, minHalf: 7,
   },
   {
     id: 2, name: '중급', icon: '🧩', color: '#a78bfa',
-    desc: '단서가 흩어져 있고, 스위치의 규칙까지 읽어내야 합니다.',
-    half: 8, locks: ['keypad', 'colorpad', 'switchboard'], codeLen: 4, timeLimit: 600, hints: 2, decoys: 2, keyLocks: 2,
+    desc: '단서가 흩어져 있고, 장치의 규칙까지 읽어내야 합니다.',
+    lockCount: 3, codeLen: 4, timeLimit: 600, hints: 2, decoys: 2, keyLocks: 2, minHalf: 8,
   },
   {
     id: 3, name: '고급', icon: '🔥', color: '#fb923c',
     desc: '계산까지 해야 합니다. 시간도 넉넉하지 않습니다.',
-    half: 9, locks: ['keypad', 'colorpad', 'switchboard', 'dial'], codeLen: 5, timeLimit: 480, hints: 1, decoys: 3, keyLocks: 2,
+    lockCount: 4, codeLen: 5, timeLimit: 480, hints: 1, decoys: 3, keyLocks: 2, minHalf: 9,
   },
   {
     id: 4, name: '지옥', icon: '💀', color: '#f43f5e',
     desc: '가짜 단서가 섞여 있습니다. 힌트는 없습니다.',
-    /* 소품이 34개나 되므로 방이 좁으면 모퉁이에서 서로 겹친다 — 그래서 가장 넓다 */
-    half: 11, locks: ['keypad', 'colorpad', 'switchboard', 'dial', 'keypad'], codeLen: 6, timeLimit: 420, hints: 0, decoys: 5, keyLocks: 3,
+    lockCount: 5, codeLen: 6, timeLimit: 420, hints: 0, decoys: 5, keyLocks: 3, minHalf: 11,
   },
 ]
 export const ESC_DIFF_BY_ID = Object.fromEntries(ESC_DIFFS.map((d) => [d.id, d]))
+
+/* ---------------- 방 15개 — 난이도마다 3개 ----------------
+   같은 난이도라도 나오는 장치 조합과 분위기가 달라서 다른 방처럼 느껴진다.
+   theme: floor 바닥 · wall 벽 · ceil 천장 · accent 문/조명 강조색 · light 조명 색 */
+export const ESC_STAGES = [
+  /* ---- 입문: 장치를 하나씩 배운다 ---- */
+  { id: 0, diffId: 0, name: '잠긴 서재', icon: '📚', desc: '숫자 자물쇠 하나. 책 사이를 뒤져보세요.',
+    locks: ['keypad'],
+    theme: { floor: '#3f342a', wall: '#2b3040', ceil: '#1c2029', accent: '#d8a04a', light: '#ffe8c4' } },
+  { id: 1, diffId: 0, name: '색채 공방', icon: '🎨', desc: '물감통 사이 어딘가에 순서가 적혀 있습니다.',
+    locks: ['colorpad'],
+    theme: { floor: '#4a4038', wall: '#343a4e', ceil: '#20232e', accent: '#a855f7', light: '#f0dcff' } },
+  { id: 2, diffId: 0, name: '배전반 창고', icon: '🔌', desc: '스위치를 올바르게 올려야 문이 열립니다.',
+    locks: ['switchboard'],
+    theme: { floor: '#34362f', wall: '#2b3134', ceil: '#1b1f21', accent: '#22c55e', light: '#dfffe4' } },
+
+  /* ---- 초급: 장치 둘 + 잠긴 서랍 ---- */
+  { id: 3, diffId: 1, name: '오래된 저택', icon: '🕯️', desc: '먼지 쌓인 가구 어딘가에 열쇠가 있습니다.',
+    locks: ['keypad', 'colorpad'],
+    theme: { floor: '#3d2f26', wall: '#342a3c', ceil: '#211a26', accent: '#c084fc', light: '#ffe0c0' } },
+  { id: 4, diffId: 1, name: '멈춘 시계탑', icon: '🕰️', desc: '시계를 맞춰야 다음으로 넘어갑니다.',
+    locks: ['clockface', 'keypad'],
+    theme: { floor: '#3b3629', wall: '#2f3343', ceil: '#1e2029', accent: '#fbbf24', light: '#fff0c8' } },
+  { id: 5, diffId: 1, name: '유리 온실', icon: '🪴', desc: '화분 아래를 살펴보세요. 숫자가 자랍니다.',
+    locks: ['colorpad', 'dial'],
+    theme: { floor: '#2f3a30', wall: '#26382f', ceil: '#182219', accent: '#4ade80', light: '#e2ffe6' } },
+
+  /* ---- 중급: 장치 셋 ---- */
+  { id: 6, diffId: 2, name: '폐병원 3층', icon: '🏥', desc: '차트와 병실 번호가 뒤섞여 있습니다.',
+    locks: ['keypad', 'colorpad', 'switchboard'],
+    theme: { floor: '#353c3c', wall: '#2a353b', ceil: '#1a2225', accent: '#67e8f9', light: '#dcf7ff' } },
+  { id: 7, diffId: 2, name: '지하 서고', icon: '🗄️', desc: '오래된 장부의 셈이 자물쇠를 엽니다.',
+    locks: ['dial', 'keypad', 'colorpad'],
+    theme: { floor: '#352d24', wall: '#2b2622', ceil: '#1a1614', accent: '#eab308', light: '#ffeec2' } },
+  { id: 8, diffId: 2, name: '기관실', icon: '⚙️', desc: '배전반이 둘. 어느 쪽 단서인지 잘 보세요.',
+    locks: ['switchboard', 'switchboard', 'keypad'],
+    theme: { floor: '#2f2f33', wall: '#35302c', ceil: '#1d1b19', accent: '#fb923c', light: '#ffe4c0' } },
+
+  /* ---- 고급: 장치 넷 ---- */
+  { id: 9, diffId: 3, name: '천문대', icon: '🔭', desc: '별자리 기록과 계산이 함께 필요합니다.',
+    locks: ['keypad', 'colorpad', 'switchboard', 'dial'],
+    theme: { floor: '#282a3c', wall: '#1f2233', ceil: '#141626', accent: '#818cf8', light: '#dfe3ff' } },
+  { id: 10, diffId: 3, name: '감시실', icon: '📹', desc: '키패드가 둘입니다. 이름표를 확인하세요.',
+    locks: ['keypad', 'keypad', 'switchboard', 'clockface'],
+    theme: { floor: '#2c3230', wall: '#262b2e', ceil: '#171b1d', accent: '#f43f5e', light: '#ffdfe4' } },
+  { id: 11, diffId: 3, name: '봉인된 금고실', icon: '🔐', desc: '색 자물쇠가 둘, 계산 자물쇠가 하나.',
+    locks: ['colorpad', 'colorpad', 'dial', 'keypad'],
+    theme: { floor: '#322b2b', wall: '#2b2527', ceil: '#1a1617', accent: '#d4d4d8', light: '#f2f2f5' } },
+
+  /* ---- 지옥: 장치 다섯 + 가짜 단서 5개 + 힌트 0 ---- */
+  { id: 12, diffId: 4, name: '심연의 방', icon: '🌑', desc: '모든 장치가 한 방에. 가짜 단서를 조심하세요.',
+    locks: ['keypad', 'colorpad', 'switchboard', 'dial', 'keypad'],
+    theme: { floor: '#221d2c', wall: '#181524', ceil: '#100e18', accent: '#7c3aed', light: '#ded0ff' } },
+  { id: 13, diffId: 4, name: '광기의 미술관', icon: '🖼️', desc: '색 자물쇠 셋. 순서를 전부 외워야 합니다.',
+    locks: ['colorpad', 'colorpad', 'colorpad', 'dial', 'keypad'],
+    theme: { floor: '#2c202c', wall: '#231b26', ceil: '#151016', accent: '#db2777', light: '#ffd9ec' } },
+  { id: 14, diffId: 4, name: '마지막 실험실', icon: '⚗️', desc: '다섯 장치가 전부 다릅니다. 마지막 방.',
+    locks: ['keypad', 'colorpad', 'switchboard', 'dial', 'clockface'],
+    theme: { floor: '#1e2628', wall: '#172022', ceil: '#0e1416', accent: '#06b6d4', light: '#d2f7ff' } },
+]
+export const ESC_STAGE_BY_ID = Object.fromEntries(ESC_STAGES.map((s) => [s.id, s]))
+export const stagesOfDiff = (diffId) => ESC_STAGES.filter((s) => s.diffId === diffId)
 
 /* ---------------- 색 (colorpad) ---------------- */
 export const ESC_COLORS = [
@@ -151,12 +214,32 @@ function makeDial(rng, id) {
   }
 }
 
+/* 시계 — 시침과 분침을 맞춘다. 분은 5분 단위. */
+export const CLOCK_MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
+function makeClockface(rng, id) {
+  const t = tagOf(id)
+  const h = rint(rng, 1, 12)
+  const m = CLOCK_MINUTES[ri(rng, CLOCK_MINUTES.length)]
+  return {
+    lock: { id, tag: t, kind: 'clockface', len: 2, answer: `${h}:${m}`, label: `[${t}] 멈춘 시계` },
+    clues: [
+      { lockId: id, text: `[${t}] 시침은 ${h}시를 가리켰다` },
+      { lockId: id, text: `[${t}] 분침은 ${m}분을 가리켰다` },
+    ],
+  }
+}
+
 const MAKERS = {
   keypad: (rng, id, d) => makeKeypad(rng, id, d.codeLen),
   colorpad: (rng, id, d) => makeColorpad(rng, id, Math.min(ESC_COLORS.length, 3 + Math.floor(d.id / 2))),
   switchboard: (rng, id, d) => makeSwitchboard(rng, id, 4 + Math.floor(d.id / 2)),
   dial: (rng, id) => makeDial(rng, id),
+  clockface: (rng, id) => makeClockface(rng, id),
 }
+
+/* 장치별로 "답이 확정되려면 최소 몇 개의 단서가 필요한가" */
+export const minCluesFor = (lock) =>
+  lock.kind === 'dial' ? 4 : lock.kind === 'clockface' ? 2 : lock.len
 
 /* 가짜 단서 — 어떤 잠금과도 이어지지 않는다 (높은 난이도의 함정) */
 const DECOY_TEXTS = [
@@ -172,14 +255,15 @@ const DECOY_TEXTS = [
 /* ==================================================================
    방 생성
    ================================================================== */
-export function buildRoom(diffId, seed = Date.now()) {
-  const diff = ESC_DIFF_BY_ID[diffId] || ESC_DIFFS[0]
+export function buildRoom(stageId, seed = Date.now()) {
+  const stage = ESC_STAGE_BY_ID[stageId] || ESC_STAGES[0]
+  const diff = ESC_DIFF_BY_ID[stage.diffId]
   const rng = makeRng(seed)
 
   /* 1) 잠금장치와 단서 */
   const locks = []
   let clues = []
-  diff.locks.forEach((kind, i) => {
+  stage.locks.forEach((kind, i) => {
     const made = MAKERS[kind](rng, i, diff)
     locks.push(made.lock)
     clues = clues.concat(made.clues)
@@ -196,8 +280,12 @@ export function buildRoom(diffId, seed = Date.now()) {
         (소품 수 + 잠금 수)개의 슬롯으로 쪼개고, 잠금장치에 먼저
         고르게 떨어진 슬롯을 준 뒤 나머지를 소품이 채운다. */
   const propCount = clues.length + 2
-  const half = diff.half
   const slotCount = propCount + locks.length
+  /* 방 크기를 물건 수에서 거꾸로 구한다.
+     예전엔 난이도마다 크기를 손으로 박아둬서, 방마다 물건 수가 달라지면
+     모퉁이에서 소품이 겹쳤다. 이제 "항상 충분히 넓은" 크기가 보장된다.
+     둘레(문 자리 제외) ÷ 슬롯 수 ≥ MIN_SLOT_GAP 이 되도록. */
+  const half = +Math.max(diff.minHalf, 1.2 + (slotCount * MIN_SLOT_GAP) / (8 * (1 - DOOR_GAP))).toFixed(2)
   const lockSlots = new Set(locks.map((_, i) => Math.round((i * slotCount) / locks.length) % slotCount))
   /* 반올림이 겹치면 빈 슬롯으로 밀어 항상 잠금 수만큼 확보한다 */
   for (let s = 0; lockSlots.size < locks.length; s++) lockSlots.add(s % slotCount)
@@ -248,7 +336,8 @@ export function buildRoom(diffId, seed = Date.now()) {
   })
 
   return {
-    diffId: diff.id, seed, half,
+    stageId: stage.id, diffId: diff.id, seed, half,
+    theme: stage.theme,
     timeLimit: diff.timeLimit, hints: diff.hints,
     props, locks, keys,
     door: { x: 0, z: -half },
@@ -263,6 +352,10 @@ export function buildRoom(diffId, seed = Date.now()) {
    북쪽 중앙의 문 주변(둘레의 12%)은 비워 둔다. */
 const DOOR_U = 0.625          // 둘레를 한 바퀴 돌 때 북쪽 벽 중앙이 나오는 지점
 const DOOR_GAP = 0.12
+/* 벽에 놓인 물건 사이의 최소 간격.
+   모퉁이에서는 두 물건이 직각으로 꺾여 직선거리가 약 0.71배로 줄어든다.
+   소품 충돌 지름이 1.24m이므로 1.24 / 0.71 ≈ 1.75 보다 넉넉해야 한다. */
+const MIN_SLOT_GAP = 1.9
 export function wallSlot(t, r) {
   const u = ((DOOR_U + DOOR_GAP / 2 + (((t % 1) + 1) % 1) * (1 - DOOR_GAP)) % 1 + 1) % 1
   const s = u * 8 * r                       // 둘레 위 이동 거리
@@ -306,10 +399,7 @@ export function solvable(room) {
   /* 3) 각 잠금의 답이 단서로 확정되는가 */
   for (const lock of room.locks) {
     const mine = room.props.filter((p) => p.lockId === lock.id)
-    if (!mine.length) return false
-    /* 자리별 단서를 쓰는 잠금은 자리 수만큼 단서가 다 있어야 한다 */
-    if (lock.kind !== 'dial' && mine.length < lock.len) return false
-    if (lock.kind === 'dial' && mine.length < 4) return false
+    if (mine.length < minCluesFor(lock)) return false
   }
   return true
 }

@@ -17,10 +17,12 @@ import * as THREE from 'three'
 import { clamp, damp, dist2, loadJSON, saveJSON, TOUCH, useIsMobile } from './shared/util.js'
 import { VirtualJoystick, TouchBtn } from './shared/ui.jsx'
 import {
-  ESC_DIFFS, ESC_DIFF_BY_ID, ESC_COLORS, buildRoom, checkLock, allSolved, roomProgress,
+  ESC_DIFFS, ESC_DIFF_BY_ID, ESC_STAGES, ESC_STAGE_BY_ID, stagesOfDiff,
+  ESC_COLORS, CLOCK_MINUTES, buildRoom, checkLock, allSolved, roomProgress,
 } from './game/escape.js'
 
-const LS_ESCAPE = 'escape_records_v1'
+/* 방이 5개에서 15개로 늘면서 기록의 의미(난이도별 → 방별)가 바뀌어 키를 올렸다 */
+const LS_ESCAPE = 'escape_records_v2'
 
 const EYE = 1.62              // 눈높이
 const MOVE = 3.4
@@ -203,20 +205,21 @@ function LockPanel({ lock, aimed }) {
 /* ==================================================================
    방 — 바닥·벽·천장·문
    ================================================================== */
-function RoomShell({ half, open }) {
+function RoomShell({ half, open, theme }) {
   const H = 3.2
-  const wall = { color: '#2a2f3d', roughness: 0.95 }
+  const th = theme || { floor: '#3a3128', wall: '#2a2f3d', ceil: '#1b1f28', accent: '#d8a04a', light: '#ffeccc' }
+  const wall = { color: th.wall, roughness: 0.95 }
   return (
     <group>
       {/* 바닥 */}
       <mesh rotation-x={-Math.PI / 2} receiveShadow>
         <planeGeometry args={[half * 2, half * 2]} />
-        <meshStandardMaterial color="#3a3128" roughness={1} />
+        <meshStandardMaterial color={th.floor} roughness={1} />
       </mesh>
       {/* 천장 */}
       <mesh position={[0, H, 0]} rotation-x={Math.PI / 2}>
         <planeGeometry args={[half * 2, half * 2]} />
-        <meshStandardMaterial color="#1b1f28" roughness={1} />
+        <meshStandardMaterial color={th.ceil} roughness={1} />
       </mesh>
       {/* 벽 4면 — 안쪽을 향하도록 BackSide 대신 각각 배치 */}
       {[
@@ -234,7 +237,7 @@ function RoomShell({ half, open }) {
       <group position={[0, 0, -half + 0.06]}>
         <mesh position={[0, 1.05, 0]} castShadow>
           <boxGeometry args={[1.35, 2.1, 0.1]} />
-          <meshStandardMaterial color={open ? '#1a2e1f' : '#4a3220'} roughness={0.8}
+          <meshStandardMaterial color={open ? '#1a2e1f' : th.accent} roughness={0.8}
             emissive={open ? '#22c55e' : '#000'} emissiveIntensity={open ? 0.5 : 0} />
         </mesh>
         <mesh position={[0.5, 1.05, 0.08]}>
@@ -253,16 +256,16 @@ function RoomShell({ half, open }) {
         )}
       </group>
       {/* 천장 조명 — 방이 클수록 밝게 (구석까지 물건이 보여야 탐색이 된다) */}
-      <pointLight position={[0, H - 0.35, 0]} intensity={half * 14} distance={half * 4.5} color="#ffeccc" castShadow />
+      <pointLight position={[0, H - 0.35, 0]} intensity={half * 14} distance={half * 4.5} color={th.light} castShadow />
       <mesh position={[0, H - 0.12, 0]}>
         <cylinderGeometry args={[0.42, 0.42, 0.08, 20]} />
-        <meshStandardMaterial color="#fff3d8" emissive="#ffe9b8" emissiveIntensity={1.1} />
+        <meshStandardMaterial color="#fff3d8" emissive={th.light} emissiveIntensity={1.1} />
       </mesh>
       {/* 네 귀퉁이 보조등 — 큰 방에서 벽 쪽이 새까매지지 않게.
           스탠드·잠금장치의 개별 광원을 걷어낸 만큼 여기서 밝기를 메운다 */}
       {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
         <pointLight key={i} position={[sx * half * 0.62, H - 0.7, sz * half * 0.62]}
-          intensity={half * 5.5} distance={half * 2.9} color="#ffe3bb" />
+          intensity={half * 5.5} distance={half * 2.9} color={th.light} />
       ))}
       <ambientLight intensity={1.15} />
       <hemisphereLight args={['#cfd8ff', '#3a2f22', 0.7]} />
@@ -524,6 +527,65 @@ function Dial({ lock, onSubmit, onClose }) {
   )
 }
 
+/* 시계 — 시침·분침을 돌려 멈춘 시각에 맞춘다 */
+function ClockFace({ lock, onSubmit, onClose }) {
+  const [h, setH] = useState(12)
+  const [mi, setMi] = useState(0)
+  const [err, setErr] = useState(false)
+  const m = CLOCK_MINUTES[mi]
+  const hAng = ((h % 12) / 12) * 360 + (m / 60) * 30      // 시침은 분에 따라 조금씩 움직인다
+  const mAng = (m / 60) * 360
+  const setHour = (v) => { setH(((v - 1 + 12) % 12) + 1); setErr(false) }   // 1~12 순환
+  const setMin = (v) => { setMi((v + CLOCK_MINUTES.length) % CLOCK_MINUTES.length); setErr(false) }
+  return (
+    <PuzzleShell title={`🕰 ${lock.label}`} onClose={onClose}>
+      <div className={`mx-auto mb-4 flex h-44 w-44 items-center justify-center rounded-full border-4 border-amber-300/40 bg-slate-950 ${err ? '[animation:shake_.35s]' : ''}`}>
+        <div className="relative h-full w-full">
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-200/60"
+              style={{ transform: `rotate(${i * 30}deg) translateY(-72px)` }} />
+          ))}
+          {/* 시침 */}
+          <div className="absolute bottom-1/2 left-1/2 w-[5px] origin-bottom rounded-full bg-amber-200"
+            style={{ height: 44, transform: `translateX(-50%) rotate(${hAng}deg)` }} />
+          {/* 분침 */}
+          <div className="absolute bottom-1/2 left-1/2 w-[3px] origin-bottom rounded-full bg-sky-300"
+            style={{ height: 62, transform: `translateX(-50%) rotate(${mAng}deg)` }} />
+          <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
+        </div>
+      </div>
+      <div className="mb-3 text-center font-mono text-2xl font-black text-amber-200">
+        {h}시 {String(m).padStart(2, '0')}분
+      </div>
+      {err && <div className="mb-2 text-center text-xs font-bold text-rose-400">시각이 맞지 않습니다</div>}
+      <div className="mx-auto grid w-64 grid-cols-2 gap-3">
+        <div className="text-center">
+          <div className="mb-1 text-[11px] font-bold text-amber-300">시침</div>
+          <div className="flex gap-1.5">
+            <button onClick={() => setHour(h - 1)}
+              className="flex-1 rounded-lg border border-white/12 bg-white/5 py-2 font-black text-white transition hover:bg-white/15">−</button>
+            <button onClick={() => setHour(h + 1)}
+              className="flex-1 rounded-lg border border-white/12 bg-white/5 py-2 font-black text-white transition hover:bg-white/15">+</button>
+          </div>
+        </div>
+        <div className="text-center">
+          <div className="mb-1 text-[11px] font-bold text-sky-300">분침</div>
+          <div className="flex gap-1.5">
+            <button onClick={() => setMin(mi - 1)}
+              className="flex-1 rounded-lg border border-white/12 bg-white/5 py-2 font-black text-white transition hover:bg-white/15">−</button>
+            <button onClick={() => setMin(mi + 1)}
+              className="flex-1 rounded-lg border border-white/12 bg-white/5 py-2 font-black text-white transition hover:bg-white/15">+</button>
+          </div>
+        </div>
+      </div>
+      <button onClick={() => { if (!onSubmit(`${h}:${m}`)) setErr(true) }}
+        className="mx-auto mt-4 block w-40 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 py-3 font-black text-white transition hover:brightness-110">
+        맞추기
+      </button>
+    </PuzzleShell>
+  )
+}
+
 function PuzzleShell({ title, children, onClose }) {
   return (
     <div data-ui className="absolute inset-0 z-[70] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -540,53 +602,76 @@ function PuzzleShell({ title, children, onClose }) {
 }
 
 /* ==================================================================
-   난이도 선택
+   방 선택 — 난이도 5단계 × 방 3개
    ================================================================== */
+const LOCK_KIND_NAME = {
+  keypad: '키패드', colorpad: '색 버튼', switchboard: '스위치', dial: '다이얼', clockface: '시계',
+}
+/* ['keypad','keypad','dial'] → '키패드 ×2 · 다이얼' */
+function lockSummary(locks) {
+  const n = {}
+  locks.forEach((k) => { n[k] = (n[k] || 0) + 1 })
+  return Object.entries(n).map(([k, c]) => LOCK_KIND_NAME[k] + (c > 1 ? ` ×${c}` : '')).join(' · ')
+}
+
 function DiffSelect({ records, onPick, onExit }) {
+  const cleared = ESC_STAGES.filter((s) => records[s.id] != null).length
   return (
     <div className="fixed inset-0 overflow-y-auto bg-[#0a0910]">
       <div className="pointer-events-none absolute inset-0"
         style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(168,85,247,.18), transparent 55%)' }} />
-      <div className="relative mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-14">
+      <div className="relative mx-auto min-h-screen max-w-4xl px-5 py-12">
         <div className="text-center">
           <div className="text-[11px] tracking-[0.5em] text-fuchsia-300/70">ESCAPE THE ROOM</div>
           <h1 className="mt-3 text-4xl font-black text-white sm:text-5xl">🔓 방탈출</h1>
           <p className="mt-3 text-sm text-slate-400">
             방을 뒤져 단서를 모으고, 잠금장치를 전부 풀면 문이 열립니다
           </p>
+          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[12px] font-bold text-slate-300">
+            탈출한 방 <b className="text-amber-300">{cleared}</b> / {ESC_STAGES.length}
+          </div>
         </div>
 
-        <div className="mt-10 space-y-3">
-          {ESC_DIFFS.map((d) => {
-            const rec = records[d.id]
-            return (
-              <button key={d.id} onClick={() => onPick(d.id)}
-                className="group flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-white/[.04] p-5 text-left transition hover:-translate-y-0.5 hover:bg-white/[.08]"
-                style={{ borderLeftColor: d.color, borderLeftWidth: 4 }}>
-                <span className="text-4xl">{d.icon}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg font-black text-white">{d.name}</span>
-                    <span className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                      style={{ background: d.color + '22', color: d.color }}>
-                      잠금 {d.locks.length}개
-                    </span>
-                    {d.timeLimit > 0 && (
-                      <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold text-rose-300">
-                        ⏱ {fmtTime(d.timeLimit)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-[12px] text-slate-400">{d.desc}</div>
-                  <div className="mt-1.5 text-[11px] text-slate-500">
-                    힌트 {d.hints}개 · 가짜 단서 {d.decoys}개
-                    {rec ? <> · 🏆 최고 기록 <b className="text-amber-300">{fmtTime(rec)}</b></> : ' · 미클리어'}
-                  </div>
-                </div>
-                <span className="text-xl text-white/40 transition group-hover:translate-x-1">→</span>
-              </button>
-            )
-          })}
+        <div className="mt-9 space-y-7">
+          {ESC_DIFFS.map((d) => (
+            <div key={d.id}>
+              <div className="mb-2.5 flex items-center gap-2">
+                <span className="text-xl">{d.icon}</span>
+                <span className="text-base font-black" style={{ color: d.color }}>{d.name}</span>
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                  style={{ background: d.color + '1f', color: d.color }}>잠금 {d.lockCount}개</span>
+                <span className="text-[11px] text-slate-500">
+                  힌트 {d.hints} · 가짜 단서 {d.decoys}
+                  {d.timeLimit > 0 && ` · ⏱ ${fmtTime(d.timeLimit)}`}
+                </span>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-3">
+                {stagesOfDiff(d.id).map((st) => {
+                  const rec = records[st.id]
+                  return (
+                    <button key={st.id} onClick={() => onPick(st.id)}
+                      className="group flex flex-col rounded-2xl border border-white/10 p-4 text-left transition hover:-translate-y-0.5"
+                      style={{ background: `linear-gradient(150deg, ${st.theme.accent}1c, rgba(255,255,255,.03))` }}>
+                      <div className="flex items-start justify-between">
+                        <span className="text-3xl">{st.icon}</span>
+                        {rec != null && (
+                          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-black text-emerald-300">탈출</span>
+                        )}
+                      </div>
+                      <div className="mt-2 text-[15px] font-black text-white">{st.name}</div>
+                      <div className="mt-1 min-h-[2.4rem] text-[11px] leading-relaxed text-slate-400">{st.desc}</div>
+                      <div className="mt-2 border-t border-white/8 pt-2 text-[10px]" style={{ color: st.theme.accent }}>
+                        {lockSummary(st.locks)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        {rec != null ? <>🏆 최고 <b className="text-amber-300">{fmtTime(rec)}</b></> : '미클리어'}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
         <button onClick={onExit}
@@ -605,7 +690,7 @@ export default function EscapeGame() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [records, setRecords] = useState(() => loadJSON(LS_ESCAPE, {}))
-  const [diffId, setDiffId] = useState(null)
+  const [stageId, setStageId] = useState(null)
 
   const [room, setRoom] = useState(null)
   const roomRef = useRef(null)
@@ -639,13 +724,13 @@ export default function EscapeGame() {
     const r = buildRoom(id, Date.now() >>> 0)
     roomRef.current = r
     setRoom(r)
-    setDiffId(id)
+    setStageId(id)
     /* 방 남쪽에서 시작해 안쪽(문이 있는 북쪽)을 바라본다 — yaw 0 = -Z.
        소품은 벽에서 1.2m 안쪽에 서므로, 시작하자마자 밀려나지 않도록 넉넉히 띄운다. */
     live.current = { x: 0, z: r.half * 0.55, yaw: 0, pitch: 0 }
     setAim(null); setModal(null); setNote(null); setBookOpen(false)
     setBag([]); setClues([]); setResult(null)
-    setHintsLeft(ESC_DIFF_BY_ID[id].hints)
+    setHintsLeft(r.hints)
     setElapsed(0)
     TOUCH.clear()
     setRunOn(false)          // TOUCH.clear()가 run도 끄므로 표시도 맞춘다
@@ -693,9 +778,9 @@ export default function EscapeGame() {
         /* 신기록 여부는 여기서 확정해 결과에 담는다.
            나중에 records와 비교하면 "같은 기록"일 때도 신기록으로 보인다. */
         const best = loadJSON(LS_ESCAPE, {})
-        const isBest = best[r.diffId] == null || elapsed < best[r.diffId]
+        const isBest = best[r.stageId] == null || elapsed < best[r.stageId]
         if (isBest) {
-          best[r.diffId] = elapsed
+          best[r.stageId] = elapsed
           saveJSON(LS_ESCAPE, best)
           setRecords({ ...best })
         }
@@ -828,11 +913,12 @@ export default function EscapeGame() {
 
 
   /* ---------------- 화면 ---------------- */
-  if (!room || diffId == null) {
+  if (!room || stageId == null) {
     return <DiffSelect records={records} onPick={start} onExit={() => navigate('/')} />
   }
 
   const diff = ESC_DIFF_BY_ID[room.diffId]
+  const stage = ESC_STAGE_BY_ID[room.stageId]
   const prog = roomProgress(room)
   const opened = allSolved(room)
   const remain = room.timeLimit > 0 ? Math.max(0, room.timeLimit - elapsed) : null
@@ -841,7 +927,7 @@ export default function EscapeGame() {
   return (
     <div className="fixed inset-0 select-none bg-black">
       <Canvas shadows camera={{ fov: 72, near: 0.05, far: 120 }}>
-        <RoomShell half={room.half} open={opened} />
+        <RoomShell half={room.half} open={opened} theme={room.theme} />
         {room.props.map((p) => (
           <PropObj key={p.id} prop={p} aimed={!!aim && aim.type === 'prop' && aim.id === p.id} />
         ))}
@@ -853,7 +939,8 @@ export default function EscapeGame() {
 
       {/* ── 상단 HUD ── */}
       <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-2xl border border-white/12 bg-black/60 px-5 py-2 text-center backdrop-blur-sm">
-        <div className="text-[10px] tracking-[0.3em]" style={{ color: diff.color }}>
+        <div className="text-[13px] font-black text-white">{stage.icon} {stage.name}</div>
+        <div className="text-[10px] tracking-[0.25em]" style={{ color: diff.color }}>
           {diff.icon} {diff.name}
         </div>
         <div className="mt-0.5 flex items-center justify-center gap-3">
@@ -910,7 +997,7 @@ export default function EscapeGame() {
           className="rounded-full border border-amber-400/30 bg-amber-500/15 px-4 py-2 text-sm font-bold text-amber-200 backdrop-blur-sm transition hover:bg-amber-500/25 disabled:opacity-35">
           💡 힌트 {hintsLeft}
         </button>
-        <button onClick={() => { setDiffId(null); setRoom(null); roomRef.current = null }}
+        <button onClick={() => { setStageId(null); setRoom(null); roomRef.current = null }}
           className="rounded-full border border-white/15 bg-slate-900/85 px-4 py-2 text-xs font-bold text-slate-300 backdrop-blur-sm transition hover:bg-slate-800">
           ← 난이도 선택
         </button>
@@ -1025,6 +1112,10 @@ export default function EscapeGame() {
         <Dial lock={activeLock} onClose={() => setModal(null)}
           onSubmit={(v) => submitLock(activeLock.id, v)} />
       )}
+      {activeLock && activeLock.kind === 'clockface' && (
+        <ClockFace lock={activeLock} onClose={() => setModal(null)}
+          onSubmit={(v) => submitLock(activeLock.id, v)} />
+      )}
 
       {/* ── 토스트 ── */}
       {toast && (
@@ -1042,7 +1133,8 @@ export default function EscapeGame() {
             <div className={`mt-3 text-2xl font-black ${result.win ? 'text-emerald-300' : 'text-rose-300'}`}>
               {result.win ? '탈출 성공!' : '시간 초과'}
             </div>
-            <div className="mt-1 text-xs text-slate-400">{diff.icon} {diff.name}</div>
+            <div className="mt-1 text-sm font-bold text-white">{stage.icon} {stage.name}</div>
+            <div className="text-xs text-slate-400">{diff.icon} {diff.name}</div>
             {result.win && (
               <>
                 <div className="mt-4 rounded-2xl bg-white/5 p-4">
@@ -1054,11 +1146,11 @@ export default function EscapeGame() {
                 )}
               </>
             )}
-            <button onClick={() => start(room.diffId)}
+            <button onClick={() => start(room.stageId)}
               className="mt-5 w-full rounded-xl bg-gradient-to-r from-fuchsia-500 to-violet-500 py-3 font-black text-white transition hover:brightness-110">
               🔄 다시 도전 (새 방)
             </button>
-            <button onClick={() => { setDiffId(null); setRoom(null); roomRef.current = null }}
+            <button onClick={() => { setStageId(null); setRoom(null); roomRef.current = null }}
               className="mt-2 w-full rounded-xl border border-white/15 py-3 font-bold text-slate-200 transition hover:bg-white/5">
               난이도 선택
             </button>

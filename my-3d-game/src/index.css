@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+/* 3D 화면 위에서의 손가락 조작은 시점 회전이지 페이지 스크롤이 아니다.
+   (body는 목록·모달이 스크롤돼야 하므로 touch-action을 막지 않는다 — App.jsx 참고) */
+canvas {
+  touch-action: none;
+}
