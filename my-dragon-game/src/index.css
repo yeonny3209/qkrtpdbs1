@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+/* 3D 화면 위에서의 손가락 조작은 시점 회전이지 페이지 스크롤이 아니다. */
+canvas {
+  touch-action: none;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}

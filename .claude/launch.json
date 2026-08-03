@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "my-3d-game", "run", "preview", "--", "--port", "4173", "--strictPort"],
       "port": 4173
+    },
+    {
+      "name": "dragon-game",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "my-dragon-game", "run", "dev", "--", "--port", "5210", "--strictPort"],
+      "port": 5210
     }
   ]
 }
