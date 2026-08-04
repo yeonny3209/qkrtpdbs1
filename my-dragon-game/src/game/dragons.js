@@ -172,6 +172,25 @@ export function statsOf(dragon, level = 1, evo = 0) {
   return out
 }
 
+/* ---------------- 성장 (경험치) ---------------- */
+export const expToNext = (level) => Math.round(58 * Math.pow(level, 1.52))
+
+/* 경험치를 넣고 레벨업을 처리한다. { level, exp, gained } 를 돌려준다. */
+export function gainExp(level, exp, amount) {
+  let lv = level, ex = exp + amount, gained = 0
+  while (lv < MAX_LEVEL && ex >= expToNext(lv)) {
+    ex -= expToNext(lv)
+    lv += 1
+    gained += 1
+  }
+  if (lv >= MAX_LEVEL) { lv = MAX_LEVEL; ex = 0 }
+  return { level: lv, exp: ex, gained }
+}
+
+/* 진화에 필요한 같은 드래곤 수 (기획서 4.2 — 1진화 1개 … 6진화 6개) */
+export const evoCost = (nextStep) => nextStep
+export const evoGoldCost = (nextStep) => 2000 * nextStep * nextStep
+
 /* 전투력 — 카드 정렬·비교용 한 줄 요약 */
 export function power(dragon, level = 1, evo = 0) {
   const s = statsOf(dragon, level, evo)
