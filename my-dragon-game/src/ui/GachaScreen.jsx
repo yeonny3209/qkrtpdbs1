@@ -7,7 +7,9 @@ import { ELEMENT_BY_ID } from '../game/elements.js'
 import { RARITY_BY_ID, statsOf, STAT_KEYS, STAT_LABEL } from '../game/dragons.js'
 import { BANNERS, PULL_COST, TEN_PULL_COST, TEN_PULL_SIZE, PITY, LIMITED_WIN_RATE } from '../game/gacha.js'
 
-const pct = (v) => `${(v / 100).toFixed(v % 100 === 0 ? 0 : 1)}%`
+/* 만분율 → 화면용 퍼센트. 0.25% 같은 값이 반올림돼 사라지지 않도록
+   소수점 두 자리까지 살리고, 불필요한 0은 지운다 (80 → "80%", 25 → "0.25%") */
+const pct = (v) => `${Number((v / 100).toFixed(2))}%`
 
 /* ---------------- 결과 카드 ---------------- */
 export function DragonCard({ result, owned, onClick }) {
@@ -240,6 +242,19 @@ export default function GachaScreen({
                 <span className="text-amber-300">레전드</span>
                 <span className="font-mono text-amber-300">{pct(banner.rates.legend)}</span>
               </div>
+              {/* 레전드 안쪽 내역 — 한정/상시가 각각 몇 %인지 */}
+              {limited && (
+                <div className="ml-3 space-y-1 border-l border-white/10 pl-3 pt-0.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">└ 한정 레전드 (픽업)</span>
+                    <span className="font-mono text-white">{pct(banner.rates.legend * LIMITED_WIN_RATE)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">└ 상시 레전드</span>
+                    <span className="font-mono text-white">{pct(banner.rates.legend * (1 - LIMITED_WIN_RATE))}</span>
+                  </div>
+                </div>
+              )}
             </div>
             {limited && (
               <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-slate-400">
