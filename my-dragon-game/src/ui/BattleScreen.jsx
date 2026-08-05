@@ -87,8 +87,8 @@ function UnitBar({ unit, compact, onClick, selectable, isTurn }) {
   )
 }
 
-export default function BattleScreen({ stage, allies, enemies, difficulty, onFinish, onQuit }) {
-  const [st, setSt] = useState(() => createBattle({ allies, enemies, seed: Date.now() >>> 0 }))
+export default function BattleScreen({ stage, allies, enemies, difficulty, maxRounds, onFinish, onQuit }) {
+  const [st, setSt] = useState(() => createBattle({ allies, enemies, seed: Date.now() >>> 0, maxRounds }))
   const [pending, setPending] = useState(null)     // 대상 지정을 기다리는 스킬
   const [flash, setFlash] = useState(null)
   const bump = useCallback(() => setSt((s) => ({ ...s })), [])

@@ -9,6 +9,7 @@ import CampaignScreen from './ui/CampaignScreen.jsx'
 import RosterScreen, { TEAM_SIZE, STONES_PER_COPY } from './ui/RosterScreen.jsx'
 import ShopScreen from './ui/ShopScreen.jsx'
 import DungeonScreen from './ui/DungeonScreen.jsx'
+import TowerScreen from './ui/TowerScreen.jsx'
 import StoryDialogue from './ui/StoryDialogue.jsx'
 import EndingScreen from './ui/EndingScreen.jsx'
 import BattleScreen from './ui/BattleScreen.jsx'
@@ -29,6 +30,15 @@ import {
   canEnter, spendEntry, addTickets,
 } from './game/dungeon.js'
 import { scriptFor, applyGain, freshFlags, FINAL_PROLOGUE, FINAL_STAGE_ID } from './game/story.js'
+import {
+  MAX_PLUS, failChance, enhanceGold, PROTECT_GEM_COST, salvageGold,
+  INVENTORY_MAX, SLOT_IDS, gearInfo,
+} from './game/equipment.js'
+import { salvageStones, runeInfo } from './game/runes.js'
+import {
+  freshTower, towerStage, towerEnemies, climbRewards, hatchEgg,
+  TOWER_MAX_ROUNDS, MAX_FLOOR,
+} from './game/tower.js'
 
 const LS = 'dragonmaster_save_v1'
 const load = () => { try { return JSON.parse(localStorage.getItem(LS)) } catch { return null } }
@@ -49,6 +59,10 @@ const fresh = () => ({
   premium: freshPremium(),    // 프리미엄 상점 일일 구매 기록
   flags: freshFlags(),        // 스토리 선택 누적
   ending: null,               // 확정된 엔딩 id
+  inventory: [],              // 장비 가방 [{ uid, slot, grade, seed, plus, equippedBy }]
+  runeBag: [],                // 룬 가방 [{ uid, grade, ability, equippedBy }]
+  gear: {},                   // 드래곤별 장착 — id -> { loadout: {slot:uid}, rune: uid }
+  tower: freshTower(),        // 무한의 탑 { best }
 })
 
 export default function App() {
@@ -62,6 +76,7 @@ export default function App() {
   const [reward, setReward] = useState(null)
   const [purchase, setPurchase] = useState(null)   // 구매 완료 알림
   const [ending, setEnding] = useState(false)      // 엔딩 선택 화면
+  const [enhanceResult, setEnhanceResult] = useState(null)
 
   const commit = useCallback((next) => { setS(next); save(next) }, [])
   /* 대화 중 선택처럼 최신 상태 위에 얹어야 할 때 쓴다 */
@@ -178,11 +193,109 @@ export default function App() {
     setPurchase({ title: item.name, item })
   }
 
+  /* ---------- 장비 · 룬 ---------- */
+  const wornOf = useCallback((st, id) => {
+    const g = st.gear?.[id]?.loadout || {}
+    return Object.fromEntries(
+      SLOT_IDS.map((s) => [s, (st.inventory || []).find((i) => i.uid === g[s]) || null]),
+    )
+  }, [])
+
+  /* 한 장비는 한 드래곤만 낄 수 있다. 다른 드래곤이 끼고 있으면 거기서 뺀다. */
+  const equipGear = (dragonId, slot, uid) => update((cur) => {
+    const gear = { ...cur.gear }
+    const inventory = cur.inventory.map((i) => (i.uid === uid ? { ...i, equippedBy: dragonId } : i))
+    /* 그 자리에 있던 장비는 가방으로 돌아간다 */
+    const prev = gear[dragonId]?.loadout?.[slot]
+    const inv2 = inventory.map((i) => (i.uid === prev ? { ...i, equippedBy: null } : i))
+    gear[dragonId] = {
+      ...gear[dragonId],
+      loadout: { ...(gear[dragonId]?.loadout || {}), [slot]: uid },
+    }
+    return { ...cur, gear, inventory: inv2 }
+  })
+
+  const unequipGear = (dragonId, slot) => update((cur) => {
+    const gear = { ...cur.gear }
+    const uid = gear[dragonId]?.loadout?.[slot]
+    if (!uid) return cur
+    const loadout = { ...gear[dragonId].loadout }
+    delete loadout[slot]
+    gear[dragonId] = { ...gear[dragonId], loadout }
+    return {
+      ...cur, gear,
+      inventory: cur.inventory.map((i) => (i.uid === uid ? { ...i, equippedBy: null } : i)),
+    }
+  })
+
+  const equipRune = (dragonId, uid) => update((cur) => {
+    const gear = { ...cur.gear }
+    const prev = gear[dragonId]?.rune
+    gear[dragonId] = { ...gear[dragonId], rune: uid }
+    return {
+      ...cur, gear,
+      runeBag: cur.runeBag.map((r) =>
+        r.uid === uid ? { ...r, equippedBy: dragonId }
+          : r.uid === prev ? { ...r, equippedBy: null } : r),
+    }
+  })
+
+  const unequipRune = (dragonId) => update((cur) => {
+    const gear = { ...cur.gear }
+    const uid = gear[dragonId]?.rune
+    if (!uid) return cur
+    gear[dragonId] = { ...gear[dragonId], rune: null }
+    return {
+      ...cur, gear,
+      runeBag: cur.runeBag.map((r) => (r.uid === uid ? { ...r, equippedBy: null } : r)),
+    }
+  })
+
+  const enhanceGear = (uid, protect) => update((cur) => {
+    const item = cur.inventory.find((i) => i.uid === uid)
+    if (!item || item.plus >= MAX_PLUS) return cur
+    const cost = enhanceGold(item.plus)
+    const gemCost = protect ? PROTECT_GEM_COST : 0
+    if (cur.gold < cost || cur.gems < gemCost) return cur
+    const failed = Math.random() < failChance(item.plus)
+    /* 성공하면 +1. 실패하면 -1 — 단, 보호권을 썼으면 그대로 둔다. */
+    const plus = failed ? (protect ? item.plus : Math.max(0, item.plus - 1)) : item.plus + 1
+    setEnhanceResult({ ok: !failed, protect, plus, from: item.plus })
+    return {
+      ...cur,
+      gold: cur.gold - cost,
+      gems: cur.gems - gemCost,
+      inventory: cur.inventory.map((i) => (i.uid === uid ? { ...i, plus } : i)),
+    }
+  })
+
+  const salvageGear = (uid) => update((cur) => {
+    const item = cur.inventory.find((i) => i.uid === uid)
+    if (!item || item.equippedBy) return cur
+    return {
+      ...cur,
+      gold: cur.gold + salvageGold(item),
+      inventory: cur.inventory.filter((i) => i.uid !== uid),
+    }
+  })
+
+  const salvageRune = (uid) => update((cur) => {
+    const r = cur.runeBag.find((x) => x.uid === uid)
+    if (!r || r.equippedBy) return cur
+    return {
+      ...cur,
+      stones: (cur.stones ?? 0) + salvageStones(r),
+      runeBag: cur.runeBag.filter((x) => x.uid !== uid),
+    }
+  })
+
   /* ---------- 편성 → 전투 유닛 ---------- */
   const teamUnits = () => S.team.map((id) => ({
     dragon: DRAGON_BY_ID[id],
     level: S.dragons[id]?.level ?? 1,
     evo: S.dragons[id]?.evo ?? 0,
+    items: wornOf(S, id),
+    rune: (S.runeBag || []).find((r) => r.uid === S.gear?.[id]?.rune) || null,
   })).filter((a) => a.dragon)
 
   /* ---------- 전투 시작 ---------- */
@@ -212,11 +325,63 @@ export default function App() {
     setBattle({ stage, allies, enemies, difficulty, dungeon: { dungeonId, tierId } })
   }
 
+  /* ---------- 무한의 탑 ---------- */
+  const climbTower = (floor) => {
+    if (!S.team.length) { setScreen('roster'); return }
+    const allies = teamUnits()
+    const stage = towerStage(floor)
+    setBattle({
+      stage, allies,
+      enemies: towerEnemies(floor, allies.length, (Date.now() ^ floor) >>> 0),
+      difficulty: { name: `${floor}층` },
+      tower: floor,
+      /* 고층은 적 체력이 커서 캠페인 기준 라운드 제한에 먼저 걸린다 */
+      maxRounds: TOWER_MAX_ROUNDS,
+    })
+  }
+
   /* ---------- 전투 종료 ---------- */
   const finishBattle = (outcome) => {
-    const { stage, dungeon } = battle
+    const { stage, dungeon, tower } = battle
     setBattle(null)
     if (outcome !== 'win') return
+
+    /* ----- 무한의 탑 ----- */
+    if (tower) {
+      const rw = climbRewards(tower, Date.now() >>> 0)
+      const expMulT = expMultiplier(S.sub)
+      const gainedExp = Math.round(rw.exp * expMulT)
+      const dragons = { ...S.dragons }
+      let levelUps = 0
+      S.team.forEach((id) => {
+        const cur = dragons[id]
+        if (!cur) return
+        const g = gainExp(cur.level, cur.exp, Math.round(gainedExp / Math.max(1, S.team.length)))
+        levelUps += g.gained
+        dragons[id] = { ...cur, level: g.level, exp: g.exp }
+      })
+      /* 가방이 꽉 차면 새 장비는 들어오지 않는다 */
+      const room = Math.max(0, INVENTORY_MAX - S.inventory.length)
+      const newGear = rw.gear.slice(0, room)
+      const eggDragon = rw.dragonEgg ? hatchEgg(Date.now() >>> 0) : null
+      commit({
+        ...S,
+        gold: S.gold + rw.gold,
+        gems: S.gems + rw.gems,
+        stones: (S.stones ?? 0) + rw.stones,
+        dragons: eggDragon ? addDragons(dragons, [eggDragon]) : dragons,
+        inventory: [...S.inventory, ...newGear],
+        runeBag: [...S.runeBag, ...rw.runes],
+        tower: { ...S.tower, best: Math.max(S.tower?.best ?? 0, tower) },
+      })
+      setReward({
+        ...rw, exp: gainedExp, levelUps, stage, tower,
+        expBonus: expMulT > 1,
+        gear: newGear, bagFull: rw.gear.length > newGear.length,
+        eggDragon,
+      })
+      return
+    }
     /* 던전은 난이도 배수를 타지 않는다 — 단계 자체가 난이도다 */
     const base = dungeon
       ? { exp: stage.exp, gold: stage.gold }
@@ -343,7 +508,8 @@ export default function App() {
                 { id: 'campaign', icon: '⚔', name: '캠페인', sub: '용의 섬 10장' },
                 { id: 'gacha', icon: '🔮', name: '소환', sub: '드래곤 뽑기' },
                 { id: 'dungeon', icon: '🏛', name: '던전', sub: `오늘 ${dungeonLeft}회 남음`, hot: dungeonLeft > 0 },
-                { id: 'roster', icon: '🐲', name: '드래곤', sub: '편성 · 진화' },
+                { id: 'tower', icon: '🗼', name: '무한의 탑', sub: `${S.tower?.best ?? 0} / ${MAX_FLOOR}층` },
+                { id: 'roster', icon: '🐲', name: '드래곤', sub: '장비 · 룬 · 진화' },
                 { id: 'shop', icon: '🛒', name: '상점', sub: '보석 · 프리미엄', hot: canClaimDaily(S.sub) },
               ].map((m) => (
                 <button key={m.id} onClick={() => setScreen(m.id)}
@@ -371,9 +537,19 @@ export default function App() {
 
       {screen === 'roster' && (
         <RosterScreen
-          dragons={S.dragons} team={S.team} gold={S.gold} stones={S.stones ?? 0}
+          dragons={S.dragons} team={S.team} gold={S.gold} gems={S.gems} stones={S.stones ?? 0}
+          inventory={S.inventory || []} runeBag={S.runeBag || []} gear={S.gear || {}}
           onToggleTeam={toggleTeam} onEvolve={evolve}
+          gearActions={{
+            onEquip: equipGear, onUnequip: unequipGear,
+            onEquipRune: equipRune, onUnequipRune: unequipRune,
+            onEnhance: enhanceGear, onSalvage: salvageGear, onSalvageRune: salvageRune,
+          }}
           onBack={() => setScreen('home')} />
+      )}
+
+      {screen === 'tower' && (
+        <TowerScreen tower={S.tower} onClimb={climbTower} onBack={() => setScreen('home')} />
       )}
 
       {screen === 'dungeon' && (
@@ -426,6 +602,29 @@ export default function App() {
           onConfirm={(id) => { commit({ ...S, ending: id }); setEnding(false); setScreen('home') }} />
       )}
 
+      {/* 강화 결과 */}
+      {enhanceResult && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 p-5"
+          onClick={() => setEnhanceResult(null)}>
+          <div className="w-full max-w-[15rem] rounded-3xl border border-white/12 bg-slate-900 p-6 text-center">
+            <div className="text-4xl">{enhanceResult.ok ? '✨' : enhanceResult.protect ? '🛡' : '💥'}</div>
+            <div className={`mt-2 text-lg font-black ${enhanceResult.ok ? 'text-amber-300' : 'text-slate-300'}`}>
+              {enhanceResult.ok ? '강화 성공!' : '강화 실패…'}
+            </div>
+            <div className="mt-2 text-[13px] font-black tabular-nums text-white">
+              +{enhanceResult.from} → +{enhanceResult.plus}
+            </div>
+            {!enhanceResult.ok && enhanceResult.protect && (
+              <div className="mt-1 text-[11px] text-sky-300">보호권이 수치를 지켜냈습니다</div>
+            )}
+            <button onClick={() => setEnhanceResult(null)}
+              className="mt-4 w-full rounded-xl bg-white/10 py-2 text-[12px] font-bold text-white hover:bg-white/20">
+              확인
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 구매 완료 */}
       {purchase && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-5">
@@ -454,10 +653,15 @@ export default function App() {
       {reward && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 p-5">
           <div className="w-full max-w-xs rounded-3xl border border-amber-400/40 bg-slate-900 p-6 text-center">
-            <div className="text-4xl">🎁</div>
+            <div className="text-4xl">{reward.tower ? '🗼' : '🎁'}</div>
             <div className="mt-2 text-lg font-black text-white">
-              {reward.dungeon ? '던전 클리어' : '스테이지 클리어'}
+              {reward.tower ? `${reward.tower}층 돌파` : reward.dungeon ? '던전 클리어' : '스테이지 클리어'}
             </div>
+            {reward.milestone && (
+              <div className="mt-1 rounded-full border border-amber-300/40 bg-amber-300/10 px-3 py-1 text-[11px] font-black text-amber-200">
+                ★ {reward.milestone.text}
+              </div>
+            )}
             <div className="mt-3 space-y-1 text-[13px]">
               <div className="flex justify-between">
                 <span className="text-slate-400">경험치{reward.expBonus && <span className="ml-1 text-[10px] text-amber-300">월정액 +10%</span>}</span>
@@ -467,10 +671,52 @@ export default function App() {
               {reward.stones > 0 && (
                 <div className="flex justify-between"><span className="text-slate-400">진화석</span><span className="font-black text-violet-300">+{reward.stones}</span></div>
               )}
+              {reward.gems > 0 && (
+                <div className="flex justify-between"><span className="text-slate-400">보석</span><span className="font-black text-fuchsia-300">+{reward.gems}</span></div>
+              )}
               {reward.levelUps > 0 && (
                 <div className="flex justify-between"><span className="text-slate-400">레벨업</span><span className="font-black text-emerald-300">{reward.levelUps}회</span></div>
               )}
             </div>
+            {/* 탑에서 나온 장비·룬·드래곤 */}
+            {(reward.gear?.length > 0 || reward.runes?.length > 0 || reward.eggDragon) && (
+              <div className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+                {reward.gear?.map((it) => {
+                  const info = gearInfo(it)
+                  return (
+                    <div key={it.uid} className="flex items-center gap-2 rounded-lg border px-2 py-1.5 text-left"
+                      style={{ borderColor: info.grade.color + '66' }}>
+                      <span className="text-sm">{info.slot.icon}</span>
+                      <span className="truncate text-[11px] font-bold text-white">{info.name}</span>
+                      <span className="ml-auto shrink-0 text-[10px] font-black" style={{ color: info.grade.color }}>
+                        {info.grade.name}
+                      </span>
+                    </div>
+                  )
+                })}
+                {reward.runes?.map((r) => {
+                  const ri = runeInfo(r)
+                  return (
+                    <div key={r.uid} className="flex items-center gap-2 rounded-lg border px-2 py-1.5 text-left"
+                      style={{ borderColor: ri.grade.color + '66' }}>
+                      <span className="text-sm">{ri.icon}</span>
+                      <span className="truncate text-[11px] font-bold text-white">{ri.name}</span>
+                      <span className="ml-auto shrink-0 text-[10px] font-black" style={{ color: ri.grade.color }}>
+                        {ri.grade.name}
+                      </span>
+                    </div>
+                  )
+                })}
+                {reward.eggDragon && (
+                  <div className="rounded-lg border border-amber-300/50 bg-amber-300/10 px-2 py-1.5 text-[11px] font-bold text-amber-200">
+                    🥚 특수 드래곤 알 — {reward.eggDragon.name}
+                  </div>
+                )}
+                {reward.bagFull && (
+                  <div className="text-[10px] text-rose-400">가방이 가득 차 일부 장비를 받지 못했습니다</div>
+                )}
+              </div>
+            )}
             <button onClick={() => setReward(null)}
               className="mt-5 w-full rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 py-2.5 font-black text-white hover:brightness-110">
               확인

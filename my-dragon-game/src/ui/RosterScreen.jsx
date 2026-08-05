@@ -3,11 +3,14 @@
    ================================================================== */
 import { useState } from 'react'
 import DragonPreview from './DragonPreview.jsx'
+import GearPanel from './GearPanel.jsx'
 import { ELEMENT_BY_ID } from '../game/elements.js'
 import {
-  DRAGON_BY_ID, RARITY_BY_ID, statsOf, power, expToNext,
+  DRAGON_BY_ID, RARITY_BY_ID, expToNext,
   STAT_KEYS, STAT_LABEL, MAX_EVOLUTION, EVOLUTIONS, evoCost, evoGoldCost, evolutionPassives,
 } from '../game/dragons.js'
+import { SLOT_IDS, finalStats, gearedPower } from '../game/equipment.js'
+import { runeStatMul } from '../game/runes.js'
 
 export const TEAM_SIZE = 3
 
@@ -15,12 +18,25 @@ export const TEAM_SIZE = 3
    결정 동굴을 돌면 중복이 안 떠도 진화를 이어갈 수 있게 하는 장치다. */
 export const STONES_PER_COPY = 40
 
-export default function RosterScreen({ dragons, team, gold, stones = 0, onToggleTeam, onEvolve, onBack }) {
+export default function RosterScreen({
+  dragons, team, gold, gems = 0, stones = 0,
+  inventory = [], runeBag = [], gear = {},
+  onToggleTeam, onEvolve, onBack, gearActions = {},
+}) {
   const [detail, setDetail] = useState(null)
+  /* 드래곤별 장착 정보 — gear[id] = { loadout: {slot:uid}, rune: uid } */
+  const wornOf = (id) => {
+    const g = gear[id]?.loadout || {}
+    return Object.fromEntries(SLOT_IDS.map((s) => [s, inventory.find((i) => i.uid === g[s]) || null]))
+  }
+  const runeMulOf = (id) => runeStatMul(runeBag.find((r) => r.uid === gear[id]?.rune) || null)
+
   const owned = Object.entries(dragons)
     .map(([id, s]) => ({ id, ...s, dragon: DRAGON_BY_ID[id] }))
     .filter((o) => o.dragon)
-    .sort((a, b) => power(b.dragon, b.level, b.evo) - power(a.dragon, a.level, a.evo))
+    .sort((a, b) =>
+      gearedPower(b.dragon, b.level, b.evo, wornOf(b.id), runeMulOf(b.id))
+      - gearedPower(a.dragon, a.level, a.evo, wornOf(a.id), runeMulOf(a.id)))
 
   const d = detail ? owned.find((o) => o.id === detail) : null
 
@@ -89,16 +105,26 @@ export default function RosterScreen({ dragons, team, gold, stones = 0, onToggle
       </div>
 
       {/* 상세 · 진화 */}
-      {d && <DetailPanel o={d} gold={gold} stones={stones} onEvolve={onEvolve} onClose={() => setDetail(null)} />}
+      {d && (
+        <DetailPanel o={d} gold={gold} gems={gems} stones={stones}
+          worn={wornOf(d.id)} runeMul={runeMulOf(d.id)}
+          loadout={gear[d.id]?.loadout || {}} runeId={gear[d.id]?.rune || null}
+          inventory={inventory} runeBag={runeBag} gearActions={gearActions}
+          onEvolve={onEvolve} onClose={() => setDetail(null)} />
+      )}
     </div>
   )
 }
 
-function DetailPanel({ o, gold, stones, onEvolve, onClose }) {
+function DetailPanel({
+  o, gold, gems, stones, worn, runeMul, loadout, runeId, inventory, runeBag, gearActions,
+  onEvolve, onClose,
+}) {
   const el = ELEMENT_BY_ID[o.dragon.element]
   const rar = RARITY_BY_ID[o.dragon.rarity]
-  const cur = statsOf(o.dragon, o.level, o.evo)
-  const next = o.evo < MAX_EVOLUTION ? statsOf(o.dragon, o.level, o.evo + 1) : null
+  /* 장비·룬까지 반영한 실제 값 — 전투에 들어가는 수치와 같다 */
+  const cur = finalStats(o.dragon, o.level, o.evo, worn, runeMul)
+  const next = o.evo < MAX_EVOLUTION ? finalStats(o.dragon, o.level, o.evo + 1, worn, runeMul) : null
   const step = o.evo + 1
   const needCopies = evoCost(step)
   const needGold = evoGoldCost(step)
@@ -181,6 +207,12 @@ function DetailPanel({ o, gold, stones, onEvolve, onClose }) {
               <div className="mt-2 text-center text-[12px] font-bold text-amber-300">최종 진화 완료</div>
             )}
           </div>
+
+          {/* 장비 · 룬 */}
+          <GearPanel
+            dragonId={o.id} loadout={loadout} runeId={runeId}
+            inventory={inventory} runeBag={runeBag} gold={gold} gems={gems}
+            {...gearActions} />
 
           <button onClick={onClose} className="mt-4 w-full rounded-xl bg-white/10 py-2.5 text-sm font-bold text-white hover:bg-white/20">
             닫기

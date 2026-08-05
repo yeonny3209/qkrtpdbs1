@@ -12,36 +12,36 @@
    전투는 "라운드" 단위로 돈다. 라운드가 시작될 때 살아있는 유닛을
    AGI 순으로 줄 세우고, 그 순서대로 한 번씩 행동한다.
    ================================================================== */
-import { statsOf } from './dragons.js'
-import { skillsOf, MP_MAX, MP_PER_TURN, BASE_CRIT, CRIT_MUL } from './skills.js'
+import { skillsOf, BASIC_ATTACK, MP_MAX, MP_PER_TURN, BASE_CRIT, CRIT_MUL } from './skills.js'
+import { finalStats, activeSet } from './equipment.js'
+import { runeEffect, runeStatMul } from './runes.js'
+/* 난수는 rng.js 로 옮겼지만, 여기서 가져다 쓰던 곳이 많아 그대로 다시 내보낸다 */
+import { makeRng } from './rng.js'
+export { makeRng }
 
 export const DRAW_ROUNDS = 5           // 이만큼 피해가 전혀 없으면 무승부
 /* 피해 최소값이 1이라 "피해 0"만으로는 교착이 안 잡힌다.
    서로 긁기만 하는 무한 전투를 확실히 끊기 위한 상한. */
 export const MAX_ROUNDS = 50
 
-/* 결정적 난수 — 같은 시드면 같은 전투가 재현된다 */
-export function makeRng(seed) {
-  let a = (seed >>> 0) || 1
-  return () => {
-    a |= 0; a = (a + 0x6D2B79F5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
 /* ---------------- 유닛 ---------------- */
 function makeUnit(entry, side, idx) {
-  const raw = statsOf(entry.dragon, entry.level ?? 1, entry.evo ?? 0)
+  const items = entry.items || {}
+  const rune = entry.rune || null
+  /* 레벨·진화 → 장비 → 세트 → 룬 순서로 쌓인 최종 능력치 */
+  const raw = finalStats(entry.dragon, entry.level ?? 1, entry.evo ?? 0, items, runeStatMul(rune))
   /* 보스·난이도 배율. 능력치마다 따로 줄 수 있다.
      전부 같은 배수로 올리면 공격과 방어가 동시에 곱해져
      체감 난이도가 배율의 제곱처럼 뛴다 (보스가 이길 수 없게 된다). */
   const m = entry.statMul ?? 1
   const mulOf = (k) => (typeof m === 'number' ? m : (m[k] ?? 1))
   const st = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Math.max(1, Math.round(v * mulOf(k)))]))
+  /* 가속 룬은 "전투 시작 시" 붙는 거라 기본값에 미리 반영한다 */
+  const haste = runeEffect(rune, 'haste')
+  if (haste) st.agi = Math.max(1, Math.round(st.agi * (1 + haste)))
+  const set = activeSet(items)
   return {
     uid: `${side}${idx}`,
     side,
@@ -55,6 +55,10 @@ function makeUnit(entry, side, idx) {
     statuses: [],       // { key, turns, value }
     cds: {},            // skillId -> 남은 턴
     alive: true,
+    rune,
+    set,
+    critAdd: set?.critAdd ?? 0,
+    firstStrike: set?.firstStrike ?? 0,
   }
 }
 
@@ -73,7 +77,7 @@ const statusValue = (unit, key) =>
   unit.statuses.filter((s) => s.key === key).reduce((a, s) => a + (s.value || 0), 0)
 
 /* ---------------- 전투 생성 ---------------- */
-export function createBattle({ allies, enemies, seed = 1, escapable = true }) {
+export function createBattle({ allies, enemies, seed = 1, escapable = true, maxRounds = MAX_ROUNDS }) {
   const units = [
     ...allies.map((e, i) => makeUnit(e, 'ally', i)),
     ...enemies.map((e, i) => makeUnit(e, 'enemy', i)),
@@ -81,9 +85,11 @@ export function createBattle({ allies, enemies, seed = 1, escapable = true }) {
   const state = {
     units, round: 0, order: [], turnIndex: 0,
     log: [], done: null, quietRounds: 0, escapable,
+    maxRounds,
     rng: makeRng(seed),
   }
   startRound(state)
+  advanceToActor(state)
   return state
 }
 
@@ -93,28 +99,57 @@ export const currentUnit = (state) => (state.done ? null : unitById(state, state
 
 function startRound(state) {
   state.round += 1
+  /* 속도형 세트의 "선공 확률" — 매 라운드 굴려서 성공하면
+     민첩과 무관하게 그 라운드 맨 앞으로 나온다. */
+  const first = new Set()
+  for (const u of state.units) {
+    if (u.alive && u.firstStrike > 0 && state.rng() * 100 < u.firstStrike) first.add(u.uid)
+  }
   /* AGI 높은 순. 같으면 아군이 먼저 (플레이어 유리하게) */
   state.order = state.units
     .filter((u) => u.alive)
-    .sort((a, b) => effStat(b, 'agi') - effStat(a, 'agi') || (a.side === 'ally' ? -1 : 1))
+    .sort((a, b) =>
+      (first.has(b.uid) ? 1 : 0) - (first.has(a.uid) ? 1 : 0)
+      || effStat(b, 'agi') - effStat(a, 'agi')
+      || (a.side === 'ally' ? -1 : 1))
     .map((u) => u.uid)
   state.turnIndex = 0
-  skipDeadOrIncapacitated(state)
 }
 
-/* 죽었거나 행동 불가(빙결·감전)면 건너뛴다 */
-function skipDeadOrIncapacitated(state) {
+/* 라운드 사이 처리 — MP 충전과 무승부 판정 */
+function nextRound(state) {
+  for (const unit of state.units) {
+    if (unit.alive) unit.mp = Math.min(MP_MAX, unit.mp + MP_PER_TURN)
+  }
+  state.quietRounds += 1
+  if (state.quietRounds >= DRAW_ROUNDS || state.round >= (state.maxRounds || MAX_ROUNDS)) {
+    state.done = 'draw'
+    state.log.push({ t: 'end', text: '승부가 나지 않았다 — 무승부' })
+    return
+  }
+  startRound(state)
+}
+
+/* 행동할 수 있는 유닛이 나올 때까지 순서를 앞으로 민다.
+   죽었거나 얼어붙은 유닛은 건너뛰고, 줄 끝에 닿으면 다음 라운드로 넘어간다.
+
+   예전에는 "줄 끝에 닿는" 경우를 여기서 처리하지 않아서, 순서 맨 뒤의
+   유닛이 죽어 있으면 turnIndex 가 끝을 넘어선 채 아무도 다음 라운드를
+   시작하지 않아 전투가 그대로 멈췄다. */
+function advanceToActor(state) {
   let guard = 0
-  while (state.turnIndex < state.order.length && guard++ < 50) {
+  while (!state.done && guard++ < 400) {
+    if (state.turnIndex >= state.order.length) { nextRound(state); continue }
     const u = unitById(state, state.order[state.turnIndex])
     if (!u || !u.alive) { state.turnIndex++; continue }
     if (hasStatus(u, 'freeze') || hasStatus(u, 'stun')) {
       const which = hasStatus(u, 'freeze') ? '빙결' : '감전'
       state.log.push({ t: 'skip', uid: u.uid, text: `${u.dragon.name}은(는) ${which} 상태라 움직이지 못했다` })
-      endTurn(state)
+      finishTurn(state)
+      if (checkEnd(state)) return
       continue
     }
-    break
+    return
   }
 }
 
@@ -123,27 +158,33 @@ function rollDamage(state, atk, def, skill, hitIndex = 0) {
   const stat = skill.stat === 'matk' ? 'matk' : 'atk'
   const defKey = skill.stat === 'matk' ? 'mdef' : 'def'
   const power = effStat(atk, stat) * skill.power
-  const defense = effStat(def, defKey)
+  /* 저주 룬 — 상대 방어력을 깎고 계산한다 */
+  const curse = runeEffect(atk.rune, 'curse')
+  const defense = effStat(def, defKey) * (1 - curse)
   /* 방어는 감쇠식 — 수치가 올라도 무한히 단단해지지 않는다.
      기준값(K)이 작으면 방어가 조금만 높아도 피해가 급감해 전투가 한없이
      길어진다. HP는 최대 5000인데 공격은 최대 500이라 원래도 비율이 큰데,
      여기서 더 깎으면 보스전이 40라운드를 넘어간다. K=200이 적당하다. */
   const K = 200
   let dmg = power * (K / (K + defense))
-  const crit = state.rng() * 100 < BASE_CRIT
-  if (crit) dmg *= CRIT_MUL
+  /* 크리티컬 확률은 기본 5% + 공격형 세트 보정 */
+  const crit = state.rng() * 100 < BASE_CRIT + (atk.critAdd || 0)
+  /* 공격 강화 룬은 크리티컬 배수를 키운다 */
+  if (crit) dmg *= CRIT_MUL + runeEffect(atk.rune, 'critDmg')
   dmg *= 0.92 + state.rng() * 0.16          // ±8% 변동
   void hitIndex
   return { dmg: Math.max(1, Math.round(dmg)), crit }
 }
 
 function applyDamage(state, target, amount) {
-  /* 보호막이 먼저 흡수한다 */
+  /* 보호 룬 — 받는 피해를 먼저 줄인다 */
+  const guard = runeEffect(target.rune, 'guard')
+  let dealt = guard ? Math.max(1, Math.round(amount * (1 - guard))) : amount
+  /* 그 다음 보호막이 흡수한다 */
   const sh = statusValue(target, 'shield')
-  let dealt = amount
   if (sh > 0) {
-    const absorb = Math.round(amount * Math.min(0.8, sh))
-    dealt = Math.max(1, amount - absorb)
+    const absorb = Math.round(dealt * Math.min(0.8, sh))
+    dealt = Math.max(1, dealt - absorb)
   }
   target.hp = clamp(target.hp - dealt, 0, target.maxHp)
   if (target.hp === 0) {
@@ -223,8 +264,8 @@ export function castSkill(state, skillId, targetUid) {
     if (skill.power > 0) {
       for (let h = 0; h < hits; h++) {
         if (!target.alive) break
-        /* 명중 판정 — 실명이면 명중률이 깎인다 */
-        const acc = skill.acc * (1 - statusValue(actor, 'blind'))
+        /* 명중 판정 — 실명이면 명중률이 깎이고, 회피 룬이면 더 깎인다 */
+        const acc = skill.acc * (1 - statusValue(actor, 'blind')) * (1 - runeEffect(target.rune, 'dodge'))
         if (state.rng() * 100 >= acc) {
           state.log.push({ t: 'miss', uid: target.uid, text: `${target.dragon.name}에게 빗나갔다` })
           continue
@@ -233,9 +274,19 @@ export function castSkill(state, skillId, targetUid) {
         const dealt = applyDamage(state, target, dmg)
         totalDealt += dealt
         state.log.push({ t: 'hit', uid: target.uid, value: dealt, crit, text: `${target.dragon.name} -${dealt}${crit ? ' 치명타!' : ''}` })
-        if (skill.drain) {
-          const back = applyHeal(state, actor, Math.round(dealt * skill.drain))
+        /* 흡혈 — 스킬 자체의 흡혈과 룬의 흡혈을 함께 적용한다 */
+        const drainPct = (skill.drain || 0) + runeEffect(actor.rune, 'drain')
+        if (drainPct > 0) {
+          const back = applyHeal(state, actor, Math.round(dealt * drainPct))
           if (back > 0) state.log.push({ t: 'heal', uid: actor.uid, value: back, text: `${actor.dragon.name} +${back} 흡혈` })
+        }
+        /* 반격 룬 — 맞은 쪽이 즉시 되받아친다.
+           반격에 또 반격이 걸리면 끝없이 튕기므로 여기서 한 번만 계산한다. */
+        const counter = runeEffect(target.rune, 'counter')
+        if (counter > 0 && target.alive && actor.alive && state.rng() < counter) {
+          const back = rollDamage(state, target, actor, BASIC_ATTACK, 0)
+          const hurt = applyDamage(state, actor, back.dmg)
+          state.log.push({ t: 'hit', uid: actor.uid, value: hurt, text: `${target.dragon.name} 반격! ${actor.dragon.name} -${hurt}` })
         }
       }
     }
@@ -272,6 +323,12 @@ export function flee(state) {
 
 /* ---------------- 턴 종료 · 라운드 진행 ---------------- */
 function tickStatuses(state, unit) {
+  /* 재생 룬 — 자기 턴이 끝날 때마다 최대 HP의 일정 비율을 회복한다 */
+  const regen = runeEffect(unit.rune, 'regen')
+  if (regen > 0 && unit.alive) {
+    const heal = applyHeal(state, unit, Math.max(1, Math.round(unit.maxHp * regen)))
+    if (heal > 0) state.log.push({ t: 'heal', uid: unit.uid, value: heal, text: `${unit.dragon.name} 재생 +${heal}` })
+  }
   const keep = []
   for (const s of unit.statuses) {
     if (s.key === 'burn') {
@@ -291,30 +348,20 @@ function tickStatuses(state, unit) {
   unit.statuses = keep
 }
 
-function endTurn(state) {
+/* 지금 유닛의 턴을 마무리한다 — 상태이상 경과와 쿨타임 감소 */
+function finishTurn(state) {
   const u = unitById(state, state.order[state.turnIndex])
   if (u && u.alive) {
     tickStatuses(state, u)
     for (const k of Object.keys(u.cds)) u.cds[k] = Math.max(0, u.cds[k] - 1)
   }
   state.turnIndex += 1
+}
 
+function endTurn(state) {
+  finishTurn(state)
   if (checkEnd(state)) return
-  if (state.turnIndex >= state.order.length) {
-    /* 라운드 종료 — MP 충전 후 다음 라운드 */
-    for (const unit of state.units) {
-      if (unit.alive) unit.mp = Math.min(MP_MAX, unit.mp + MP_PER_TURN)
-    }
-    state.quietRounds += 1
-    if (state.quietRounds >= DRAW_ROUNDS || state.round >= MAX_ROUNDS) {
-      state.done = 'draw'
-      state.log.push({ t: 'end', text: '승부가 나지 않았다 — 무승부' })
-      return
-    }
-    startRound(state)
-    return
-  }
-  skipDeadOrIncapacitated(state)
+  advanceToActor(state)
 }
 
 function checkEnd(state) {
