@@ -5,21 +5,30 @@
    ================================================================== */
 import { useCallback, useMemo, useState } from 'react'
 import GachaScreen from './ui/GachaScreen.jsx'
-import CampaignScreen, { StoryBeat } from './ui/CampaignScreen.jsx'
-import RosterScreen, { TEAM_SIZE } from './ui/RosterScreen.jsx'
+import CampaignScreen from './ui/CampaignScreen.jsx'
+import RosterScreen, { TEAM_SIZE, STONES_PER_COPY } from './ui/RosterScreen.jsx'
 import ShopScreen from './ui/ShopScreen.jsx'
+import DungeonScreen from './ui/DungeonScreen.jsx'
+import StoryDialogue from './ui/StoryDialogue.jsx'
+import EndingScreen from './ui/EndingScreen.jsx'
 import BattleScreen from './ui/BattleScreen.jsx'
 import SummonCutscene from './three/SummonCutscene.jsx'
 import DragonPreview from './ui/DragonPreview.jsx'
 import { ELEMENTS, ELEMENT_BY_ID } from './game/elements.js'
 import { DRAGONS, DRAGON_BY_ID, limitedLegends, gainExp, evoCost, evoGoldCost, MAX_EVOLUTION } from './game/dragons.js'
 import { createGachaState, pullMany, bestOf, costOf } from './game/gacha.js'
-import { CHAPTER_BY_ID, TOTAL_STAGES } from './game/campaign.js'
+import { CAMPAIGN, CHAPTER_BY_ID, TOTAL_STAGES } from './game/campaign.js'
 import { buildEncounter, stageReward } from './game/encounter.js'
 import {
   GEM_PACKAGES, SUBSCRIPTION, noSubscription, startSubscription,
   claimDaily, canClaimDaily, canBuySubscription, subActive, expMultiplier,
+  PREMIUM_BY_ID, canBuyPremium, buyPremium, freshPremium,
 } from './game/shop.js'
+import {
+  dungeonStage, freshEntries, entriesLeft,
+  canEnter, spendEntry, addTickets,
+} from './game/dungeon.js'
+import { scriptFor, applyGain, freshFlags, FINAL_PROLOGUE, FINAL_STAGE_ID } from './game/story.js'
 
 const LS = 'dragonmaster_save_v1'
 const load = () => { try { return JSON.parse(localStorage.getItem(LS)) } catch { return null } }
@@ -34,7 +43,12 @@ const fresh = () => ({
   cleared: {},
   seenBeats: {},
   difficulty: 'normal',
-  sub: noSubscription(),   // 월정액 { startDay, claimedDays }
+  sub: noSubscription(),      // 월정액 { startDay, claimedDays }
+  stones: 0,                  // 진화석
+  entries: freshEntries(),    // 던전 일일 입장
+  premium: freshPremium(),    // 프리미엄 상점 일일 구매 기록
+  flags: freshFlags(),        // 스토리 선택 누적
+  ending: null,               // 확정된 엔딩 id
 })
 
 export default function App() {
@@ -44,11 +58,14 @@ export default function App() {
   const [results, setResults] = useState(null)
   const [cutscene, setCutscene] = useState(null)
   const [battle, setBattle] = useState(null)       // { stage, allies, enemies, difficulty }
-  const [beat, setBeat] = useState(null)           // { beat, chapter, then }
+  const [beat, setBeat] = useState(null)           // { script, chapter, then }
   const [reward, setReward] = useState(null)
   const [purchase, setPurchase] = useState(null)   // 구매 완료 알림
+  const [ending, setEnding] = useState(false)      // 엔딩 선택 화면
 
   const commit = useCallback((next) => { setS(next); save(next) }, [])
+  /* 대화 중 선택처럼 최신 상태 위에 얹어야 할 때 쓴다 */
+  const update = useCallback((fn) => setS((cur) => { const n = fn(cur); save(n); return n }), [])
   const featured = useMemo(
     () => (bannerId === 'limited' ? limitedLegends()[0] : DRAGON_BY_ID.slegend_0), [bannerId],
   )
@@ -100,10 +117,16 @@ export default function App() {
     const step = cur.evo + 1
     const need = evoCost(step)
     const goldNeed = evoGoldCost(step)
-    if (cur.count - 1 < need || S.gold < goldNeed) return
+    const spare = cur.count - 1
+    /* 분신을 먼저 쓰고, 모자란 만큼만 진화석으로 채운다 */
+    const useCopies = Math.min(spare, need)
+    const stoneNeed = (need - useCopies) * STONES_PER_COPY
+    if (S.gold < goldNeed || (S.stones ?? 0) < stoneNeed) return
     commit({
-      ...S, gold: S.gold - goldNeed,
-      dragons: { ...S.dragons, [id]: { ...cur, count: cur.count - need, evo: step } },
+      ...S,
+      gold: S.gold - goldNeed,
+      stones: (S.stones ?? 0) - stoneNeed,
+      dragons: { ...S.dragons, [id]: { ...cur, count: cur.count - useCopies, evo: step } },
     })
   }
 
@@ -129,32 +152,78 @@ export default function App() {
     setPurchase({ gems, title: '오늘의 월정액 보석' })
   }
 
+  const buyPremiumItem = (itemId) => {
+    if (!canBuyPremium(S.premium, itemId, S.gems)) return
+    const item = PREMIUM_BY_ID[itemId]
+    const g = item.grant
+    const next = {
+      ...S,
+      gems: S.gems - item.gems,
+      premium: buyPremium(S.premium, itemId),
+    }
+    if (g.gold) next.gold = S.gold + g.gold
+    if (g.stones) next.stones = (S.stones ?? 0) + g.stones
+    if (g.dungeonTickets) next.entries = addTickets(S.entries, g.dungeonTickets)
+    if (g.teamExp) {
+      const dragons = { ...S.dragons }
+      S.team.forEach((id) => {
+        const cur = dragons[id]
+        if (!cur) return
+        const gained = gainExp(cur.level, cur.exp, g.teamExp)
+        dragons[id] = { ...cur, level: gained.level, exp: gained.exp }
+      })
+      next.dragons = dragons
+    }
+    commit(next)
+    setPurchase({ title: item.name, item })
+  }
+
+  /* ---------- 편성 → 전투 유닛 ---------- */
+  const teamUnits = () => S.team.map((id) => ({
+    dragon: DRAGON_BY_ID[id],
+    level: S.dragons[id]?.level ?? 1,
+    evo: S.dragons[id]?.evo ?? 0,
+  })).filter((a) => a.dragon)
+
   /* ---------- 전투 시작 ---------- */
   const startStage = (stage) => {
     if (!S.team.length) { setScreen('roster'); return }
-    const allies = S.team.map((id) => ({
-      dragon: DRAGON_BY_ID[id],
-      level: S.dragons[id]?.level ?? 1,
-      evo: S.dragons[id]?.evo ?? 0,
-    })).filter((a) => a.dragon)
+    const allies = teamUnits()
     const { enemies, difficulty } = buildEncounter(stage, S.difficulty, Date.now() >>> 0, allies.length)
     const go = () => setBattle({ stage, allies, enemies, difficulty })
-    /* 스테이지에 스토리 연출이 있고 아직 안 봤다면 먼저 보여준다 */
-    if (stage.beat && !S.seenBeats[stage.id]) {
+    /* 스테이지에 대화가 붙어 있고 아직 안 봤다면 먼저 보여준다 */
+    const script = scriptFor(stage.id)
+    if (script && !S.seenBeats[stage.id]) {
       commit({ ...S, seenBeats: { ...S.seenBeats, [stage.id]: true } })
-      setBeat({ beat: stage.beat, chapter: CHAPTER_BY_ID[stage.chapter], then: go })
+      setBeat({ script, chapter: CHAPTER_BY_ID[stage.chapter], then: go })
     } else go()
+  }
+
+  /* ---------- 던전 ---------- */
+  const enterDungeon = (dungeonId, tierId) => {
+    if (!S.team.length) { setScreen('roster'); return }
+    if (!canEnter(S.entries, S.sub)) return
+    const allies = teamUnits()
+    const stage = dungeonStage(dungeonId, tierId)
+    const { enemies, difficulty } = buildEncounter(stage, 'normal', Date.now() >>> 0, allies.length)
+    /* 입장권은 들어가는 순간 소모된다. 결과를 보고 무를 수 있으면
+       제한이 의미가 없어진다. */
+    commit({ ...S, entries: spendEntry(S.entries) })
+    setBattle({ stage, allies, enemies, difficulty, dungeon: { dungeonId, tierId } })
   }
 
   /* ---------- 전투 종료 ---------- */
   const finishBattle = (outcome) => {
-    const { stage } = battle
+    const { stage, dungeon } = battle
     setBattle(null)
     if (outcome !== 'win') return
-    const base = stageReward(stage, S.difficulty)
+    /* 던전은 난이도 배수를 타지 않는다 — 단계 자체가 난이도다 */
+    const base = dungeon
+      ? { exp: stage.exp, gold: stage.gold }
+      : stageReward(stage, S.difficulty)
     /* 월정액 보유 시 경험치 +10% (기획서 7장) */
     const expMul = expMultiplier(S.sub)
-    const rw = { ...base, exp: Math.round(base.exp * expMul) }
+    const rw = { ...base, exp: Math.round(base.exp * expMul), stones: stage.stones || 0 }
     /* 참전한 드래곤에게 경험치 분배 */
     const dragons = { ...S.dragons }
     let levelUps = 0
@@ -165,11 +234,15 @@ export default function App() {
       levelUps += g.gained
       dragons[id] = { ...cur, level: g.level, exp: g.exp }
     })
-    commit({
-      ...S, gold: S.gold + rw.gold, dragons,
-      cleared: { ...S.cleared, [stage.id]: true },
-    })
-    setReward({ ...rw, levelUps, stage, expBonus: expMul > 1 })
+    const next = { ...S, gold: S.gold + rw.gold, dragons, stones: (S.stones ?? 0) + rw.stones }
+    if (!dungeon) next.cleared = { ...S.cleared, [stage.id]: true }
+    commit(next)
+    /* 마지막 스테이지라면 보상창 대신 최종 대화 → 엔딩 선택으로 넘긴다 */
+    if (!dungeon && stage.id === FINAL_STAGE_ID && !S.ending) {
+      setBeat({ script: FINAL_PROLOGUE, chapter: CHAPTER_BY_ID[10], then: () => setEnding(true) })
+    } else {
+      setReward({ ...rw, levelUps, stage, expBonus: expMul > 1, dungeon: !!dungeon })
+    }
   }
 
   /* ---------- 스타터 선택 화면 ---------- */
@@ -209,6 +282,9 @@ export default function App() {
 
   const clearedCount = Object.keys(S.cleared).length
   const teamDragons = S.team.map((id) => DRAGON_BY_ID[id]).filter(Boolean)
+  const dungeonLeft = entriesLeft(S.entries, S.sub)
+  /* 프리미엄 상점 해금 판정용 — 10스테이지를 다 깬 장의 수 */
+  const clearedChapters = CAMPAIGN.filter((c) => c.stages.every((s) => S.cleared[s.id])).length
 
   return (
     <>
@@ -266,8 +342,9 @@ export default function App() {
               {[
                 { id: 'campaign', icon: '⚔', name: '캠페인', sub: '용의 섬 10장' },
                 { id: 'gacha', icon: '🔮', name: '소환', sub: '드래곤 뽑기' },
+                { id: 'dungeon', icon: '🏛', name: '던전', sub: `오늘 ${dungeonLeft}회 남음`, hot: dungeonLeft > 0 },
                 { id: 'roster', icon: '🐲', name: '드래곤', sub: '편성 · 진화' },
-                { id: 'shop', icon: '🛒', name: '상점', sub: '보석 · 월정액', hot: canClaimDaily(S.sub) },
+                { id: 'shop', icon: '🛒', name: '상점', sub: '보석 · 프리미엄', hot: canClaimDaily(S.sub) },
               ].map((m) => (
                 <button key={m.id} onClick={() => setScreen(m.id)}
                   className="relative rounded-2xl border border-white/10 bg-white/[.05] p-5 text-center transition hover:-translate-y-1 hover:bg-white/[.1]">
@@ -294,17 +371,26 @@ export default function App() {
 
       {screen === 'roster' && (
         <RosterScreen
-          dragons={S.dragons} team={S.team} gold={S.gold}
+          dragons={S.dragons} team={S.team} gold={S.gold} stones={S.stones ?? 0}
           onToggleTeam={toggleTeam} onEvolve={evolve}
+          onBack={() => setScreen('home')} />
+      )}
+
+      {screen === 'dungeon' && (
+        <DungeonScreen
+          entries={S.entries} sub={S.sub} clearedCount={clearedCount}
+          onEnter={enterDungeon}
           onBack={() => setScreen('home')} />
       )}
 
       {screen === 'shop' && (
         <ShopScreen
-          gems={S.gems} sub={S.sub}
+          gems={S.gems} stones={S.stones ?? 0} sub={S.sub}
+          premium={S.premium} clearedChapters={clearedChapters}
           onBuyPackage={buyPackage}
           onBuySubscription={buySubscription}
           onClaimDaily={claimSubDaily}
+          onBuyPremium={buyPremiumItem}
           onBack={() => setScreen('home')} />
       )}
 
@@ -327,15 +413,30 @@ export default function App() {
       )}
 
       {cutscene && <SummonCutscene result={cutscene} onDone={() => setCutscene(null)} />}
-      {beat && <StoryBeat beat={beat.beat} chapter={beat.chapter} onDone={() => { const f = beat.then; setBeat(null); f() }} />}
+
+      {beat && (
+        <StoryDialogue
+          script={beat.script} chapter={beat.chapter}
+          onChoice={(gain) => update((cur) => ({ ...cur, flags: applyGain(cur.flags, gain) }))}
+          onDone={() => { const f = beat.then; setBeat(null); f() }} />
+      )}
+
+      {ending && (
+        <EndingScreen flags={S.flags}
+          onConfirm={(id) => { commit({ ...S, ending: id }); setEnding(false); setScreen('home') }} />
+      )}
 
       {/* 구매 완료 */}
       {purchase && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-5">
           <div className="w-full max-w-xs rounded-3xl border border-fuchsia-400/40 bg-slate-900 p-6 text-center">
-            <div className="text-4xl">{purchase.sub ? '👑' : '💎'}</div>
+            <div className="text-4xl">{purchase.item ? purchase.item.icon : purchase.sub ? '👑' : '💎'}</div>
             <div className="mt-2 text-lg font-black text-white">{purchase.title}</div>
-            <div className="mt-3 text-2xl font-black text-fuchsia-300">💎 +{purchase.gems.toLocaleString()}</div>
+            {purchase.item ? (
+              <div className="mt-3 text-[14px] font-black text-fuchsia-300">{purchase.item.desc}</div>
+            ) : (
+              <div className="mt-3 text-2xl font-black text-fuchsia-300">💎 +{purchase.gems.toLocaleString()}</div>
+            )}
             {purchase.sub && (
               <div className="mt-2 text-[11px] leading-relaxed text-slate-400">
                 {SUBSCRIPTION.days}일 동안 매일 상점에서 💎 {SUBSCRIPTION.dailyGems}을 받으세요
@@ -354,13 +455,18 @@ export default function App() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 p-5">
           <div className="w-full max-w-xs rounded-3xl border border-amber-400/40 bg-slate-900 p-6 text-center">
             <div className="text-4xl">🎁</div>
-            <div className="mt-2 text-lg font-black text-white">스테이지 클리어</div>
+            <div className="mt-2 text-lg font-black text-white">
+              {reward.dungeon ? '던전 클리어' : '스테이지 클리어'}
+            </div>
             <div className="mt-3 space-y-1 text-[13px]">
               <div className="flex justify-between">
                 <span className="text-slate-400">경험치{reward.expBonus && <span className="ml-1 text-[10px] text-amber-300">월정액 +10%</span>}</span>
                 <span className="font-black text-sky-300">+{reward.exp}</span>
               </div>
               <div className="flex justify-between"><span className="text-slate-400">골드</span><span className="font-black text-amber-300">+{reward.gold}</span></div>
+              {reward.stones > 0 && (
+                <div className="flex justify-between"><span className="text-slate-400">진화석</span><span className="font-black text-violet-300">+{reward.stones}</span></div>
+              )}
               {reward.levelUps > 0 && (
                 <div className="flex justify-between"><span className="text-slate-400">레벨업</span><span className="font-black text-emerald-300">{reward.levelUps}회</span></div>
               )}

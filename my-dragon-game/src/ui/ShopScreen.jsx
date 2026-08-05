@@ -6,9 +6,10 @@
    ================================================================== */
 import { useState } from 'react'
 import {
-  GEM_PACKAGES, packagePrice,
+  GEM_PACKAGES, packagePrice, gemsPerPiece,
   SUBSCRIPTION, subscriptionPrice, subscriptionTotalGems,
   subActive, subDaysLeft, canClaimDaily, canBuySubscription, subGemsReceived,
+  PREMIUM_ITEMS, PREMIUM_UNLOCK_CHAPTER, premiumUnlocked, remainingToday, canBuyPremium,
   won,
 } from '../game/shop.js'
 
@@ -47,9 +48,14 @@ function PayModal({ item, onConfirm, onCancel }) {
   )
 }
 
-export default function ShopScreen({ gems, sub, onBuyPackage, onBuySubscription, onClaimDaily, onBack }) {
+export default function ShopScreen({
+  gems, stones, sub, premium, clearedChapters,
+  onBuyPackage, onBuySubscription, onClaimDaily, onBuyPremium, onBack,
+}) {
   const [pay, setPay] = useState(null)      // 확인 대기 중인 상품
+  const [tab, setTab] = useState('gem')     // gem | premium
 
+  const prem = premiumUnlocked(sub, clearedChapters)
   const active = subActive(sub)
   const daysLeft = subDaysLeft(sub)
   const claimable = canClaimDaily(sub)
@@ -73,13 +79,84 @@ export default function ShopScreen({ gems, sub, onBuyPackage, onBuySubscription,
             className="rounded-full border border-white/15 px-4 py-1.5 text-[12px] font-bold text-slate-200 hover:bg-white/10">
             ← 홈
           </button>
-          <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-[12px] font-black text-white">
-            💎 {gems.toLocaleString()}
-          </span>
+          <div className="flex gap-2 text-[12px] font-black">
+            <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-white">
+              💎 {gems.toLocaleString()}
+            </span>
+            <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-violet-200">
+              💠 {(stones ?? 0).toLocaleString()}
+            </span>
+          </div>
         </div>
 
         <h1 className="mt-5 text-2xl font-black text-white">상점</h1>
-        <p className="mt-1 text-[12px] text-slate-400">1 피스 = {won(1000)}</p>
+
+        {/* 탭 */}
+        <div className="mt-3 flex gap-1.5">
+          {[
+            { id: 'gem', name: '보석 · 월정액' },
+            { id: 'premium', name: '프리미엄', locked: !prem.open },
+          ].map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`rounded-full px-4 py-1.5 text-[12px] font-black transition ${
+                tab === t.id ? 'bg-white text-slate-900' : 'border border-white/12 text-slate-300 hover:bg-white/10'
+              }`}>
+              {t.locked && '🔒 '}{t.name}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'premium' ? (
+          /* ---------- 프리미엄 상점 ---------- */
+          !prem.open ? (
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/[.03] p-6 text-center">
+              <div className="text-4xl">🔒</div>
+              <div className="mt-2 text-sm font-black text-white">아직 열리지 않았습니다</div>
+              <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+                캠페인 {PREMIUM_UNLOCK_CHAPTER}장을 클리어하면 열립니다.<br />
+                <span className="text-amber-300">월정액을 구매하면 지금 바로 이용할 수 있습니다.</span>
+              </p>
+            </div>
+          ) : (
+            <>
+              {prem.early && (
+                <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-[11px] font-bold text-amber-200">
+                  👑 월정액 조기 접근으로 이용 중입니다
+                </div>
+              )}
+              <p className="mt-4 text-[12px] text-slate-400">구매 한도는 매일 자정에 초기화됩니다.</p>
+              <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                {PREMIUM_ITEMS.map((item) => {
+                  const rest = remainingToday(premium, item.id)
+                  const ok = canBuyPremium(premium, item.id, gems)
+                  return (
+                    <button key={item.id} disabled={!ok}
+                      onClick={() => onBuyPremium(item.id)}
+                      className={`flex items-center gap-3 rounded-2xl border p-4 text-left transition ${
+                        ok
+                          ? 'border-white/12 bg-white/[.05] hover:-translate-y-0.5 hover:border-fuchsia-400/50 hover:bg-fuchsia-500/10'
+                          : 'cursor-not-allowed border-white/8 bg-white/[.02] opacity-45'
+                      }`}>
+                      <span className="text-2xl">{item.icon}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-black text-white">{item.name}</span>
+                        <span className="block truncate text-[11px] text-slate-400">{item.desc}</span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          오늘 {rest} / {item.daily} 남음
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-lg bg-black/40 px-2.5 py-1.5 text-[12px] font-black text-fuchsia-300 tabular-nums">
+                        💎{item.gems.toLocaleString()}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )
+        ) : (
+        <>
+        <p className="mt-4 text-[12px] text-slate-400">1 피스 = {won(1000)}</p>
 
         {/* ---------- 월정액 ---------- */}
         <div className="mt-5 overflow-hidden rounded-3xl border border-amber-400/35"
@@ -180,9 +257,14 @@ export default function ShopScreen({ gems, sub, onBuyPackage, onBuySubscription,
               <div className="mt-2 rounded-lg bg-black/40 py-1.5 text-[12px] font-black text-amber-200">
                 {won(packagePrice(pkg))}
               </div>
+              <div className="mt-1 text-[10px] text-slate-500 tabular-nums">
+                1,000원당 💎{gemsPerPiece(pkg).toLocaleString()}
+              </div>
             </button>
           ))}
         </div>
+        </>
+        )}
 
         <p className="mt-5 rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-[11px] leading-relaxed text-slate-500">
           이 상점의 결제는 전부 모의 처리입니다. 실제 결제를 받으려면 결제대행사(PG) 연동과

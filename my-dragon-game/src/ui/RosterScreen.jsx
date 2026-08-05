@@ -11,7 +11,11 @@ import {
 
 export const TEAM_SIZE = 3
 
-export default function RosterScreen({ dragons, team, gold, onToggleTeam, onEvolve, onBack }) {
+/* 부족한 분신 1마리를 진화석 몇 개로 대신할 수 있는가.
+   결정 동굴을 돌면 중복이 안 떠도 진화를 이어갈 수 있게 하는 장치다. */
+export const STONES_PER_COPY = 40
+
+export default function RosterScreen({ dragons, team, gold, stones = 0, onToggleTeam, onEvolve, onBack }) {
   const [detail, setDetail] = useState(null)
   const owned = Object.entries(dragons)
     .map(([id, s]) => ({ id, ...s, dragon: DRAGON_BY_ID[id] }))
@@ -31,8 +35,13 @@ export default function RosterScreen({ dragons, team, gold, onToggleTeam, onEvol
               편성 {team.length}/{TEAM_SIZE} · 총 {owned.length}종 보유
             </p>
           </div>
-          <div className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-[12px] font-black text-amber-200">
-            🪙 {gold.toLocaleString()}
+          <div className="flex gap-2 text-[12px] font-black">
+            <div className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-amber-200">
+              🪙 {gold.toLocaleString()}
+            </div>
+            <div className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-violet-200">
+              💠 {stones.toLocaleString()}
+            </div>
           </div>
         </div>
 
@@ -80,12 +89,12 @@ export default function RosterScreen({ dragons, team, gold, onToggleTeam, onEvol
       </div>
 
       {/* 상세 · 진화 */}
-      {d && <DetailPanel o={d} gold={gold} onEvolve={onEvolve} onClose={() => setDetail(null)} />}
+      {d && <DetailPanel o={d} gold={gold} stones={stones} onEvolve={onEvolve} onClose={() => setDetail(null)} />}
     </div>
   )
 }
 
-function DetailPanel({ o, gold, onEvolve, onClose }) {
+function DetailPanel({ o, gold, stones, onEvolve, onClose }) {
   const el = ELEMENT_BY_ID[o.dragon.element]
   const rar = RARITY_BY_ID[o.dragon.rarity]
   const cur = statsOf(o.dragon, o.level, o.evo)
@@ -95,7 +104,10 @@ function DetailPanel({ o, gold, onEvolve, onClose }) {
   const needGold = evoGoldCost(step)
   /* 진화에 쓸 수 있는 여분 = 보유 수 - 본체 1 */
   const spare = o.count - 1
-  const canEvo = next && spare >= needCopies && gold >= needGold
+  /* 모자라는 만큼은 진화석으로 메운다 */
+  const missing = Math.max(0, needCopies - spare)
+  const needStones = missing * STONES_PER_COPY
+  const canEvo = next && gold >= needGold && stones >= needStones
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 p-4" onClick={onClose}>
@@ -146,13 +158,18 @@ function DetailPanel({ o, gold, onEvolve, onClose }) {
                   {EVOLUTIONS[o.evo].note}
                 </div>
                 <div className="mt-2 flex justify-between text-[11px]">
-                  <span className={spare >= needCopies ? 'text-emerald-400' : 'text-rose-400'}>
-                    같은 드래곤 {spare} / {needCopies}
+                  <span className={spare >= needCopies ? 'text-emerald-400' : 'text-slate-400'}>
+                    같은 드래곤 {Math.min(spare, needCopies)} / {needCopies}
                   </span>
                   <span className={gold >= needGold ? 'text-emerald-400' : 'text-rose-400'}>
                     🪙 {needGold.toLocaleString()}
                   </span>
                 </div>
+                {missing > 0 && (
+                  <div className={`mt-1 text-[11px] ${stones >= needStones ? 'text-violet-300' : 'text-rose-400'}`}>
+                    부족한 {missing}마리를 진화석으로 대체 · 💠 {needStones} (보유 {stones})
+                  </div>
+                )}
                 <button onClick={() => { onEvolve(o.id); onClose() }} disabled={!canEvo}
                   className={`mt-2 w-full rounded-xl py-2.5 text-[13px] font-black transition ${
                     canEvo ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:brightness-110'
