@@ -7,6 +7,7 @@ import { useCallback, useMemo, useState } from 'react'
 import GachaScreen from './ui/GachaScreen.jsx'
 import CampaignScreen, { StoryBeat } from './ui/CampaignScreen.jsx'
 import RosterScreen, { TEAM_SIZE } from './ui/RosterScreen.jsx'
+import ShopScreen from './ui/ShopScreen.jsx'
 import BattleScreen from './ui/BattleScreen.jsx'
 import SummonCutscene from './three/SummonCutscene.jsx'
 import DragonPreview from './ui/DragonPreview.jsx'
@@ -15,6 +16,10 @@ import { DRAGONS, DRAGON_BY_ID, limitedLegends, gainExp, evoCost, evoGoldCost, M
 import { createGachaState, pullMany, bestOf, costOf } from './game/gacha.js'
 import { CHAPTER_BY_ID, TOTAL_STAGES } from './game/campaign.js'
 import { buildEncounter, stageReward } from './game/encounter.js'
+import {
+  GEM_PACKAGES, SUBSCRIPTION, noSubscription, startSubscription,
+  claimDaily, canClaimDaily, canBuySubscription, subActive, expMultiplier,
+} from './game/shop.js'
 
 const LS = 'dragonmaster_save_v1'
 const load = () => { try { return JSON.parse(localStorage.getItem(LS)) } catch { return null } }
@@ -29,6 +34,7 @@ const fresh = () => ({
   cleared: {},
   seenBeats: {},
   difficulty: 'normal',
+  sub: noSubscription(),   // 월정액 { startDay, claimedDays }
 })
 
 export default function App() {
@@ -40,6 +46,7 @@ export default function App() {
   const [battle, setBattle] = useState(null)       // { stage, allies, enemies, difficulty }
   const [beat, setBeat] = useState(null)           // { beat, chapter, then }
   const [reward, setReward] = useState(null)
+  const [purchase, setPurchase] = useState(null)   // 구매 완료 알림
 
   const commit = useCallback((next) => { setS(next); save(next) }, [])
   const featured = useMemo(
@@ -100,6 +107,28 @@ export default function App() {
     })
   }
 
+  /* ---------- 상점 ----------
+     모의 결제다. 실제 결제는 서버에서 검증해야 하므로 여기서는 처리하지 않는다. */
+  const buyPackage = (packageId) => {
+    const pkg = GEM_PACKAGES.find((p) => p.id === packageId)
+    if (!pkg) return
+    commit({ ...S, gems: S.gems + pkg.gems })
+    setPurchase({ gems: pkg.gems, title: `보석 ${pkg.gems}개` })
+  }
+
+  const buySubscription = () => {
+    if (!canBuySubscription(S.sub)) return
+    commit({ ...S, gems: S.gems + SUBSCRIPTION.initialGems, sub: startSubscription() })
+    setPurchase({ gems: SUBSCRIPTION.initialGems, title: '월정액 시작', sub: true })
+  }
+
+  const claimSubDaily = () => {
+    if (!canClaimDaily(S.sub)) return
+    const { sub, gems } = claimDaily(S.sub)
+    commit({ ...S, gems: S.gems + gems, sub })
+    setPurchase({ gems, title: '오늘의 월정액 보석' })
+  }
+
   /* ---------- 전투 시작 ---------- */
   const startStage = (stage) => {
     if (!S.team.length) { setScreen('roster'); return }
@@ -122,7 +151,10 @@ export default function App() {
     const { stage } = battle
     setBattle(null)
     if (outcome !== 'win') return
-    const rw = stageReward(stage, S.difficulty)
+    const base = stageReward(stage, S.difficulty)
+    /* 월정액 보유 시 경험치 +10% (기획서 7장) */
+    const expMul = expMultiplier(S.sub)
+    const rw = { ...base, exp: Math.round(base.exp * expMul) }
     /* 참전한 드래곤에게 경험치 분배 */
     const dragons = { ...S.dragons }
     let levelUps = 0
@@ -137,7 +169,7 @@ export default function App() {
       ...S, gold: S.gold + rw.gold, dragons,
       cleared: { ...S.cleared, [stage.id]: true },
     })
-    setReward({ ...rw, levelUps, stage })
+    setReward({ ...rw, levelUps, stage, expBonus: expMul > 1 })
   }
 
   /* ---------- 스타터 선택 화면 ---------- */
@@ -189,6 +221,9 @@ export default function App() {
             <div className="flex items-center justify-between">
               <h1 className="text-lg font-black text-white">🐉 드래곤 마스터</h1>
               <div className="flex gap-2 text-[12px] font-black">
+                {subActive(S.sub) && (
+                  <span className="rounded-full border border-amber-300/40 bg-amber-300/10 px-2.5 py-1 text-amber-200">👑</span>
+                )}
                 <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-white">💎 {S.gems.toLocaleString()}</span>
                 <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-amber-200">🪙 {S.gold.toLocaleString()}</span>
               </div>
@@ -227,14 +262,17 @@ export default function App() {
             </div>
 
             {/* 메뉴 */}
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
                 { id: 'campaign', icon: '⚔', name: '캠페인', sub: '용의 섬 10장' },
                 { id: 'gacha', icon: '🔮', name: '소환', sub: '드래곤 뽑기' },
                 { id: 'roster', icon: '🐲', name: '드래곤', sub: '편성 · 진화' },
+                { id: 'shop', icon: '🛒', name: '상점', sub: '보석 · 월정액', hot: canClaimDaily(S.sub) },
               ].map((m) => (
                 <button key={m.id} onClick={() => setScreen(m.id)}
-                  className="rounded-2xl border border-white/10 bg-white/[.05] p-5 text-center transition hover:-translate-y-1 hover:bg-white/[.1]">
+                  className="relative rounded-2xl border border-white/10 bg-white/[.05] p-5 text-center transition hover:-translate-y-1 hover:bg-white/[.1]">
+                  {/* 오늘 월정액 보석을 아직 안 받았으면 알림 점 */}
+                  {m.hot && <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-rose-500" />}
                   <div className="text-3xl">{m.icon}</div>
                   <div className="mt-1 text-sm font-black text-white">{m.name}</div>
                   <div className="text-[11px] text-slate-400">{m.sub}</div>
@@ -261,6 +299,15 @@ export default function App() {
           onBack={() => setScreen('home')} />
       )}
 
+      {screen === 'shop' && (
+        <ShopScreen
+          gems={S.gems} sub={S.sub}
+          onBuyPackage={buyPackage}
+          onBuySubscription={buySubscription}
+          onClaimDaily={claimSubDaily}
+          onBack={() => setScreen('home')} />
+      )}
+
       {screen === 'gacha' && (
         <>
           <GachaScreen
@@ -282,6 +329,26 @@ export default function App() {
       {cutscene && <SummonCutscene result={cutscene} onDone={() => setCutscene(null)} />}
       {beat && <StoryBeat beat={beat.beat} chapter={beat.chapter} onDone={() => { const f = beat.then; setBeat(null); f() }} />}
 
+      {/* 구매 완료 */}
+      {purchase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-5">
+          <div className="w-full max-w-xs rounded-3xl border border-fuchsia-400/40 bg-slate-900 p-6 text-center">
+            <div className="text-4xl">{purchase.sub ? '👑' : '💎'}</div>
+            <div className="mt-2 text-lg font-black text-white">{purchase.title}</div>
+            <div className="mt-3 text-2xl font-black text-fuchsia-300">💎 +{purchase.gems.toLocaleString()}</div>
+            {purchase.sub && (
+              <div className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                {SUBSCRIPTION.days}일 동안 매일 상점에서 💎 {SUBSCRIPTION.dailyGems}을 받으세요
+              </div>
+            )}
+            <button onClick={() => setPurchase(null)}
+              className="mt-5 w-full rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 py-2.5 font-black text-white hover:brightness-110">
+              확인
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 전투 보상 */}
       {reward && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 p-5">
@@ -289,7 +356,10 @@ export default function App() {
             <div className="text-4xl">🎁</div>
             <div className="mt-2 text-lg font-black text-white">스테이지 클리어</div>
             <div className="mt-3 space-y-1 text-[13px]">
-              <div className="flex justify-between"><span className="text-slate-400">경험치</span><span className="font-black text-sky-300">+{reward.exp}</span></div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">경험치{reward.expBonus && <span className="ml-1 text-[10px] text-amber-300">월정액 +10%</span>}</span>
+                <span className="font-black text-sky-300">+{reward.exp}</span>
+              </div>
               <div className="flex justify-between"><span className="text-slate-400">골드</span><span className="font-black text-amber-300">+{reward.gold}</span></div>
               {reward.levelUps > 0 && (
                 <div className="flex justify-between"><span className="text-slate-400">레벨업</span><span className="font-black text-emerald-300">{reward.levelUps}회</span></div>
