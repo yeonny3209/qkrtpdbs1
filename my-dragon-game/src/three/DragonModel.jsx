@@ -1,22 +1,26 @@
 /* ==================================================================
    드래곤 3D 모델 — 외부 모델 파일 없이 기본 도형으로 조립한다.
 
-   속성이 색을, 등급이 형태(뿔 수·볏·오라)를 바꾼다.
-   같은 컴포넌트가 도감 미리보기와 소환 컷씬 양쪽에 쓰인다.
+   체형(bodyType)마다 뼈대가 다르다. 비늘색만 바꾸면 결국 "색만 다른
+   같은 용"이 되므로, 몸통 마디 수·다리 수·날개 종류·머리 모양을
+   전부 따로 고른다. 자세한 조합 규칙은 dragonLook.js 에 있다.
+
+   같은 컴포넌트가 도감 미리보기와 소환 컷씬, 전투 무대에 함께 쓰인다.
+   어느 체형이든 발끝 y≈0, 머리 끝 y≈2.7 안에 들어오도록 맞춰 두었다.
+   카메라 프레이밍이 체형마다 달라지면 안 되기 때문이다.
    ================================================================== */
 import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { ELEMENT_BY_ID } from '../game/elements.js'
-import { dragonLook, shiftHue } from './dragonLook.js'
+import { dragonLook, shiftHue, spinePoint } from './dragonLook.js'
 
-
-/* ---------------- 날개 막 ----------------
+/* ---------------- 날개 막 (박쥐형) ----------------
    박쥐 날개처럼 가리비(scallop) 모양으로 파낸 실루엣.
    Shape의 (x, y)를 그대로 월드 (x, z)로 눕히므로, 아래 뼈 좌표와 짝이 맞는다. */
 const WING_TIPS = [[2.15, 0.42], [1.55, -0.86], [0.98, -1.02], [0.45, -1.02]]
 
-function useWingGeometry() {
+function useBatWing() {
   return useMemo(() => {
     const s = new THREE.Shape()
     s.moveTo(0, 0)
@@ -38,19 +42,50 @@ function useWingGeometry() {
   }, [])
 }
 
+/* 새 날개 — 가리비 없이 매끈하게 뻗고 끝이 갈라진다 */
+function useFeatherWing() {
+  return useMemo(() => {
+    const s = new THREE.Shape()
+    s.moveTo(0, 0)
+    s.lineTo(2.35, 0.18)
+    s.lineTo(2.20, -0.30)
+    s.lineTo(1.70, -0.20)
+    s.lineTo(1.55, -0.62)
+    s.lineTo(1.05, -0.48)
+    s.lineTo(0.90, -0.86)
+    s.lineTo(0.40, -0.70)
+    s.lineTo(0, -0.26)
+    s.closePath()
+    const g = new THREE.ShapeGeometry(s, 12)
+    g.rotateX(Math.PI / 2)
+    return g
+  }, [])
+}
+
+/* 곤충 날개 — 얇고 둥근 타원 */
+function useInsectWing() {
+  return useMemo(() => {
+    const s = new THREE.Shape()
+    s.ellipse(0.85, 0, 0.95, 0.34, 0, Math.PI * 2)
+    const g = new THREE.ShapeGeometry(s, 20)
+    g.rotateX(Math.PI / 2)
+    return g
+  }, [])
+}
+
 /* 날개 하나 (side: +1 오른쪽 / -1 왼쪽) */
-function Wing({ side, geo, flapRef, boneMat, membraneMat }) {
+function Wing({ side, geo, flapRef, boneMat, membraneMat, bones, y, z, tilt }) {
   return (
-    <group ref={flapRef} position={[side * 0.40, 1.40, -0.18]} rotation={[0, 0, side * 0.45]}>
+    <group ref={flapRef} position={[side * 0.40, y, z]} rotation={[0, 0, side * tilt]}>
       <group scale={[side, 1, 1]}>
         <mesh geometry={geo} material={membraneMat} />
         {/* 날개뼈 — 어깨에서 각 가리비 꼭짓점으로 뻗는다.
             실린더 축은 기본이 Y라, 그냥 Y로 돌리면 위로 솟은 막대가 된다.
             바깥 group을 방향으로 돌리고 안쪽 mesh를 눕혀 +Z를 향하게 만든다. */}
-        {WING_TIPS.map(([x, z], i) => {
-          const len = Math.hypot(x, z)
+        {bones && WING_TIPS.map(([x, z2], i) => {
+          const len = Math.hypot(x, z2)
           return (
-            <group key={i} rotation-y={Math.atan2(x, z)}>
+            <group key={i} rotation-y={Math.atan2(x, z2)}>
               <mesh material={boneMat} position={[0, 0.02, len / 2]} rotation-x={Math.PI / 2}>
                 <cylinderGeometry args={[0.045, 0.026, len, 6]} />
               </mesh>
@@ -62,16 +97,19 @@ function Wing({ side, geo, flapRef, boneMat, membraneMat }) {
   )
 }
 
-/* ---------------- 머리 ---------------- */
+/* ---------------- 머리 ----------------
+   headType 이 두개골 자체를 바꾼다. hornStyle 은 뿔만 바꾼다. */
 function Head({ el, shape, mainMat, bellyMat }) {
   const sn = shape.snout ?? 1
+  const type = shape.headType || 'horned'
   const horns = []
-  for (let i = 0; i < shape.horns; i++) {
+  const hornCount = type === 'blunt' ? Math.min(2, shape.horns) : shape.horns
+
+  for (let i = 0; i < hornCount; i++) {
     const side = i % 2 === 0 ? 1 : -1
     const row = Math.floor(i / 2)
     const len = shape.hornLen - row * 0.09
     const pos = [side * (0.17 + row * 0.045), 0.20 - row * 0.07, -0.10 - row * 0.16]
-    /* 뿔 모양 — 드래곤마다 다르다 */
     if (shape.hornStyle === 'curved') {
       horns.push(
         <group key={i} position={pos} rotation={[-0.55 - row * 0.2, side * 0.3, side * 0.55]}>
@@ -106,31 +144,52 @@ function Head({ el, shape, mainMat, bellyMat }) {
       )
     }
   }
+
   return (
-    <group>
-      {/* 두개골 */}
-      <mesh material={mainMat} castShadow>
-        <boxGeometry args={[0.46, 0.40, 0.52]} />
-      </mesh>
-      {/* 주둥이 — 길이가 드래곤마다 다르다 */}
-      <mesh position={[0, -0.05, 0.40 * sn]} material={mainMat} castShadow>
-        <boxGeometry args={[0.30, 0.24, 0.36 * sn]} />
-      </mesh>
-      <mesh position={[0, -0.055, 0.60 * sn]} material={mainMat}>
-        <boxGeometry args={[0.22, 0.16, 0.10]} />
-      </mesh>
-      {/* 아래턱 */}
-      <mesh position={[0, -0.17, 0.38 * sn]}>
-        <boxGeometry args={[0.24, 0.10, 0.34 * sn]} />
-        <meshStandardMaterial color={el.deep} roughness={0.75} />
-      </mesh>
-      {/* 이빨 */}
-      {[-0.08, 0.08].map((x, i) => (
-        <mesh key={i} position={[x, -0.13, 0.55 * sn]} rotation={[Math.PI, 0, 0]}>
-          <coneGeometry args={[0.026, 0.10, 4]} />
-          <meshStandardMaterial color="#fff" roughness={0.4} />
+    <group scale={shape.headSize ?? 1}>
+      {/* 두개골 — 종류마다 형태가 다르다 */}
+      {type === 'beak' ? (
+        <mesh material={mainMat} castShadow>
+          <coneGeometry args={[0.28, 0.62, 7]} />
         </mesh>
-      ))}
+      ) : type === 'blunt' ? (
+        <mesh material={mainMat} castShadow>
+          <sphereGeometry args={[0.28, 14, 12]} />
+        </mesh>
+      ) : (
+        <mesh material={mainMat} castShadow>
+          <boxGeometry args={[0.46, 0.40, 0.52]} />
+        </mesh>
+      )}
+
+      {/* 주둥이 — 부리형은 뾰족하게 하나로 뻗는다 */}
+      {type === 'beak' ? (
+        <mesh position={[0, -0.02, 0.34 * sn]} rotation={[Math.PI / 2, 0, 0]} material={mainMat}>
+          <coneGeometry args={[0.13, 0.55 * sn, 6]} />
+        </mesh>
+      ) : (
+        <>
+          <mesh position={[0, -0.05, 0.40 * sn]} material={mainMat} castShadow>
+            <boxGeometry args={[0.30, 0.24, 0.36 * sn]} />
+          </mesh>
+          <mesh position={[0, -0.055, 0.60 * sn]} material={mainMat}>
+            <boxGeometry args={[0.22, 0.16, 0.10]} />
+          </mesh>
+          {/* 아래턱 */}
+          <mesh position={[0, -0.17, 0.38 * sn]}>
+            <boxGeometry args={[0.24, 0.10, 0.34 * sn]} />
+            <meshStandardMaterial color={el.deep} roughness={0.75} />
+          </mesh>
+          {/* 이빨 */}
+          {[-0.08, 0.08].map((x, i) => (
+            <mesh key={i} position={[x, -0.13, 0.55 * sn]} rotation={[Math.PI, 0, 0]}>
+              <coneGeometry args={[0.026, 0.10, 4]} />
+              <meshStandardMaterial color="#fff" roughness={0.4} />
+            </mesh>
+          ))}
+        </>
+      )}
+
       {/* 눈 — 속성 색으로 빛난다 */}
       {[-1, 1].map((s) => (
         <mesh key={s} position={[s * 0.17, 0.06, 0.20]}>
@@ -139,17 +198,51 @@ function Head({ el, shape, mainMat, bellyMat }) {
         </mesh>
       ))}
       {/* 콧구멍 */}
-      {[-1, 1].map((s) => (
+      {type !== 'beak' && [-1, 1].map((s) => (
         <mesh key={s} position={[s * 0.06, 0.02, 0.645 * sn]}>
           <sphereGeometry args={[0.017, 8, 6]} />
           <meshStandardMaterial color="#111" />
         </mesh>
       ))}
       {horns}
-      {/* 볏 (에픽 이상) */}
+
+      {/* 볏 — crest 형은 머리 위로 부채가 선다 */}
+      {type === 'crest' && [0, 1, 2, 3, 4].map((i) => (
+        <mesh key={i} position={[0, 0.24 + i * 0.02, -0.02 - i * 0.11]} rotation={[-0.5, 0, 0]} material={bellyMat}>
+          <coneGeometry args={[0.055, 0.30 - i * 0.04, 4]} />
+        </mesh>
+      ))}
+      {/* 볼 지느러미 (에픽 이상) */}
       {shape.frill && [-1, 1].map((s) => (
         <mesh key={s} position={[s * 0.24, -0.02, -0.16]} rotation={[0, 0, s * -0.5]} material={bellyMat}>
           <coneGeometry args={[0.10, 0.30, 3]} />
+        </mesh>
+      ))}
+      {/* 동양룡 수염 */}
+      {shape.bodyType === 'eastern' && [-1, 1].map((s) => (
+        <mesh key={s} position={[s * 0.13, -0.02, 0.55 * sn]} rotation={[0.5, 0, s * 0.5]}>
+          <cylinderGeometry args={[0.012, 0.004, 0.85, 5]} />
+          <meshStandardMaterial color={el.glow} emissive={el.glow} emissiveIntensity={0.7} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+/* 다리 하나 */
+function Leg({ x, y, z, len, mainMat, thick }) {
+  return (
+    <group position={[x, y, z]} scale={[1, len, 1]}>
+      <mesh position={[0, -0.12, 0]} material={mainMat} castShadow>
+        <capsuleGeometry args={[0.13 * thick, 0.30, 4, 8]} />
+      </mesh>
+      <mesh position={[0, -0.40, 0.09]} material={mainMat}>
+        <boxGeometry args={[0.22 * thick, 0.11, 0.30]} />
+      </mesh>
+      {[-0.07, 0, 0.07].map((cx, j) => (
+        <mesh key={j} position={[cx * thick, -0.43, 0.24]} rotation={[1.25, 0, 0]}>
+          <coneGeometry args={[0.026, 0.11, 4]} />
+          <meshStandardMaterial color="#f1f5f9" roughness={0.4} />
         </mesh>
       ))}
     </group>
@@ -169,7 +262,11 @@ export default function DragonModel({
 }) {
   const el = ELEMENT_BY_ID[elementId] || ELEMENT_BY_ID.fire
   const shape = useMemo(() => dragonLook(dragonId, rarity), [dragonId, rarity])
-  const wingGeo = useWingGeometry()
+  const batGeo = useBatWing()
+  const featherGeo = useFeatherWing()
+  const insectGeo = useInsectWing()
+  const wingGeo = shape.wingType === 'feather' ? featherGeo
+    : shape.wingType === 'insect' ? insectGeo : batGeo
 
   const root = useRef()
   const neck = useRef()
@@ -177,7 +274,10 @@ export default function DragonModel({
   const tail = useRef()
   const wingL = useRef()
   const wingR = useRef()
+  const wingL2 = useRef()
+  const wingR2 = useRef()
   const auraRef = useRef()
+  const segs = useRef([])
 
   /* 재질은 한 번만 만들어 모든 부위가 공유한다 (드로우콜·GC 절약) */
   const mats = useMemo(() => {
@@ -192,10 +292,17 @@ export default function DragonModel({
       membrane: new THREE.MeshStandardMaterial({
         color: deep, emissive: main, emissiveIntensity: 0.35,
         roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide,
-        transparent: true, opacity: 0.93,
+        transparent: true, opacity: shape.wingType === 'insect' ? 0.6 : 0.93,
       }),
     }
-  }, [el, shape.hue])
+  }, [el, shape.hue, shape.wingType])
+
+  /* 몸통 마디 — 체형에 따라 3개(짧고 굵게)에서 11개(뱀처럼)까지 */
+  const spine = useMemo(
+    () => Array.from({ length: shape.spine }, (_, i) => spinePoint(i, shape.spine, shape)),
+    [shape],
+  )
+  const long = shape.spine > 5      // 뱀·동양룡 계열인가
 
   useFrame((state, dt) => {
     if (!animate) return
@@ -205,10 +312,25 @@ export default function DragonModel({
       root.current.position.y = Math.sin(t * 1.5) * 0.06
       root.current.rotation.z = Math.sin(t * 0.7) * 0.02
     }
-    /* 날갯짓 — 포효 중엔 크게 펼친다 */
-    const flap = roar ? 0.45 + Math.sin(t * 5) * 0.16 : Math.sin(t * 2.1) * 0.26
+    /* 긴 몸은 마디마다 시차를 두고 물결친다 */
+    if (long) {
+      segs.current.forEach((m, i) => {
+        if (!m) return
+        const p = spine[i]
+        if (!p) return
+        const w = Math.sin(t * 1.6 - i * 0.55) * 0.13
+        m.position.x = p.x + w
+        m.position.y = p.y + Math.cos(t * 1.4 - i * 0.5) * 0.05
+      })
+    }
+    /* 날갯짓 — 포효 중엔 크게 펼친다. 곤충 날개는 빠르게 떤다 */
+    const speed = shape.wingType === 'insect' ? 16 : 2.1
+    const amp = shape.wingType === 'insect' ? 0.34 : 0.26
+    const flap = roar ? 0.45 + Math.sin(t * 5) * 0.16 : Math.sin(t * speed) * amp
     if (wingR.current) wingR.current.rotation.z = 0.45 + flap
     if (wingL.current) wingL.current.rotation.z = -0.45 - flap
+    if (wingR2.current) wingR2.current.rotation.z = 0.30 + flap * 0.8
+    if (wingL2.current) wingL2.current.rotation.z = -0.30 - flap * 0.8
     /* 목·머리 */
     if (neck.current) neck.current.rotation.x = (roar ? -0.32 : -0.05) + Math.sin(t * 1.3) * 0.05
     if (headRef.current) headRef.current.rotation.x = (roar ? -0.45 : 0.08) + Math.sin(t * 1.7) * 0.05
@@ -218,55 +340,101 @@ export default function DragonModel({
     if (auraRef.current) auraRef.current.rotation.y += dt * 0.6
   })
 
-  /* 등줄기 가시 */
+  /* 등줄기 가시 — 마디를 따라 박힌다 */
   const spikes = useMemo(() => Array.from({ length: shape.spikes }, (_, i) => {
-    const f = i / (shape.spikes - 1)
-    return { z: 0.55 - f * 1.75, y: 1.42 - Math.sin(f * Math.PI) * 0.10, s: 0.13 - f * 0.06 }
-  }), [shape.spikes])
+    const f = i / Math.max(1, shape.spikes - 1)
+    const p = spinePoint(f * (shape.spine - 1), shape.spine, shape)
+    return { x: p.x, y: p.y + p.r * 0.85, z: p.z, s: (0.13 - f * 0.05) * (long ? 0.8 : 1) }
+  }), [shape, long])
+
+  /* 다리 위치 — 다리 수에 따라 앞/뒤로 붙는다 */
+  const legs = useMemo(() => {
+    const n = shape.legs
+    if (!n) return []
+    const hip = spinePoint(long ? 1.2 : 0.2, shape.spine, shape)
+    const rear = spinePoint(long ? shape.spine * 0.55 : shape.spine - 1.2, shape.spine, shape)
+    const w = 0.34 * shape.body
+    const out = []
+    /* 뒷다리는 어느 체형이나 있다 */
+    out.push({ x: w, y: hip.y - hip.r * 0.5, z: hip.z + 0.30 }, { x: -w, y: hip.y - hip.r * 0.5, z: hip.z + 0.30 })
+    if (n >= 4) {
+      out.push({ x: w * 0.9, y: rear.y - rear.r * 0.5, z: rear.z }, { x: -w * 0.9, y: rear.y - rear.r * 0.5, z: rear.z })
+    }
+    return out
+  }, [shape, long])
+
+  const shoulder = spine[0]
+  const tailBase = spine[spine.length - 1]
+  const wingY = shoulder.y + shoulder.r * 0.42
+  const wingZ = shoulder.z - 0.18
 
   return (
     <group ref={root} scale={scale * shape.size}>
       {/* ---------- 몸통 ---------- */}
-      <mesh position={[0, 1.15, -0.15]} material={mats.main} castShadow
-        scale={[shape.body, 1, shape.body]}>
-        <sphereGeometry args={[0.62, 20, 16]} />
-      </mesh>
-      <mesh position={[0, 1.12, 0.42]} material={mats.main} castShadow
-        scale={[shape.body, 1, 1]}>
-        <sphereGeometry args={[0.46, 18, 14]} />
-      </mesh>
-      {/* 배 — 밝은 색 */}
-      <mesh position={[0, 0.90, 0.10]} material={mats.belly} scale={[shape.body, 1, 1]}>
-        <sphereGeometry args={[0.40, 16, 12]} />
-      </mesh>
+      {spine.map((p, i) => (
+        <mesh key={i} ref={(m) => { segs.current[i] = m }}
+          position={[p.x, p.y, p.z]} material={mats.main} castShadow>
+          <sphereGeometry args={[p.r, long ? 12 : 20, long ? 10 : 16]} />
+        </mesh>
+      ))}
+      {/* 가슴 — 마디가 적은 체형만 따로 부풀린다 */}
+      {!long && (
+        <>
+          <mesh position={[0, shoulder.y - 0.03, shoulder.z + 0.57]} material={mats.main} castShadow>
+            <sphereGeometry args={[0.46 * shape.body, 18, 14]} />
+          </mesh>
+          <mesh position={[0, shoulder.y - 0.25, shoulder.z + 0.25]} material={mats.belly}>
+            <sphereGeometry args={[0.40 * shape.body, 16, 12]} />
+          </mesh>
+        </>
+      )}
 
       {/* ---------- 목 · 머리 ---------- */}
-      <group ref={neck} position={[0, 1.42, 0.55]}>
+      <group ref={neck} position={[0, shoulder.y + 0.27, shoulder.z + 0.70]}>
         {[0, 1, 2].map((i) => (
           <mesh key={i} position={[0, i * 0.20 * shape.neck, i * 0.17 * shape.neck]} material={mats.main} castShadow>
-            <sphereGeometry args={[0.24 - i * 0.028, 14, 12]} />
+            <sphereGeometry args={[(0.24 - i * 0.028) * (long ? 0.8 : 1), 14, 12]} />
           </mesh>
         ))}
         <group ref={headRef} position={[0, 0.66 * shape.neck, 0.56 * shape.neck]}>
           <Head el={el} shape={shape} mainMat={mats.main} bellyMat={mats.belly} />
         </group>
+        {/* 동양룡 갈기 */}
+        {shape.bodyType === 'eastern' && [0, 1, 2].map((i) => (
+          <mesh key={i} position={[0, 0.16 + i * 0.20, -0.10 + i * 0.14]} rotation={[-0.7, 0, 0]} material={mats.belly}>
+            <coneGeometry args={[0.13, 0.34, 4]} />
+          </mesh>
+        ))}
       </group>
 
       {/* ---------- 날개 ---------- */}
-      <group scale={shape.wingScale}>
-        <Wing side={1} geo={wingGeo} flapRef={wingR} boneMat={mats.bone} membraneMat={mats.membrane} />
-        <Wing side={-1} geo={wingGeo} flapRef={wingL} boneMat={mats.bone} membraneMat={mats.membrane} />
-      </group>
+      {shape.wingType !== 'none' && (
+        <group scale={shape.wingScale}>
+          <Wing side={1} geo={wingGeo} flapRef={wingR} boneMat={mats.bone} membraneMat={mats.membrane}
+            bones={shape.wingType === 'bat'} y={wingY} z={wingZ} tilt={0.45} />
+          <Wing side={-1} geo={wingGeo} flapRef={wingL} boneMat={mats.bone} membraneMat={mats.membrane}
+            bones={shape.wingType === 'bat'} y={wingY} z={wingZ} tilt={0.45} />
+          {/* 곤충 날개는 두 쌍 */}
+          {shape.wingPairs > 1 && (
+            <group scale={0.78}>
+              <Wing side={1} geo={wingGeo} flapRef={wingR2} boneMat={mats.bone} membraneMat={mats.membrane}
+                bones={false} y={wingY - 0.16} z={wingZ - 0.34} tilt={0.30} />
+              <Wing side={-1} geo={wingGeo} flapRef={wingL2} boneMat={mats.bone} membraneMat={mats.membrane}
+                bones={false} y={wingY - 0.16} z={wingZ - 0.34} tilt={0.30} />
+            </group>
+          )}
+        </group>
+      )}
 
       {/* ---------- 꼬리 ---------- */}
-      <group ref={tail} position={[0, 1.05, -0.68]}>
+      <group ref={tail} position={[tailBase.x, tailBase.y, tailBase.z]}>
         {[0, 1, 2, 3, 4].map((i) => (
-          <mesh key={i} position={[0, -i * 0.055, -i * 0.32 * shape.tailLen]} material={mats.main} castShadow>
-            <sphereGeometry args={[0.30 - i * 0.052, 12, 10]} />
+          <mesh key={i} position={[0, -i * 0.045, -i * 0.30 * shape.tailLen]} material={mats.main} castShadow>
+            <sphereGeometry args={[Math.max(0.05, tailBase.r * (1 - i * 0.19)), 12, 10]} />
           </mesh>
         ))}
         {/* 꼬리 끝 — 드래곤마다 다르다 */}
-        <group position={[0, -0.24, -1.52 * shape.tailLen]}>
+        <group position={[0, -0.20, -1.42 * shape.tailLen]}>
           {shape.tailTip === 'spike' && (
             <mesh rotation={[-Math.PI / 2, 0, 0]}>
               <coneGeometry args={[0.13, 0.72, 6]} />
@@ -292,27 +460,15 @@ export default function DragonModel({
       </group>
 
       {/* ---------- 다리 ---------- */}
-      {[[0.36, 0.38], [-0.36, 0.38], [0.30, -0.42], [-0.30, -0.42]].map(([x, z], i) => (
-        <group key={i} position={[x * shape.body, 0.62, z]} scale={[1, shape.legs, 1]}>
-          <mesh position={[0, -0.12, 0]} material={mats.main} castShadow>
-            <capsuleGeometry args={[0.13, 0.30, 4, 8]} />
-          </mesh>
-          <mesh position={[0, -0.40, 0.09]} material={mats.main}>
-            <boxGeometry args={[0.22, 0.11, 0.30]} />
-          </mesh>
-          {/* 발톱 */}
-          {[-0.07, 0, 0.07].map((cx, j) => (
-            <mesh key={j} position={[cx, -0.43, 0.24]} rotation={[1.25, 0, 0]}>
-              <coneGeometry args={[0.026, 0.11, 4]} />
-              <meshStandardMaterial color="#f1f5f9" roughness={0.4} />
-            </mesh>
-          ))}
-        </group>
+      {legs.map((L, i) => (
+        <Leg key={i} x={L.x} y={L.y} z={L.z} len={shape.legLen}
+          thick={shape.bodyType === 'titan' ? 1.4 : shape.bodyType === 'eastern' ? 0.65 : 1}
+          mainMat={mats.main} />
       ))}
 
       {/* ---------- 등줄기 가시 ---------- */}
       {spikes.map((sp, i) => (
-        <mesh key={i} position={[0, sp.y, sp.z]} rotation={[shape.spikeTilt, 0, 0]}>
+        <mesh key={i} position={[sp.x, sp.y, sp.z]} rotation={[shape.spikeTilt, 0, 0]}>
           <coneGeometry args={[sp.s * 0.45, sp.s * 2.2, 4]} />
           <meshStandardMaterial color={el.glow} emissive={el.glow} emissiveIntensity={0.5} roughness={0.5} />
         </mesh>

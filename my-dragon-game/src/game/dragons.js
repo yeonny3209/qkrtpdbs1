@@ -175,6 +175,15 @@ export function statsOf(dragon, level = 1, evo = 0) {
 /* ---------------- 성장 (경험치) ---------------- */
 export const expToNext = (level) => Math.round(58 * Math.pow(level, 1.52))
 
+/* 지금 상태에서 만렙까지 남은 총 경험치.
+   구슬을 "만렙까지 알아서 먹이기" 할 때 얼마나 필요한지 계산한다. */
+export function expToMax(level, exp) {
+  if (level >= MAX_LEVEL) return 0
+  let need = -exp
+  for (let lv = level; lv < MAX_LEVEL; lv++) need += expToNext(lv)
+  return Math.max(0, need)
+}
+
 /* 경험치를 넣고 레벨업을 처리한다. { level, exp, gained } 를 돌려준다. */
 export function gainExp(level, exp, amount) {
   let lv = level, ex = exp + amount, gained = 0

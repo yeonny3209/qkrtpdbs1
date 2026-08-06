@@ -17,7 +17,10 @@ import BattleScreen from './ui/BattleScreen.jsx'
 import SummonCutscene from './three/SummonCutscene.jsx'
 import DragonPreview from './ui/DragonPreview.jsx'
 import { ELEMENTS, ELEMENT_BY_ID } from './game/elements.js'
-import { DRAGONS, DRAGON_BY_ID, limitedLegends, gainExp, evoCost, evoGoldCost, MAX_EVOLUTION, MAX_LEVEL } from './game/dragons.js'
+import {
+  DRAGONS, DRAGON_BY_ID, limitedLegends, gainExp, evoCost, evoGoldCost,
+  MAX_EVOLUTION, MAX_LEVEL, expToMax,
+} from './game/dragons.js'
 import { createGachaState, pullMany, bestOf, costOf } from './game/gacha.js'
 import { CAMPAIGN, CHAPTER_BY_ID, TOTAL_STAGES } from './game/campaign.js'
 import { buildEncounter, stageReward } from './game/encounter.js'
@@ -36,7 +39,10 @@ import {
   INVENTORY_MAX, SLOT_IDS, gearInfo,
 } from './game/equipment.js'
 import { salvageStones, runeInfo } from './game/runes.js'
-import { freshOrbs, expToOrbs, addOrbs, orbCount, EXP_ORBS, ORB_BY_ID, spendOrbs } from './game/orbs.js'
+import {
+  freshOrbs, expToOrbs, addOrbs, orbCount, EXP_ORBS, ORB_BY_ID,
+  spendOrbs, planFeed, spendPlan,
+} from './game/orbs.js'
 import {
   freshTower, towerStage, towerEnemies, climbRewards, hatchEgg,
   TOWER_MAX_ROUNDS, MAX_FLOOR,
@@ -205,11 +211,23 @@ export default function App() {
     const n = Math.min(count, cur.orbs?.[orbId] || 0)
     if (n <= 0) return cur
     const g = gainExp(d.level, d.exp, orb.exp * n)
-    let orbs = cur.orbs
-    for (let i = 0; i < n; i++) orbs = spendOrbs(orbs, orbId, 1)
     return {
       ...cur,
-      orbs,
+      orbs: spendOrbs(cur.orbs, orbId, n),
+      dragons: { ...cur.dragons, [dragonId]: { ...d, level: g.level, exp: g.exp } },
+    }
+  })
+
+  /* 만렙까지 알아서 먹인다 — 큰 구슬부터 넘치지 않게 */
+  const autoFeed = (dragonId) => update((cur) => {
+    const d = cur.dragons[dragonId]
+    if (!d || d.level >= MAX_LEVEL) return cur
+    const { plan, total, count } = planFeed(cur.orbs, expToMax(d.level, d.exp))
+    if (count <= 0) return cur
+    const g = gainExp(d.level, d.exp, total)
+    return {
+      ...cur,
+      orbs: spendPlan(cur.orbs, plan),
       dragons: { ...cur.dragons, [dragonId]: { ...d, level: g.level, exp: g.exp } },
     }
   })
@@ -553,7 +571,7 @@ export default function App() {
           dragons={S.dragons} team={S.team} gold={S.gold} gems={S.gems} stones={S.stones ?? 0}
           orbs={S.orbs || {}}
           inventory={S.inventory || []} runeBag={S.runeBag || []} gear={S.gear || {}}
-          onToggleTeam={toggleTeam} onEvolve={evolve} onFeed={feedOrb}
+          onToggleTeam={toggleTeam} onEvolve={evolve} onFeed={feedOrb} onAutoFeed={autoFeed}
           gearActions={{
             onEquip: equipGear, onUnequip: unequipGear,
             onEquipRune: equipRune, onUnequipRune: unequipRune,

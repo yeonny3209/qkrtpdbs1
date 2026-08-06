@@ -6,10 +6,10 @@ import DragonPreview from './DragonPreview.jsx'
 import GearPanel from './GearPanel.jsx'
 import { ELEMENT_BY_ID } from '../game/elements.js'
 import {
-  DRAGON_BY_ID, RARITY_BY_ID, expToNext, MAX_LEVEL,
+  DRAGON_BY_ID, RARITY_BY_ID, expToNext, MAX_LEVEL, expToMax,
   STAT_KEYS, STAT_LABEL, MAX_EVOLUTION, EVOLUTIONS, evoCost, evoGoldCost, evolutionPassives,
 } from '../game/dragons.js'
-import { EXP_ORBS } from '../game/orbs.js'
+import { EXP_ORBS, planFeed } from '../game/orbs.js'
 import { skillsetOf, passiveDesc } from '../game/skills.js'
 import { SLOT_IDS, finalStats, gearedPower } from '../game/equipment.js'
 import { runeStatMul } from '../game/runes.js'
@@ -20,10 +20,87 @@ export const TEAM_SIZE = 3
    결정 동굴을 돌면 중복이 안 떠도 진화를 이어갈 수 있게 하는 장치다. */
 export const STONES_PER_COPY = 40
 
+/* ==================================================================
+   경험 구슬 먹이기 — 개수를 정해 한 번에 쓴다
+
+   한 개씩만 누르게 하면 만렙까지 수백 번을 눌러야 한다.
+   구슬마다 수량 조절을 두고, "만렙까지 알아서"도 따로 뺐다.
+   ================================================================== */
+function OrbFeeder({ orbs, level, exp, onFeed, onAuto }) {
+  /* 구슬마다 지금 고른 개수 */
+  const [qty, setQty] = useState({})
+  const need = expToMax(level, exp)
+  const auto = planFeed(orbs, need)
+
+  const pick = (id) => Math.max(1, Math.min(qty[id] ?? 1, orbs[id] || 0))
+  const bump = (id, d) => setQty((q) => {
+    const have = orbs[id] || 0
+    return { ...q, [id]: Math.max(1, Math.min((q[id] ?? 1) + d, have)) }
+  })
+
+  return (
+    <>
+      <div className="mt-2 flex items-center justify-between">
+        <span className="text-[10px] text-slate-500">경험 구슬을 먹여 레벨을 올립니다</span>
+        <span className="text-[10px] tabular-nums text-slate-500">만렙까지 {need.toLocaleString()} EXP</span>
+      </div>
+
+      {/* 만렙까지 한 번에 */}
+      <button onClick={onAuto} disabled={auto.count <= 0}
+        className={`mt-1.5 w-full rounded-xl py-2 text-[12px] font-black transition ${
+          auto.count > 0
+            ? 'bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:brightness-110'
+            : 'cursor-not-allowed bg-slate-800 text-slate-600'
+        }`}>
+        {auto.count > 0
+          ? `만렙까지 알아서 먹이기 (구슬 ${auto.count}개 · ${auto.total.toLocaleString()} EXP)`
+          : '먹일 구슬이 없습니다'}
+      </button>
+
+      {/* 종류별로 개수를 정해서 */}
+      <div className="mt-2 space-y-1">
+        {EXP_ORBS.map((orb) => {
+          const have = orbs[orb.id] || 0
+          const n = pick(orb.id)
+          return (
+            <div key={orb.id}
+              className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 ${
+                have > 0 ? 'border-white/12 bg-black/30' : 'border-white/5 bg-black/20 opacity-45'
+              }`}>
+              <span className="text-sm">{orb.icon}</span>
+              <span className="w-9 shrink-0 text-[10px] tabular-nums text-slate-400">{have}개</span>
+              {/* 수량 조절 */}
+              <button onClick={() => bump(orb.id, -1)} disabled={have <= 0}
+                className="h-6 w-6 shrink-0 rounded bg-white/10 text-[13px] font-black text-white hover:bg-white/20 disabled:opacity-30">−</button>
+              <span className="w-7 shrink-0 text-center text-[12px] font-black tabular-nums text-white">
+                {have > 0 ? n : 0}
+              </span>
+              <button onClick={() => bump(orb.id, +1)} disabled={have <= 0 || n >= have}
+                className="h-6 w-6 shrink-0 rounded bg-white/10 text-[13px] font-black text-white hover:bg-white/20 disabled:opacity-30">+</button>
+              <button onClick={() => setQty((q) => ({ ...q, [orb.id]: have }))} disabled={have <= 0}
+                className="shrink-0 rounded bg-white/10 px-1.5 py-1 text-[10px] font-bold text-slate-300 hover:bg-white/20 disabled:opacity-30">
+                전부
+              </button>
+              <button onClick={() => { onFeed(orb.id, n); setQty((q) => ({ ...q, [orb.id]: 1 })) }}
+                disabled={have <= 0}
+                title={`${orb.name} ${n}개 — ${(orb.exp * n).toLocaleString()} EXP`}
+                className={`ml-auto shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-black transition ${
+                  have > 0 ? 'bg-sky-500/80 text-white hover:bg-sky-400' : 'cursor-not-allowed bg-slate-800 text-slate-600'
+                }`}>
+                +{(orb.exp * (have > 0 ? n : 0)).toLocaleString()}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
 export default function RosterScreen({
   dragons, team, gold, gems = 0, stones = 0, orbs = {},
   inventory = [], runeBag = [], gear = {},
-  onToggleTeam, onEvolve, onFeed, onBack, gearActions = {},
+  onToggleTeam, onEvolve, onFeed, onAutoFeed, onBack, gearActions = {},
 }) {
   const [detail, setDetail] = useState(null)
   /* 드래곤별 장착 정보 — gear[id] = { loadout: {slot:uid}, rune: uid } */
@@ -108,7 +185,7 @@ export default function RosterScreen({
 
       {/* 상세 · 진화 */}
       {d && (
-        <DetailPanel o={d} gold={gold} gems={gems} stones={stones} orbs={orbs} onFeed={onFeed}
+        <DetailPanel o={d} gold={gold} gems={gems} stones={stones} orbs={orbs} onFeed={onFeed} onAutoFeed={onAutoFeed}
           worn={wornOf(d.id)} runeMul={runeMulOf(d.id)}
           loadout={gear[d.id]?.loadout || {}} runeId={gear[d.id]?.rune || null}
           inventory={inventory} runeBag={runeBag} gearActions={gearActions}
@@ -120,7 +197,7 @@ export default function RosterScreen({
 
 function DetailPanel({
   o, gold, gems, stones, orbs, worn, runeMul, loadout, runeId, inventory, runeBag, gearActions,
-  onEvolve, onFeed, onClose,
+  onEvolve, onFeed, onAutoFeed, onClose,
 }) {
   const skillset = skillsetOf(o.dragon)
   const el = ELEMENT_BY_ID[o.dragon.element]
@@ -165,29 +242,11 @@ function DetailPanel({
               <div className="h-full rounded-full bg-sky-400"
                 style={{ width: `${o.level >= MAX_LEVEL ? 100 : Math.min(100, (o.exp / expToNext(o.level)) * 100)}%` }} />
             </div>
-            {/* 구슬을 먹여 레벨을 올린다 */}
+            {/* 구슬을 먹여 레벨을 올린다 — 한 번에 여러 개 쓸 수 있다 */}
             {o.level < MAX_LEVEL && (
-              <>
-                <div className="mt-2 text-[10px] text-slate-500">경험 구슬을 먹여 레벨을 올립니다</div>
-                <div className="mt-1 grid grid-cols-4 gap-1">
-                  {EXP_ORBS.map((orb) => {
-                    const have = orbs[orb.id] || 0
-                    return (
-                      <button key={orb.id} disabled={have <= 0}
-                        onClick={() => onFeed(o.id, orb.id, 1)}
-                        onContextMenu={(e) => { e.preventDefault(); if (have > 0) onFeed(o.id, orb.id, have) }}
-                        title={`${orb.name} — ${orb.exp.toLocaleString()} EXP (우클릭: 전부)`}
-                        className={`rounded-lg border py-1.5 text-center transition ${
-                          have > 0 ? 'border-white/12 bg-black/30 hover:border-sky-400/60 hover:bg-sky-400/10'
-                            : 'cursor-not-allowed border-white/5 bg-black/20 opacity-40'
-                        }`}>
-                        <div className="text-sm leading-none">{orb.icon}</div>
-                        <div className="mt-0.5 text-[10px] font-black tabular-nums text-white">{have}</div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </>
+              <OrbFeeder orbs={orbs} level={o.level} exp={o.exp}
+                onFeed={(orbId, n) => onFeed(o.id, orbId, n)}
+                onAuto={() => onAutoFeed(o.id)} />
             )}
           </div>
 

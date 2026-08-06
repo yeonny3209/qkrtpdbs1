@@ -58,3 +58,42 @@ export function spendOrbs(bag, orbId, n = 1) {
   out[orbId] = Math.max(0, out[orbId] - n)
   return out
 }
+
+/* 필요한 경험치에 맞춰 어떤 구슬을 몇 개 쓸지 계산한다.
+
+   큰 구슬부터 넘치지 않는 만큼 담고, 마지막에 모자란 몫을 채울
+   가장 작은 구슬 하나를 더 얹는다. 딱 맞아떨어지길 기다리면
+   영영 만렙이 안 되므로, 마지막 한 개는 넘치는 걸 감수한다.
+
+   needExp 가 0 이하이거나 구슬이 없으면 빈 계획을 돌려준다. */
+export function planFeed(bag, needExp) {
+  const plan = freshOrbs()
+  let left = Math.max(0, Math.round(needExp))
+  let total = 0
+  if (left <= 0) return { plan, total, count: 0 }
+
+  const have = { ...freshOrbs(), ...bag }
+  /* 큰 것부터 — 넘치지 않는 선까지만 */
+  for (let i = EXP_ORBS.length - 1; i >= 0; i--) {
+    const o = EXP_ORBS[i]
+    if (left <= 0) break
+    const want = Math.floor(left / o.exp)
+    const n = Math.min(want, have[o.id])
+    if (n > 0) { plan[o.id] += n; have[o.id] -= n; left -= n * o.exp; total += n * o.exp }
+  }
+  /* 아직 모자라면, 채울 수 있는 가장 작은 구슬 하나를 더 얹는다 */
+  if (left > 0) {
+    const fill = EXP_ORBS.find((o) => have[o.id] > 0 && o.exp >= left)
+      || [...EXP_ORBS].reverse().find((o) => have[o.id] > 0)
+    if (fill) { plan[fill.id] += 1; total += fill.exp; left -= fill.exp }
+  }
+  const count = ORB_IDS.reduce((a, id) => a + plan[id], 0)
+  return { plan, total, count }
+}
+
+/* 계획대로 가방에서 뺀다 */
+export function spendPlan(bag, plan) {
+  const out = { ...freshOrbs(), ...bag }
+  for (const id of ORB_IDS) out[id] = Math.max(0, out[id] - (plan[id] || 0))
+  return out
+}
