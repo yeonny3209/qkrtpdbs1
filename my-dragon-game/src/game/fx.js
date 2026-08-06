@@ -18,7 +18,8 @@ export function readAction(log, from = 0) {
   let skill = null
   let kind = null
   let element = null
-  const hits = []      // { uid, value, crit, miss }
+  const hits = []      // { uid, value, crit, miss } — 이번 공격의 직접 타격
+  const dots = []      // 화상·재생 같은 지속 효과 (같은 순간에 함께 찍힌다)
   const heals = []     // { uid, value }
   const downs = []
   const statuses = []
@@ -31,9 +32,16 @@ export function readAction(log, from = 0) {
         /* 첫 번째 시전만 잡는다. 반격처럼 뒤따라오는 것은 별개 행동이 아니다. */
         if (!actor) { actor = e.uid; skill = e.skill ?? null; kind = e.kind ?? null; element = e.element ?? null }
         break
-      case 'hit': hits.push({ uid: e.uid, value: e.value || 0, crit: !!e.crit }); break
+      /* 화상·재생 같은 지속 효과는 이번 공격에 맞은 것이 아니다.
+         구분하지 않으면 엉뚱한 유닛이 피격 모션을 하고, 심지어
+         공격한 본인이 자기 화상 때문에 "맞은" 것으로 잡힌다. */
+      case 'hit':
+        (e.dot ? dots : hits).push({
+          uid: e.uid, value: e.value || 0, crit: !!e.crit, reflect: !!e.reflect,
+        })
+        break
       case 'miss': hits.push({ uid: e.uid, value: 0, miss: true }); break
-      case 'heal': heals.push({ uid: e.uid, value: e.value || 0 }); break
+      case 'heal': (e.dot ? dots : heals).push({ uid: e.uid, value: e.value || 0 }); break
       case 'down': downs.push(e.uid); break
       case 'status': statuses.push({ uid: e.uid, key: e.key }); break
       case 'flee': fled = true; break
@@ -43,7 +51,7 @@ export function readAction(log, from = 0) {
   }
 
   /* 아무 일도 없었으면 (건너뛰기 같은 것) 모션을 걸지 않는다 */
-  if (!actor && !hits.length && !heals.length) return null
+  if (!actor && !hits.length && !heals.length && !dots.length) return null
 
   const targets = [...new Set(hits.map((h) => h.uid))]
   const allMissed = hits.length > 0 && hits.every((h) => h.miss)
@@ -53,6 +61,7 @@ export function readAction(log, from = 0) {
     kind,
     element,
     hits,
+    dots,
     heals,
     downs,
     statuses,
@@ -68,6 +77,9 @@ export function readAction(log, from = 0) {
 /* 그 유닛이 이번 연출에서 어떤 역할인가 */
 export function roleOf(action, uid) {
   if (!action || !uid) return null
+  /* 시전자는 가시 비늘·반격에 되맞았더라도 공격 모션을 유지한다.
+     한 번의 행동에 두 모션을 겹치면 어느 쪽도 제대로 안 보인다.
+     되맞은 피해는 숫자로만 알린다. */
   if (action.actor === uid) return 'attack'
   if (action.hits.some((h) => h.uid === uid && !h.miss)) return 'hurt'
   if (action.hits.some((h) => h.uid === uid && h.miss)) return 'dodge'
@@ -89,10 +101,16 @@ export function popsFor(action, uid) {
   if (!action) return []
   const out = []
   action.hits.filter((h) => h.uid === uid).forEach((h) => {
-    out.push(h.miss ? { text: 'MISS', miss: true } : { text: `-${h.value}`, crit: h.crit })
+    out.push(h.miss
+      ? { text: 'MISS', miss: true }
+      : { text: `-${h.value}`, crit: h.crit, reflect: h.reflect })
   })
   action.heals.filter((h) => h.uid === uid && h.value > 0).forEach((h) => {
     out.push({ text: `+${h.value}`, heal: true })
+  })
+  /* 지속 피해·재생은 작게 따로 보여준다 — 이번 타격과 섞이면 안 된다 */
+  ;(action.dots || []).filter((d) => d.uid === uid && d.value > 0).forEach((d) => {
+    out.push({ text: `${d.value}`, dot: true })
   })
   return out
 }

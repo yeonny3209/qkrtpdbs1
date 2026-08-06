@@ -16,18 +16,21 @@ import {
 } from '../game/battle.js'
 import { readAction, roleOf, shakeStrength, popsFor } from '../game/fx.js'
 import {
-  attackPose, hurtPose, dodgePose, progress,
-  ATTACK_MS, HURT_MS, IMPACT_AT, shakeAmount,
+  attackPose, hurtPose, dodgePose, progress, attackElapsed, trailPoses, chargeGlow,
+  ATTACK_MS, ATTACK_TOTAL_MS, HURT_MS, IMPACT_AT, HITSTOP_MS, shakeAmount,
 } from '../three/attackPose.js'
 
 /* 유닛 하나를 3D로 세운다.
    role 은 이번 행동에서 이 유닛이 맡은 역할 — 공격/피격/회피.
    startedAt 은 그 행동이 시작된 시각이라, 프레임마다 진행도를 다시 센다. */
-function BattleDragon({ unit, flip, aimed, role, startedAt }) {
+function BattleDragon({ unit, flip, aimed, role, startedAt, ult }) {
   const g = useRef()
+  const trail = useRef([])          // 잔상 세 겹
+  const glow = useRef()             // 힘을 모을 때 부푸는 구
   const t0 = useRef(Math.random() * 10)
   /* 오른쪽(아군)은 왼쪽으로, 왼쪽(적)은 오른쪽으로 달려든다 */
   const dir = flip ? 1 : -1
+  const el = ELEMENT_BY_ID[unit.dragon.element] || ELEMENT_BY_ID.fire
 
   useFrame((state) => {
     if (!g.current) return
@@ -35,67 +38,156 @@ function BattleDragon({ unit, flip, aimed, role, startedAt }) {
     const idleY = Math.sin(t * 1.4) * 0.05
 
     let pose = null
+    let p = 0
     if (role && startedAt) {
-      const ms = role === 'attack' ? ATTACK_MS : HURT_MS
-      const p = progress(performance.now() - startedAt, ms)
-      if (p < 1) {
-        pose = role === 'attack' ? attackPose(p)
-          : role === 'hurt' ? hurtPose(p)
-            : role === 'dodge' ? dodgePose(p) : null
+      const raw = performance.now() - startedAt
+      if (role === 'attack') {
+        /* 히트스톱 — 꽂히는 순간 잠깐 멈춘다 */
+        p = progress(attackElapsed(raw), ATTACK_MS)
+        if (p < 1) pose = attackPose(p)
+      } else {
+        p = progress(raw, HURT_MS)
+        if (p < 1) pose = role === 'hurt' ? hurtPose(p) : role === 'dodge' ? dodgePose(p) : null
       }
     }
 
+    const rest = unit.alive ? 0 : (flip ? -1.2 : 1.2)
     if (pose) {
       g.current.position.x = dir * pose.push + (pose.shake || 0)
       g.current.position.y = idleY + pose.lift
-      g.current.rotation.z = (unit.alive ? 0 : (flip ? -1.2 : 1.2)) + dir * pose.tilt
+      g.current.rotation.z = rest + dir * pose.tilt
       const s = 0.92 * (pose.scale ?? 1)
       g.current.scale.set(s, s, s)
     } else {
       g.current.position.x = 0
       g.current.position.y = idleY
-      /* 쓰러지면 옆으로 눕는다 */
-      g.current.rotation.z = unit.alive ? 0 : (flip ? -1.2 : 1.2)
+      g.current.rotation.z = rest
       g.current.scale.set(0.92, 0.92, 0.92)
     }
     g.current.rotation.y = (flip ? Math.PI : 0) + (aimed ? Math.sin(t * 6) * 0.05 : 0)
+
+    /* 잔상 — 찌르는 구간에서만 뒤따라 붙는다 */
+    const ghosts = role === 'attack' && pose ? trailPoses(p) : []
+    trail.current.forEach((m, i) => {
+      if (!m) return
+      const gh = ghosts[i]
+      m.visible = !!gh
+      if (!gh) return
+      m.position.set(dir * gh.push, idleY + gh.lift, 0)
+      m.rotation.z = rest + dir * gh.tilt
+      const s = 0.92 * (gh.scale ?? 1)
+      m.scale.set(s, s, s)
+      if (m.material) m.material.opacity = gh.opacity
+    })
+
+    /* 힘을 모으는 빛 — 궁극기에서만 크게 부푼다 */
+    if (glow.current) {
+      const c = role === 'attack' ? chargeGlow(p) : 0
+      const k = c * (ult ? 1 : 0.45)
+      glow.current.visible = k > 0.01
+      glow.current.scale.setScalar(0.4 + k * 2.4)
+      if (glow.current.material) glow.current.material.opacity = 0.55 * k
+    }
   })
 
   return (
-    <group ref={g} position={[0, -1.35, 0]} scale={0.92}>
-      <DragonModel
-        elementId={unit.dragon.element} rarity={unit.dragon.rarity} dragonId={unit.dragon.id}
-        animate={unit.alive}
-        /* 공격 중엔 날개를 펼치고 고개를 든다 — 기존 포효 자세를 재사용한다 */
-        roar={role === 'attack'} />
+    <group position={[0, -1.35, 0]}>
+      {/* 잔상 — 본체보다 먼저 그려 뒤에 깔리게 한다 */}
+      {[0, 1, 2].map((i) => (
+        <mesh key={i} ref={(m) => { trail.current[i] = m }} visible={false}>
+          <sphereGeometry args={[0.62, 12, 10]} />
+          <meshBasicMaterial color={el.glow} transparent opacity={0} depthWrite={false} />
+        </mesh>
+      ))}
+      {/* 힘을 모으는 구 */}
+      <mesh ref={glow} position={[0, 1.15, 0]} visible={false}>
+        <sphereGeometry args={[0.7, 16, 12]} />
+        <meshBasicMaterial color={el.glow} transparent opacity={0} depthWrite={false} />
+      </mesh>
+      <group ref={g} scale={0.92}>
+        <DragonModel
+          elementId={unit.dragon.element} rarity={unit.dragon.rarity} dragonId={unit.dragon.id}
+          animate={unit.alive}
+          /* 공격 중엔 날개를 펼치고 고개를 든다 — 기존 포효 자세를 재사용한다 */
+          roar={role === 'attack'} />
+      </group>
     </group>
   )
 }
 
-function UnitStage({ unit, flip, aimed, role, startedAt }) {
+function UnitStage({ unit, flip, aimed, role, startedAt, ult }) {
   const el = ELEMENT_BY_ID[unit.dragon.element]
   return (
     <Canvas camera={{ fov: 42, position: [0, 0.3, 7.2] }} gl={{ alpha: true }}>
       <ambientLight intensity={0.75} />
       <directionalLight position={[3, 6, 4]} intensity={1.1} />
       <pointLight position={[0, 2, 4]} intensity={7} distance={14} color={el.glow} />
-      <BattleDragon unit={unit} flip={flip} aimed={aimed} role={role} startedAt={startedAt} />
+      <BattleDragon unit={unit} flip={flip} aimed={aimed} role={role} startedAt={startedAt} ult={ult} />
     </Canvas>
   )
 }
 
 /* 타격 순간의 이펙트 — 3D 두 무대가 서로 다른 캔버스라
    그 사이를 가로지르는 연출은 DOM 으로 얹는다. */
-function ImpactBurst({ color, ult }) {
+function ImpactBurst({ color, ult, crit }) {
+  const big = ult || crit
+  /* 사방으로 튀는 불티 — 각도만 정해두고 CSS 변수로 넘긴다 */
+  const sparks = ult ? 14 : 9
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+      {/* 중심 폭발 */}
       <div className="dm-burst rounded-full"
         style={{
-          width: ult ? 260 : 150, height: ult ? 260 : 150,
-          background: `radial-gradient(circle, ${color}cc 0%, ${color}55 38%, transparent 70%)`,
+          width: ult ? 300 : big ? 200 : 150, height: ult ? 300 : big ? 200 : 150,
+          background: `radial-gradient(circle, #fff 0%, ${color}dd 26%, ${color}44 52%, transparent 74%)`,
         }} />
-      {/* 베인 자국 */}
+      {/* 퍼져나가는 충격파 고리 — 두 겹이 시차를 두고 나간다 */}
+      {[0, 1].map((i) => (
+        <div key={i} className="dm-ring absolute rounded-full"
+          style={{
+            width: ult ? 150 : 100, height: ult ? 150 : 100,
+            border: `${ult ? 4 : 3}px solid ${color}`,
+            animationDelay: `${i * 110}ms`,
+            boxShadow: `0 0 22px ${color}`,
+          }} />
+      ))}
+      {/* 베인 자국 — 엇갈리게 두 줄 */}
       <div className="dm-slash absolute" style={{ background: color, boxShadow: `0 0 18px ${color}` }} />
+      {big && (
+        <div className="dm-slash dm-slash-b absolute"
+          style={{ background: '#fff', boxShadow: `0 0 22px ${color}` }} />
+      )}
+      {/* 불티 */}
+      {Array.from({ length: sparks }, (_, i) => {
+        const ang = (360 / sparks) * i + (i % 2 ? 12 : 0)
+        return (
+          <span key={i} className="dm-spark absolute"
+            style={{
+              '--ang': `${ang}deg`,
+              '--dist': `${(ult ? 150 : 100) + (i % 3) * 22}px`,
+              background: color,
+              animationDelay: `${(i % 4) * 35}ms`,
+              boxShadow: `0 0 10px ${color}`,
+            }} />
+        )
+      })}
+    </div>
+  )
+}
+
+/* 궁극기 컷인 — 스킬 이름이 화면을 가로지른다 */
+function UltCutIn({ name, icon, color }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center overflow-hidden">
+      <div className="dm-cutin-bar absolute h-24 w-full"
+        style={{ background: `linear-gradient(90deg, transparent, ${color}55 20%, ${color}88 50%, ${color}55 80%, transparent)` }} />
+      <div className="dm-cutin-text flex items-center gap-3">
+        <span className="text-4xl">{icon}</span>
+        <span className="text-3xl font-black tracking-tight text-white"
+          style={{ textShadow: `0 0 18px ${color}, 0 3px 10px rgba(0,0,0,.9)` }}>
+          {name}
+        </span>
+      </div>
     </div>
   )
 }
@@ -110,10 +202,12 @@ function Pops({ pops }) {
           className={`dm-pop font-black tabular-nums ${
             p.miss ? 'text-slate-300 text-xl'
               : p.heal ? 'text-emerald-300 text-2xl'
-                : p.crit ? 'text-amber-300 text-4xl' : 'text-white text-2xl'
+                : p.dot ? 'text-orange-300 text-lg'
+                  : p.reflect ? 'text-rose-300 text-xl'
+                    : p.crit ? 'dm-pop-crit text-amber-300 text-5xl' : 'text-white text-3xl'
           }`}
-          style={{ animationDelay: `${i * 90}ms`, textShadow: '0 2px 8px rgba(0,0,0,.9)' }}>
-          {p.crit && !p.miss ? '치명! ' : ''}{p.text}
+          style={{ animationDelay: `${i * 90}ms`, textShadow: '0 2px 10px rgba(0,0,0,.95)' }}>
+          {p.crit && !p.miss ? '치명! ' : ''}{p.dot ? '🔥' : ''}{p.reflect ? '↩' : ''}{p.text}
         </span>
       ))}
     </div>
@@ -180,8 +274,8 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
     if (!fx) return
     setImpact(false)
     const hitAt = setTimeout(() => setImpact(true), ATTACK_MS * IMPACT_AT)
-    const off = setTimeout(() => setImpact(false), ATTACK_MS * IMPACT_AT + 620)
-    const done = setTimeout(() => setFx(null), ATTACK_MS + 120)
+    const off = setTimeout(() => setImpact(false), ATTACK_MS * IMPACT_AT + HITSTOP_MS + 560)
+    const done = setTimeout(() => setFx(null), ATTACK_TOTAL_MS + 140)
     return () => { clearTimeout(hitAt); clearTimeout(off); clearTimeout(done) }
   }, [fx])
 
@@ -192,7 +286,7 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
     if (!fx || !strength) { setShake(0); return }
     let raf = 0
     const tick = () => {
-      const p = progress(performance.now() - fx.at - ATTACK_MS * IMPACT_AT, 420)
+      const p = progress(performance.now() - fx.at - ATTACK_MS * IMPACT_AT - HITSTOP_MS, 460)
       setShake(shakeAmount(p, strength))
       if (p < 1) raf = requestAnimationFrame(tick)
     }
@@ -215,7 +309,7 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
     const cur = currentUnit(st)
     if (!cur || cur.side !== 'enemy') return
     /* 연출이 끝난 뒤에 다음 행동으로 넘어간다 */
-    const id = setTimeout(() => runAction(() => enemyAction(st)), ATTACK_MS + 160)
+    const id = setTimeout(() => runAction(() => enemyAction(st)), ATTACK_TOTAL_MS + 180)
     return () => clearTimeout(id)
   }, [st, runAction])
 
@@ -244,6 +338,13 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
   }
 
   const focusEl = ELEMENT_BY_ID[(actor || allyUnits[0]).dragon.element]
+  /* 연출용 — 지금 쓰인 스킬과 색 */
+  const burstEl = ELEMENT_BY_ID[fx?.action?.element || focusEl.id] || focusEl
+  const ultInfo = useMemo(() => {
+    if (fx?.action?.kind !== 'ult' || !fx.action.actor) return null
+    const u = st.units.find((x) => x.uid === fx.action.actor)
+    return u ? skillsOf(u.dragon).find((s) => s.id === fx.action.skill) : null
+  }, [fx, st.units])
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#07070e]"
@@ -298,15 +399,26 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
           return (
             <div key={lane.side} className="relative h-full flex-1">
               <UnitStage unit={shown} flip={lane.flip} aimed={!!pending}
-                role={role} startedAt={fx?.at} />
+                role={role} startedAt={fx?.at} ult={fx?.action?.kind === 'ult'} />
               {impact && (role === 'hurt') && (
-                <ImpactBurst color={burstColor} ult={fx?.action?.kind === 'ult'} />
+                <ImpactBurst color={burstColor}
+                  ult={fx?.action?.kind === 'ult'} crit={fx?.action?.crit} />
               )}
               <Pops pops={pops} />
             </div>
           )
         })}
+        {/* 궁극기 컷인 — 화면 전체를 가로지른다 */}
+        {fx?.action?.kind === 'ult' && ultInfo && (
+          <UltCutIn name={ultInfo.name} icon={ultInfo.icon} color={burstEl.glow} />
+        )}
       </div>
+
+      {/* 궁극기 순간 화면 전체가 속성 색으로 번쩍인다 */}
+      {impact && fx?.action?.kind === 'ult' && (
+        <div className="dm-flash pointer-events-none absolute inset-0 z-30"
+          style={{ background: burstEl.glow }} />
+      )}
 
       {/* 로그 */}
       {flash && (

@@ -193,7 +193,11 @@ function rollDamage(state, atk, def, skill, hitIndex = 0) {
   return { dmg: Math.max(1, Math.round(dmg)), crit }
 }
 
-function applyDamage(state, target, amount) {
+/* note 를 주면 피해 로그를 여기서 남긴다.
+   호출부에서 뒤늦게 남기면 "쓰러짐"이 원인 타격보다 먼저 찍혀
+   기록만 보고는 무엇에 죽었는지 알 수 없다. */
+function applyDamage(state, target, amount, note) {
+  if (!target.alive) return 0
   /* 보호 룬 · 단단한 껍질 패시브 — 받는 피해를 먼저 줄인다 */
   const cut = runeEffect(target.rune, 'guard') + passiveEffect(target, 'bulwark')
   let dealt = cut > 0 ? Math.max(1, Math.round(amount * Math.max(0.1, 1 - cut))) : amount
@@ -204,6 +208,7 @@ function applyDamage(state, target, amount) {
     dealt = Math.max(1, dealt - absorb)
   }
   target.hp = clamp(target.hp - dealt, 0, target.maxHp)
+  if (note) state.log.push({ ...note(dealt), t: 'hit', uid: target.uid, value: dealt })
   if (target.hp === 0) {
     /* 불침의 의지 — 전투당 한 번, 체력 1로 버틴다 */
     if (passiveEffect(target, 'vigil') && !target.vigilUsed) {
@@ -219,6 +224,10 @@ function applyDamage(state, target, amount) {
 }
 
 function applyHeal(state, target, amount) {
+  /* 쓰러진 유닛은 회복으로 되살아나지 않는다.
+     이 문이 없으면 가시 비늘에 죽은 공격자를 자기 흡혈이 살려내
+     "HP 는 있는데 죽어 있는" 유령이 만들어진다. */
+  if (!target.alive) return 0
   const before = target.hp
   target.hp = clamp(target.hp + amount, 0, target.maxHp)
   return target.hp - before
@@ -325,9 +334,9 @@ export function castSkill(state, skillId, targetUid) {
           continue
         }
         const { dmg, crit } = rollDamage(state, actor, target, skill, h)
-        const dealt = applyDamage(state, target, dmg)
+        const dealt = applyDamage(state, target, dmg,
+          (v) => ({ crit, text: `${target.dragon.name} -${v}${crit ? ' 치명타!' : ''}` }))
         totalDealt += dealt
-        state.log.push({ t: 'hit', uid: target.uid, value: dealt, crit, text: `${target.dragon.name} -${dealt}${crit ? ' 치명타!' : ''}` })
         /* 맹독 송곳니 — 때릴 때 화상을 남긴다 */
         const venom = passiveEffect(actor, 'venom')
         if (venom && target.alive && state.rng() * 100 < venom) {
@@ -337,13 +346,13 @@ export function castSkill(state, skillId, targetUid) {
            반격(룬)과 달리 확률이 아니라 항상 터지므로 수치를 낮게 뒀다. */
         const thorns = passiveEffect(target, 'thorns')
         if (thorns > 0 && actor.alive) {
-          const back = Math.max(1, Math.round(dealt * thorns))
-          const hurt = applyDamage(state, actor, back)
-          state.log.push({ t: 'hit', uid: actor.uid, value: hurt, text: `${target.dragon.name} 가시 비늘! ${actor.dragon.name} -${hurt}` })
+          applyDamage(state, actor, Math.max(1, Math.round(dealt * thorns)),
+            (v) => ({ reflect: true, text: `${target.dragon.name} 가시 비늘! ${actor.dragon.name} -${v}` }))
         }
-        /* 흡혈 — 스킬 · 룬 · 패시브를 함께 적용한다 */
+        /* 흡혈 — 스킬 · 룬 · 패시브를 함께 적용한다.
+           가시 비늘에 맞아 쓰러졌을 수도 있으니 살아있는지 다시 본다. */
         const drainPct = (skill.drain || 0) + runeEffect(actor.rune, 'drain') + passiveEffect(actor, 'lifesteal')
-        if (drainPct > 0) {
+        if (drainPct > 0 && actor.alive) {
           const back = applyHeal(state, actor, Math.round(dealt * drainPct))
           if (back > 0) state.log.push({ t: 'heal', uid: actor.uid, value: back, text: `${actor.dragon.name} +${back} 흡혈` })
         }
@@ -352,8 +361,8 @@ export function castSkill(state, skillId, targetUid) {
         const counter = runeEffect(target.rune, 'counter')
         if (counter > 0 && target.alive && actor.alive && state.rng() < counter) {
           const back = rollDamage(state, target, actor, BASIC_ATTACK, 0)
-          const hurt = applyDamage(state, actor, back.dmg)
-          state.log.push({ t: 'hit', uid: actor.uid, value: hurt, text: `${target.dragon.name} 반격! ${actor.dragon.name} -${hurt}` })
+          applyDamage(state, actor, back.dmg,
+            (v) => ({ reflect: true, text: `${target.dragon.name} 반격! ${actor.dragon.name} -${v}` }))
         }
       }
     }
@@ -399,20 +408,22 @@ function tickStatuses(state, unit) {
   const regen = runeEffect(unit.rune, 'regen') + passiveEffect(unit, 'mend')
   if (regen > 0 && unit.alive) {
     const heal = applyHeal(state, unit, Math.max(1, Math.round(unit.maxHp * regen)))
-    if (heal > 0) state.log.push({ t: 'heal', uid: unit.uid, value: heal, text: `${unit.dragon.name} 재생 +${heal}` })
+    if (heal > 0) state.log.push({ t: 'heal', uid: unit.uid, value: heal, dot: true, text: `${unit.dragon.name} 재생 +${heal}` })
   }
   const keep = []
   for (const s of unit.statuses) {
-    if (s.key === 'burn') {
+    if (s.key === 'burn' && unit.alive) {
       const dmg = Math.max(1, Math.round(unit.maxHp * s.value))
       unit.hp = clamp(unit.hp - dmg, 0, unit.maxHp)
-      state.log.push({ t: 'hit', uid: unit.uid, value: dmg, text: `${unit.dragon.name} 화상 -${dmg}` })
+      /* dot 표시 — 이번 공격에 맞은 것이 아니라 지속 피해다.
+         화면이 이걸 "맞았다"로 읽으면 엉뚱한 유닛이 피격 모션을 한다. */
+      state.log.push({ t: 'hit', uid: unit.uid, value: dmg, dot: true, text: `${unit.dragon.name} 화상 -${dmg}` })
       if (unit.hp === 0) { unit.alive = false; state.log.push({ t: 'down', uid: unit.uid, text: `${unit.dragon.name} 쓰러짐!` }) }
     }
     if (s.key === 'regen' && unit.alive) {
       const heal = Math.max(1, Math.round(unit.maxHp * s.value))
       applyHeal(state, unit, heal)
-      state.log.push({ t: 'heal', uid: unit.uid, value: heal, text: `${unit.dragon.name} 재생 +${heal}` })
+      state.log.push({ t: 'heal', uid: unit.uid, value: heal, dot: true, text: `${unit.dragon.name} 재생 +${heal}` })
     }
     s.turns -= 1
     if (s.turns > 0) keep.push(s)

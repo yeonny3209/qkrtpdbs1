@@ -15,6 +15,9 @@ export const ATTACK_MS = 700
 export const HURT_MS = 460
 /* 타격이 실제로 꽂히는 시점 — 이때 숫자와 이펙트를 띄운다 */
 export const IMPACT_AT = 0.46
+/* 꽂히는 순간 아주 잠깐 멈춘다. 격투 게임의 히트스톱과 같은 장치로,
+   이 짧은 정지가 없으면 아무리 크게 움직여도 "때린 느낌"이 안 난다. */
+export const HITSTOP_MS = 90
 
 const clamp01 = (t) => Math.max(0, Math.min(1, t))
 const easeOut = (t) => 1 - Math.pow(1 - t, 3)
@@ -70,6 +73,36 @@ export function dodgePose(p) {
 
 /* 경과 시간(ms) → 진행도. 끝나면 1을 넘지 않는다. */
 export const progress = (elapsed, total) => clamp01(elapsed / total)
+
+/* 히트스톱을 반영한 경과 시간.
+   꽂히는 순간에 잠깐 시간을 멈춰 두고, 그 뒤로는 멈춘 만큼 당겨서 잇는다.
+   그래서 전체 길이는 ATTACK_MS + HITSTOP_MS 가 된다. */
+export function attackElapsed(raw) {
+  const impact = ATTACK_MS * IMPACT_AT
+  if (raw < impact) return raw
+  if (raw < impact + HITSTOP_MS) return impact
+  return raw - HITSTOP_MS
+}
+export const ATTACK_TOTAL_MS = ATTACK_MS + HITSTOP_MS
+
+/* 궁극기는 찌르기 전에 힘을 모은다 — 0~1 로 부풀었다 터진다 */
+export function chargeGlow(p) {
+  if (p <= 0 || p >= IMPACT_AT) return 0
+  return Math.pow(p / IMPACT_AT, 2)
+}
+
+/* 잔상 — 찌르는 구간에서만 남긴다.
+   n 번째 잔상은 진행도를 조금 앞선 시점의 자세를 쓴다. */
+export function trailPoses(p, n = 3, gap = 0.055) {
+  if (p <= 0.28 || p >= 0.62) return []
+  const out = []
+  for (let i = 1; i <= n; i++) {
+    const q = p - gap * i
+    if (q <= 0.28) break
+    out.push({ ...attackPose(q), opacity: 0.34 * (1 - i / (n + 1)) })
+  }
+  return out
+}
 
 /* 화면 흔들림 — 궁극기와 치명타에서만 크게 */
 export function shakeAmount(p, strength = 1) {
