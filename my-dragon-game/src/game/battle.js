@@ -293,7 +293,12 @@ export function castSkill(state, skillId, targetUid) {
   const dmgTargets = hostile.length ? hostile : aliveOf(state, actor.side === 'ally' ? 'enemy' : 'ally')
   const healTargets = friendly.length ? friendly : [actor]
 
-  state.log.push({ t: 'skill', uid: actor.uid, text: `${actor.dragon.name} — ${skill.name}` })
+  /* 화면이 모션을 고르려면 어떤 스킬인지 알아야 한다 (fx.js 가 읽는다) */
+  state.log.push({
+    t: 'skill', uid: actor.uid, skill: skill.id, kind: skill.kind,
+    element: actor.dragon.element, icon: skill.icon,
+    text: `${actor.dragon.name} — ${skill.name}`,
+  })
 
   const hits = skill.hits || 1
   let totalDealt = 0

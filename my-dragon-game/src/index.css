@@ -12,3 +12,41 @@ html, body, #root {
   overflow: hidden;
   background: #000;
 }
+
+/* ==================================================================
+   전투 타격 연출
+
+   3D 무대 두 개가 서로 다른 캔버스라, 그 사이를 가로지르는 이펙트는
+   DOM 으로 얹는다. 전부 transform/opacity 만 건드려서 레이아웃을
+   다시 계산하지 않는다.
+   ================================================================== */
+@keyframes dm-burst {
+  0%   { transform: scale(0.25); opacity: 0; }
+  22%  { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(1.7);  opacity: 0; }
+}
+.dm-burst { animation: dm-burst 520ms cubic-bezier(.2,.8,.3,1) forwards; }
+
+@keyframes dm-slash {
+  0%   { transform: rotate(-28deg) scaleX(0);   opacity: 0; }
+  18%  { transform: rotate(-28deg) scaleX(1);   opacity: 1; }
+  100% { transform: rotate(-28deg) scaleX(1.3); opacity: 0; }
+}
+.dm-slash {
+  width: 190px; height: 5px; border-radius: 999px;
+  animation: dm-slash 420ms ease-out forwards;
+}
+
+/* 피해·회복 숫자 — 튀어올랐다 천천히 사라진다 */
+@keyframes dm-pop {
+  0%   { transform: translateY(14px) scale(0.6); opacity: 0; }
+  25%  { transform: translateY(-6px) scale(1.15); opacity: 1; }
+  40%  { transform: translateY(0)    scale(1); }
+  100% { transform: translateY(-46px) scale(0.95); opacity: 0; }
+}
+.dm-pop { animation: dm-pop 900ms cubic-bezier(.2,.7,.3,1) forwards; }
+
+/* 움직임을 줄여달라는 설정을 존중한다 */
+@media (prefers-reduced-motion: reduce) {
+  .dm-burst, .dm-slash, .dm-pop { animation-duration: 1ms; animation-iteration-count: 1; }
+}

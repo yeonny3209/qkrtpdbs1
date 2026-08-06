@@ -14,35 +14,109 @@ import {
   createBattle, castSkill, enemyAction, currentUnit,
   canUse, lockReason, needsPick, targetsFor, flee,
 } from '../game/battle.js'
+import { readAction, roleOf, shakeStrength, popsFor } from '../game/fx.js'
+import {
+  attackPose, hurtPose, dodgePose, progress,
+  ATTACK_MS, HURT_MS, IMPACT_AT, shakeAmount,
+} from '../three/attackPose.js'
 
-/* 유닛 하나를 3D로 세운다 */
-function BattleDragon({ unit, flip, aimed }) {
+/* 유닛 하나를 3D로 세운다.
+   role 은 이번 행동에서 이 유닛이 맡은 역할 — 공격/피격/회피.
+   startedAt 은 그 행동이 시작된 시각이라, 프레임마다 진행도를 다시 센다. */
+function BattleDragon({ unit, flip, aimed, role, startedAt }) {
   const g = useRef()
   const t0 = useRef(Math.random() * 10)
+  /* 오른쪽(아군)은 왼쪽으로, 왼쪽(적)은 오른쪽으로 달려든다 */
+  const dir = flip ? 1 : -1
+
   useFrame((state) => {
     if (!g.current) return
     const t = state.clock.elapsedTime + t0.current
-    g.current.position.y = Math.sin(t * 1.4) * 0.05
-    /* 쓰러지면 옆으로 눕는다 */
-    g.current.rotation.z = unit.alive ? 0 : (flip ? -1.2 : 1.2)
+    const idleY = Math.sin(t * 1.4) * 0.05
+
+    let pose = null
+    if (role && startedAt) {
+      const ms = role === 'attack' ? ATTACK_MS : HURT_MS
+      const p = progress(performance.now() - startedAt, ms)
+      if (p < 1) {
+        pose = role === 'attack' ? attackPose(p)
+          : role === 'hurt' ? hurtPose(p)
+            : role === 'dodge' ? dodgePose(p) : null
+      }
+    }
+
+    if (pose) {
+      g.current.position.x = dir * pose.push + (pose.shake || 0)
+      g.current.position.y = idleY + pose.lift
+      g.current.rotation.z = (unit.alive ? 0 : (flip ? -1.2 : 1.2)) + dir * pose.tilt
+      const s = 0.92 * (pose.scale ?? 1)
+      g.current.scale.set(s, s, s)
+    } else {
+      g.current.position.x = 0
+      g.current.position.y = idleY
+      /* 쓰러지면 옆으로 눕는다 */
+      g.current.rotation.z = unit.alive ? 0 : (flip ? -1.2 : 1.2)
+      g.current.scale.set(0.92, 0.92, 0.92)
+    }
     g.current.rotation.y = (flip ? Math.PI : 0) + (aimed ? Math.sin(t * 6) * 0.05 : 0)
   })
+
   return (
     <group ref={g} position={[0, -1.35, 0]} scale={0.92}>
-      <DragonModel elementId={unit.dragon.element} rarity={unit.dragon.rarity} dragonId={unit.dragon.id} animate={unit.alive} />
+      <DragonModel
+        elementId={unit.dragon.element} rarity={unit.dragon.rarity} dragonId={unit.dragon.id}
+        animate={unit.alive}
+        /* 공격 중엔 날개를 펼치고 고개를 든다 — 기존 포효 자세를 재사용한다 */
+        roar={role === 'attack'} />
     </group>
   )
 }
 
-function UnitStage({ unit, flip, aimed }) {
+function UnitStage({ unit, flip, aimed, role, startedAt }) {
   const el = ELEMENT_BY_ID[unit.dragon.element]
   return (
     <Canvas camera={{ fov: 42, position: [0, 0.3, 7.2] }} gl={{ alpha: true }}>
       <ambientLight intensity={0.75} />
       <directionalLight position={[3, 6, 4]} intensity={1.1} />
       <pointLight position={[0, 2, 4]} intensity={7} distance={14} color={el.glow} />
-      <BattleDragon unit={unit} flip={flip} aimed={aimed} />
+      <BattleDragon unit={unit} flip={flip} aimed={aimed} role={role} startedAt={startedAt} />
     </Canvas>
+  )
+}
+
+/* 타격 순간의 이펙트 — 3D 두 무대가 서로 다른 캔버스라
+   그 사이를 가로지르는 연출은 DOM 으로 얹는다. */
+function ImpactBurst({ color, ult }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+      <div className="dm-burst rounded-full"
+        style={{
+          width: ult ? 260 : 150, height: ult ? 260 : 150,
+          background: `radial-gradient(circle, ${color}cc 0%, ${color}55 38%, transparent 70%)`,
+        }} />
+      {/* 베인 자국 */}
+      <div className="dm-slash absolute" style={{ background: color, boxShadow: `0 0 18px ${color}` }} />
+    </div>
+  )
+}
+
+/* 피해·회복 숫자 */
+function Pops({ pops }) {
+  if (!pops.length) return null
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[28%] z-20 flex flex-col items-center gap-1">
+      {pops.map((p, i) => (
+        <span key={i}
+          className={`dm-pop font-black tabular-nums ${
+            p.miss ? 'text-slate-300 text-xl'
+              : p.heal ? 'text-emerald-300 text-2xl'
+                : p.crit ? 'text-amber-300 text-4xl' : 'text-white text-2xl'
+          }`}
+          style={{ animationDelay: `${i * 90}ms`, textShadow: '0 2px 8px rgba(0,0,0,.9)' }}>
+          {p.crit && !p.miss ? '치명! ' : ''}{p.text}
+        </span>
+      ))}
+    </div>
   )
 }
 
@@ -87,7 +161,47 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
   const [st, setSt] = useState(() => createBattle({ allies, enemies, seed: Date.now() >>> 0, maxRounds }))
   const [pending, setPending] = useState(null)     // 대상 지정을 기다리는 스킬
   const [flash, setFlash] = useState(null)
+  const [fx, setFx] = useState(null)               // { action, at } — 지금 재생 중인 연출
+  const [impact, setImpact] = useState(false)      // 타격이 꽂힌 순간인가
   const bump = useCallback(() => setSt((s) => ({ ...s })), [])
+
+  /* 한 번의 행동을 실행하고, 로그 차이를 읽어 연출을 건다.
+     엔진은 즉시 계산하고 로그만 남기므로, 화면은 그 로그로 모션을 만든다. */
+  const runAction = useCallback((fn) => {
+    const from = st.log.length
+    fn()
+    const action = readAction(st.log, from)
+    if (action) setFx({ action, at: performance.now() })
+    bump()
+  }, [st, bump])
+
+  /* 연출 수명 관리 — 타격 시점에 숫자·이펙트를 띄우고, 끝나면 지운다 */
+  useEffect(() => {
+    if (!fx) return
+    setImpact(false)
+    const hitAt = setTimeout(() => setImpact(true), ATTACK_MS * IMPACT_AT)
+    const off = setTimeout(() => setImpact(false), ATTACK_MS * IMPACT_AT + 620)
+    const done = setTimeout(() => setFx(null), ATTACK_MS + 120)
+    return () => { clearTimeout(hitAt); clearTimeout(off); clearTimeout(done) }
+  }, [fx])
+
+  /* 궁극기·치명타에서만 화면을 흔든다 */
+  const [shake, setShake] = useState(0)
+  useEffect(() => {
+    const strength = shakeStrength(fx?.action)
+    if (!fx || !strength) { setShake(0); return }
+    let raf = 0
+    const tick = () => {
+      const p = progress(performance.now() - fx.at - ATTACK_MS * IMPACT_AT, 420)
+      setShake(shakeAmount(p, strength))
+      if (p < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    /* 반드시 0으로 되돌린다. 탭을 벗어나면 requestAnimationFrame 이 멈추는데,
+       그 사이 연출이 끝나 이 효과가 정리되면 흔들린 값이 그대로 남아
+       화면이 영영 비뚤어진 채로 있게 된다. */
+    return () => { cancelAnimationFrame(raf); setShake(0) }
+  }, [fx])
 
   const actor = currentUnit(st)
   const myTurn = !!actor && actor.side === 'ally' && !st.done
@@ -100,9 +214,10 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
     if (st.done) return
     const cur = currentUnit(st)
     if (!cur || cur.side !== 'enemy') return
-    const id = setTimeout(() => { enemyAction(st); bump() }, 620)
+    /* 연출이 끝난 뒤에 다음 행동으로 넘어간다 */
+    const id = setTimeout(() => runAction(() => enemyAction(st)), ATTACK_MS + 160)
     return () => clearTimeout(id)
-  }, [st, bump])
+  }, [st, runAction])
 
   /* 최근 로그 한 줄을 화면에 띄운다 */
   useEffect(() => {
@@ -115,9 +230,10 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
 
   const act = (skill, targetUid) => {
     if (!myTurn || !canUse(actor, skill, st.round)) return
-    castSkill(st, skill.id, targetUid)
+    /* 연출이 재생 중이면 새 입력을 막는다 — 안 그러면 모션이 겹쳐 끊긴다 */
+    if (fx) return
+    runAction(() => castSkill(st, skill.id, targetUid))
     setPending(null)
-    bump()
   }
 
   const onSkill = (skill) => {
@@ -130,7 +246,8 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
   const focusEl = ELEMENT_BY_ID[(actor || allyUnits[0]).dragon.element]
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-[#07070e]">
+    <div className="fixed inset-0 flex flex-col bg-[#07070e]"
+      style={{ transform: shake ? `translate(${shake}px, ${shake * 0.5}px)` : undefined }}>
       <div className="pointer-events-none absolute inset-0"
         style={{ background: `radial-gradient(ellipse at 50% 10%, ${focusEl.deep}, transparent 65%)` }} />
 
@@ -166,16 +283,29 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
 
       {/* 3D 무대 */}
       <div className="relative z-0 flex flex-1 items-center">
-        <div className="h-full flex-1">
-          {foeUnits.filter((u) => u.alive).slice(0, 1).map((u) => (
-            <UnitStage key={u.uid} unit={u} flip aimed={!!pending} />
-          ))}
-        </div>
-        <div className="h-full flex-1">
-          {allyUnits.filter((u) => u.alive).slice(0, 1).map((u) => (
-            <UnitStage key={u.uid} unit={u} />
-          ))}
-        </div>
+        {[{ side: 'enemy', list: foeUnits, flip: true }, { side: 'ally', list: allyUnits, flip: false }].map((lane) => {
+          /* 그 편에서 지금 연출의 주인공을 고른다.
+             살아있는 첫 마리만 3D로 세우므로, 역할도 그 마리 기준으로 본다.
+             단 맞은 유닛이 따로 있으면 그쪽을 비춰야 타격이 보인다. */
+          const alive = lane.list.filter((u) => u.alive)
+          const acting = fx?.action
+            ? lane.list.find((u) => roleOf(fx.action, u.uid)) : null
+          const shown = (acting && acting.alive ? acting : alive[0]) || lane.list[0]
+          if (!shown) return <div key={lane.side} className="h-full flex-1" />
+          const role = fx?.action ? roleOf(fx.action, shown.uid) : null
+          const pops = impact && fx?.action ? popsFor(fx.action, shown.uid) : []
+          const burstColor = ELEMENT_BY_ID[fx?.action?.element || shown.dragon.element]?.glow || '#fff'
+          return (
+            <div key={lane.side} className="relative h-full flex-1">
+              <UnitStage unit={shown} flip={lane.flip} aimed={!!pending}
+                role={role} startedAt={fx?.at} />
+              {impact && (role === 'hurt') && (
+                <ImpactBurst color={burstColor} ult={fx?.action?.kind === 'ult'} />
+              )}
+              <Pops pops={pops} />
+            </div>
+          )
+        })}
       </div>
 
       {/* 로그 */}
