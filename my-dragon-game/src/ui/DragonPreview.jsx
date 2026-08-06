@@ -5,7 +5,7 @@ import DragonModel from '../three/DragonModel.jsx'
 import { fitDistance } from '../three/fit.js'
 import { ELEMENT_BY_ID } from '../game/elements.js'
 
-function Turntable({ elementId, rarity, spin }) {
+function Turntable({ elementId, rarity, dragonId, spin }) {
   const g = useRef()
   useFrame(({ camera }, dt) => {
     if (g.current && spin) g.current.rotation.y += dt * 0.45
@@ -21,12 +21,12 @@ function Turntable({ elementId, rarity, spin }) {
      그만큼 내려야 원점(카메라가 보는 곳)에 몸통이 온다. */
   return (
     <group ref={g} position={[0, -1.35, 0]}>
-      <DragonModel elementId={elementId} rarity={rarity} />
+      <DragonModel elementId={elementId} rarity={rarity} dragonId={dragonId} />
     </group>
   )
 }
 
-export default function DragonPreview({ elementId, rarity, spin = true, className = '' }) {
+export default function DragonPreview({ elementId, rarity, dragonId = null, spin = true, className = '' }) {
   const el = ELEMENT_BY_ID[elementId]
   return (
     <div className={className}>
@@ -35,7 +35,7 @@ export default function DragonPreview({ elementId, rarity, spin = true, classNam
         <ambientLight intensity={0.65} />
         <directionalLight position={[4, 6, 4]} intensity={1.2} />
         <pointLight position={[-3, 2, 3]} intensity={6} distance={12} color={el?.glow || '#fff'} />
-        <Turntable elementId={elementId} rarity={rarity} spin={spin} />
+        <Turntable elementId={elementId} rarity={rarity} dragonId={dragonId} spin={spin} />
       </Canvas>
     </div>
   )

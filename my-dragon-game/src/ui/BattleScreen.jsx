@@ -9,10 +9,10 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import DragonModel from '../three/DragonModel.jsx'
 import { ELEMENT_BY_ID } from '../game/elements.js'
 import { RARITY_BY_ID } from '../game/dragons.js'
-import { skillsOf, MP_MAX, STATUS } from '../game/skills.js'
+import { skillsOf, STATUS, isUlt, passiveDesc } from '../game/skills.js'
 import {
   createBattle, castSkill, enemyAction, currentUnit,
-  canUse, needsPick, targetsFor, flee,
+  canUse, lockReason, needsPick, targetsFor, flee,
 } from '../game/battle.js'
 
 /* 유닛 하나를 3D로 세운다 */
@@ -29,7 +29,7 @@ function BattleDragon({ unit, flip, aimed }) {
   })
   return (
     <group ref={g} position={[0, -1.35, 0]} scale={0.92}>
-      <DragonModel elementId={unit.dragon.element} rarity={unit.dragon.rarity} animate={unit.alive} />
+      <DragonModel elementId={unit.dragon.element} rarity={unit.dragon.rarity} dragonId={unit.dragon.id} animate={unit.alive} />
     </group>
   )
 }
@@ -69,25 +69,21 @@ function UnitBar({ unit, compact, onClick, selectable, isTurn }) {
           style={{ width: `${hpPct}%`, background: hpPct > 50 ? '#4ade80' : hpPct > 22 ? '#facc15' : '#f87171' }} />
       </div>
       {!compact && (
-        <>
-          <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full rounded-full bg-sky-400 transition-all" style={{ width: `${(unit.mp / MP_MAX) * 100}%` }} />
-          </div>
-          <div className="mt-0.5 flex items-center justify-between text-[9px] text-slate-400">
-            <span>{unit.hp} / {unit.maxHp}</span>
-            <span className="flex gap-0.5">
-              {unit.statuses.map((s, i) => (
-                <span key={i} title={STATUS[s.key]?.name}>{STATUS[s.key]?.icon}</span>
-              ))}
-            </span>
-          </div>
-        </>
+        <div className="mt-0.5 flex items-center justify-between text-[9px] text-slate-400">
+          <span>{unit.hp} / {unit.maxHp}</span>
+          <span className="flex gap-0.5">
+            {unit.passive && <span title={`${unit.passive.name} — ${passiveDesc(unit.passive)}`}>{unit.passive.icon}</span>}
+            {unit.statuses.map((s, i) => (
+              <span key={i} title={STATUS[s.key]?.name}>{STATUS[s.key]?.icon}</span>
+            ))}
+          </span>
+        </div>
       )}
     </button>
   )
 }
 
-export default function BattleScreen({ stage, allies, enemies, difficulty, maxRounds, onFinish, onQuit }) {
+export default function BattleScreen({ stage, allies, enemies, difficulty, maxRounds, onFinish }) {
   const [st, setSt] = useState(() => createBattle({ allies, enemies, seed: Date.now() >>> 0, maxRounds }))
   const [pending, setPending] = useState(null)     // 대상 지정을 기다리는 스킬
   const [flash, setFlash] = useState(null)
@@ -118,7 +114,7 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
   }, [st.log.length, st.log])
 
   const act = (skill, targetUid) => {
-    if (!myTurn || !canUse(actor, skill)) return
+    if (!myTurn || !canUse(actor, skill, st.round)) return
     castSkill(st, skill.id, targetUid)
     setPending(null)
     bump()
@@ -141,11 +137,18 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
       {/* 상단 — 스테이지 정보 */}
       <div className="relative z-10 flex items-center justify-between px-4 py-2">
         <div>
-          <div className="text-[10px] tracking-widest text-slate-400">{difficulty.name} · {st.round}라운드</div>
+          <div className="text-[10px] tracking-widest text-slate-400">
+            {difficulty?.name} · <span className={st.round % 2 === 1 ? 'text-sky-300' : 'text-fuchsia-300'}>
+              {st.round}라운드 ({st.round % 2 === 1 ? '홀수' : '짝수'})
+            </span>
+          </div>
           <div className="text-sm font-black text-white">{stage.name}</div>
         </div>
-        <button onClick={onQuit} className="rounded-full border border-white/15 px-3 py-1 text-[11px] font-bold text-slate-300 hover:bg-white/10">
-          나가기
+        {/* 나가기 자리에 도주를 둔다 — 전투 중에 화면을 뜨는 유일한 방법이므로
+            같은 위치에 있어야 손이 헷갈리지 않는다 */}
+        <button onClick={() => { flee(st); bump() }} disabled={!myTurn}
+          className="rounded-full border border-white/15 px-3 py-1 text-[11px] font-bold text-slate-300 transition hover:bg-white/10 disabled:opacity-40">
+          도주
         </button>
       </div>
 
@@ -204,33 +207,33 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
         )}
         <div className="grid grid-cols-4 gap-1.5">
           {skills.map((sk) => {
-            const usable = myTurn && canUse(actor, sk)
-            const cd = actor ? (actor.cds[sk.id] || 0) : 0
-            const isUlt = sk.mp >= MP_MAX
+            const usable = myTurn && canUse(actor, sk, st.round)
+            const lock = actor ? lockReason(actor, sk, st.round) : null
+            const ult = isUlt(sk)
+            /* 홀/짝 스킬은 "언제 열리는지"를 항상 보여준다 */
+            const slot = sk.kind === 's1' ? '홀수 턴' : sk.kind === 's2' ? '짝수 턴' : ult ? '궁극기' : '기본'
             return (
               <button key={sk.id} onClick={() => onSkill(sk)} disabled={!usable}
-                title={sk.desc}
+                title={`${sk.name} — ${sk.desc}`}
                 className={`relative overflow-hidden rounded-xl border py-2 text-center transition ${
                   usable
-                    ? isUlt
+                    ? ult
                       ? 'border-amber-300/70 bg-gradient-to-b from-amber-500/30 to-orange-500/20 hover:brightness-125'
                       : 'border-white/15 bg-white/[.07] hover:bg-white/[.14]'
                     : 'cursor-not-allowed border-white/5 bg-white/[.02] opacity-45'
                 }`}>
                 <div className="text-base leading-none">{sk.icon}</div>
                 <div className="mt-0.5 truncate px-1 text-[10px] font-bold text-white">{sk.name}</div>
-                <div className="text-[9px] text-sky-300">{sk.mp > 0 ? `MP ${sk.mp}` : '기본'}</div>
-                {cd > 0 && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/65 text-lg font-black text-white">{cd}</div>
+                <div className={`text-[9px] ${ult ? 'text-amber-300' : 'text-sky-300'}`}>{slot}</div>
+                {lock && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 px-1 text-[10px] font-black leading-tight text-slate-300">
+                    {lock}
+                  </div>
                 )}
               </button>
             )
           })}
         </div>
-        <button onClick={() => { flee(st); bump() }} disabled={!myTurn}
-          className="mt-1.5 w-full rounded-xl border border-white/10 py-1.5 text-[11px] font-bold text-slate-400 transition hover:bg-white/5 disabled:opacity-40">
-          도주
-        </button>
       </div>
 
       {/* 결과 */}

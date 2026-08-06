@@ -57,7 +57,7 @@ function DetailModal({ dragon, owned, onClose }) {
       <div onClick={(e) => e.stopPropagation()}
         className="w-full max-w-md overflow-hidden rounded-3xl border shadow-2xl"
         style={{ borderColor: rar.color + '55', background: `linear-gradient(170deg, ${el.deep}, #0a0a12 65%)` }}>
-        <DragonPreview elementId={dragon.element} rarity={dragon.rarity} className="h-56 w-full" />
+        <DragonPreview elementId={dragon.element} rarity={dragon.rarity} dragonId={dragon.id} className="h-56 w-full" />
         <div className="p-5 pt-0">
           <div className="text-[10px] font-black tracking-[0.3em]" style={{ color: rar.color }}>
             {'★'.repeat(rar.star)} {rar.name}
@@ -172,7 +172,7 @@ export default function GachaScreen({
         <div className="mt-4 overflow-hidden rounded-3xl border"
           style={{ borderColor: el.color + '44', background: `linear-gradient(160deg, ${el.deep}aa, #0a0a12 70%)` }}>
           <div className="relative">
-            <DragonPreview elementId={featured.element} rarity={featured.rarity} className="h-64 w-full sm:h-72" />
+            <DragonPreview elementId={featured.element} rarity={featured.rarity} dragonId={featured.id} className="h-64 w-full sm:h-72" />
             <div className="pointer-events-none absolute left-5 top-4">
               <div className="text-[10px] font-black tracking-[0.4em] text-amber-300">
                 {limited ? '★ 한정 픽업 ★' : '상시 소환'}

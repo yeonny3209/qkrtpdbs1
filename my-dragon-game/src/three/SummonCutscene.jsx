@@ -108,7 +108,7 @@ function Stage({ dragon, t, phase, onRoarHit }) {
       </mesh>
 
       <group ref={holder}>
-        <DragonModel elementId={dragon.element} rarity={dragon.rarity} roar={phase === 'roar'} />
+        <DragonModel elementId={dragon.element} rarity={dragon.rarity} dragonId={dragon.id} roar={phase === 'roar'} />
       </group>
     </>
   )

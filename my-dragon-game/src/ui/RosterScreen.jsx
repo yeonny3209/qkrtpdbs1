@@ -6,9 +6,11 @@ import DragonPreview from './DragonPreview.jsx'
 import GearPanel from './GearPanel.jsx'
 import { ELEMENT_BY_ID } from '../game/elements.js'
 import {
-  DRAGON_BY_ID, RARITY_BY_ID, expToNext,
+  DRAGON_BY_ID, RARITY_BY_ID, expToNext, MAX_LEVEL,
   STAT_KEYS, STAT_LABEL, MAX_EVOLUTION, EVOLUTIONS, evoCost, evoGoldCost, evolutionPassives,
 } from '../game/dragons.js'
+import { EXP_ORBS } from '../game/orbs.js'
+import { skillsetOf, passiveDesc } from '../game/skills.js'
 import { SLOT_IDS, finalStats, gearedPower } from '../game/equipment.js'
 import { runeStatMul } from '../game/runes.js'
 
@@ -19,9 +21,9 @@ export const TEAM_SIZE = 3
 export const STONES_PER_COPY = 40
 
 export default function RosterScreen({
-  dragons, team, gold, gems = 0, stones = 0,
+  dragons, team, gold, gems = 0, stones = 0, orbs = {},
   inventory = [], runeBag = [], gear = {},
-  onToggleTeam, onEvolve, onBack, gearActions = {},
+  onToggleTeam, onEvolve, onFeed, onBack, gearActions = {},
 }) {
   const [detail, setDetail] = useState(null)
   /* 드래곤별 장착 정보 — gear[id] = { loadout: {slot:uid}, rune: uid } */
@@ -106,7 +108,7 @@ export default function RosterScreen({
 
       {/* 상세 · 진화 */}
       {d && (
-        <DetailPanel o={d} gold={gold} gems={gems} stones={stones}
+        <DetailPanel o={d} gold={gold} gems={gems} stones={stones} orbs={orbs} onFeed={onFeed}
           worn={wornOf(d.id)} runeMul={runeMulOf(d.id)}
           loadout={gear[d.id]?.loadout || {}} runeId={gear[d.id]?.rune || null}
           inventory={inventory} runeBag={runeBag} gearActions={gearActions}
@@ -117,9 +119,10 @@ export default function RosterScreen({
 }
 
 function DetailPanel({
-  o, gold, gems, stones, worn, runeMul, loadout, runeId, inventory, runeBag, gearActions,
-  onEvolve, onClose,
+  o, gold, gems, stones, orbs, worn, runeMul, loadout, runeId, inventory, runeBag, gearActions,
+  onEvolve, onFeed, onClose,
 }) {
+  const skillset = skillsetOf(o.dragon)
   const el = ELEMENT_BY_ID[o.dragon.element]
   const rar = RARITY_BY_ID[o.dragon.rarity]
   /* 장비·룬까지 반영한 실제 값 — 전투에 들어가는 수치와 같다 */
@@ -140,7 +143,7 @@ function DetailPanel({
       <div onClick={(e) => e.stopPropagation()}
         className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-3xl border shadow-2xl"
         style={{ borderColor: rar.color + '55', background: `linear-gradient(170deg, ${el.deep}, #0a0a12 65%)` }}>
-        <DragonPreview elementId={o.dragon.element} rarity={o.dragon.rarity} className="h-48 w-full" />
+        <DragonPreview elementId={o.dragon.element} rarity={o.dragon.rarity} dragonId={o.dragon.id} className="h-48 w-full" />
         <div className="p-5 pt-0">
           <div className="text-[10px] font-black tracking-[0.3em]" style={{ color: rar.color }}>
             {'★'.repeat(rar.star)} {rar.name}
@@ -150,14 +153,63 @@ function DetailPanel({
             {el.icon} {el.name} · {el.role}
           </div>
 
-          {/* 레벨 · 경험치 */}
+          {/* 레벨 · 경험 구슬 */}
           <div className="mt-3 rounded-xl bg-white/5 p-3">
             <div className="flex justify-between text-[12px]">
-              <span className="font-black text-white">Lv.{o.level}</span>
-              <span className="text-slate-400">{o.exp} / {expToNext(o.level)} EXP</span>
+              <span className="font-black text-white">Lv.{o.level}{o.level >= MAX_LEVEL && <span className="ml-1 text-amber-300">MAX</span>}</span>
+              <span className="text-slate-400 tabular-nums">
+                {o.level >= MAX_LEVEL ? '만렙' : `${o.exp} / ${expToNext(o.level)} EXP`}
+              </span>
             </div>
             <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full rounded-full bg-sky-400" style={{ width: `${Math.min(100, (o.exp / expToNext(o.level)) * 100)}%` }} />
+              <div className="h-full rounded-full bg-sky-400"
+                style={{ width: `${o.level >= MAX_LEVEL ? 100 : Math.min(100, (o.exp / expToNext(o.level)) * 100)}%` }} />
+            </div>
+            {/* 구슬을 먹여 레벨을 올린다 */}
+            {o.level < MAX_LEVEL && (
+              <>
+                <div className="mt-2 text-[10px] text-slate-500">경험 구슬을 먹여 레벨을 올립니다</div>
+                <div className="mt-1 grid grid-cols-4 gap-1">
+                  {EXP_ORBS.map((orb) => {
+                    const have = orbs[orb.id] || 0
+                    return (
+                      <button key={orb.id} disabled={have <= 0}
+                        onClick={() => onFeed(o.id, orb.id, 1)}
+                        onContextMenu={(e) => { e.preventDefault(); if (have > 0) onFeed(o.id, orb.id, have) }}
+                        title={`${orb.name} — ${orb.exp.toLocaleString()} EXP (우클릭: 전부)`}
+                        className={`rounded-lg border py-1.5 text-center transition ${
+                          have > 0 ? 'border-white/12 bg-black/30 hover:border-sky-400/60 hover:bg-sky-400/10'
+                            : 'cursor-not-allowed border-white/5 bg-black/20 opacity-40'
+                        }`}>
+                        <div className="text-sm leading-none">{orb.icon}</div>
+                        <div className="mt-0.5 text-[10px] font-black tabular-nums text-white">{have}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* 스킬셋 */}
+          <div className="mt-3 rounded-xl bg-white/5 p-3">
+            <div className="text-[11px] font-black text-white">스킬셋</div>
+            <div className="mt-1.5 space-y-1">
+              {[[skillset.s1, '1스킬 · 홀수 턴', '#38bdf8'],
+                [skillset.s2, '2스킬 · 짝수 턴', '#e879f9'],
+                [skillset.ult, '궁극기 · 5턴 쿨', '#fbbf24']].map(([sk, label, c]) => (
+                <div key={sk.id} className="flex items-center gap-1.5 text-[11px]">
+                  <span>{sk.icon}</span>
+                  <span className="truncate font-bold text-white">{sk.name}</span>
+                  <span className="ml-auto shrink-0 text-[9px]" style={{ color: c }}>{label}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <span>{skillset.passive.icon}</span>
+                <span className="truncate font-bold text-emerald-300">{skillset.passive.name}</span>
+                <span className="ml-auto shrink-0 text-[9px] text-emerald-400">패시브</span>
+              </div>
+              <div className="text-[10px] leading-relaxed text-slate-500">{passiveDesc(skillset.passive)}</div>
             </div>
           </div>
 

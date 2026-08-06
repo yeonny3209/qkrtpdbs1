@@ -12,7 +12,10 @@
    전투는 "라운드" 단위로 돈다. 라운드가 시작될 때 살아있는 유닛을
    AGI 순으로 줄 세우고, 그 순서대로 한 번씩 행동한다.
    ================================================================== */
-import { skillsOf, BASIC_ATTACK, MP_MAX, MP_PER_TURN, BASE_CRIT, CRIT_MUL } from './skills.js'
+import {
+  skillsOf, skillsetOf, BASIC_ATTACK, BASE_CRIT, CRIT_MUL,
+  turnOpen, passiveEffect, isUlt,
+} from './skills.js'
 import { finalStats, activeSet } from './equipment.js'
 import { runeEffect, runeStatMul } from './runes.js'
 /* 난수는 rng.js 로 옮겼지만, 여기서 가져다 쓰던 곳이 많아 그대로 다시 내보낸다 */
@@ -42,7 +45,11 @@ function makeUnit(entry, side, idx) {
   const haste = runeEffect(rune, 'haste')
   if (haste) st.agi = Math.max(1, Math.round(st.agi * (1 + haste)))
   const set = activeSet(items)
-  return {
+  const passive = skillsetOf(entry.dragon).passive
+  /* 바람의 발 — 민첩 패시브도 시작값에 미리 반영한다 */
+  const swift = passive?.effect === 'swift' ? passive.value : 0
+  if (swift) st.agi = Math.max(1, Math.round(st.agi * (1 + swift)))
+  const unit = {
     uid: `${side}${idx}`,
     side,
     dragon: entry.dragon,
@@ -57,9 +64,16 @@ function makeUnit(entry, side, idx) {
     alive: true,
     rune,
     set,
-    critAdd: set?.critAdd ?? 0,
-    firstStrike: set?.firstStrike ?? 0,
+    passive,
+    vigilUsed: false,   // 불침의 의지를 이미 썼는가
+    critAdd: (set?.critAdd ?? 0) + (passive?.effect === 'precision' ? passive.value : 0),
+    firstStrike: (set?.firstStrike ?? 0) + (passive?.effect === 'hunter' ? passive.value : 0),
   }
+  /* 선천의 방벽 — 전투 시작 시 보호막 */
+  if (passive?.effect === 'barrier') {
+    unit.statuses.push({ key: 'shield', turns: 99, value: passive.value })
+  }
+  return unit
 }
 
 /* 상태이상을 반영한 실제 능력치 */
@@ -118,9 +132,6 @@ function startRound(state) {
 
 /* 라운드 사이 처리 — MP 충전과 무승부 판정 */
 function nextRound(state) {
-  for (const unit of state.units) {
-    if (unit.alive) unit.mp = Math.min(MP_MAX, unit.mp + MP_PER_TURN)
-  }
   state.quietRounds += 1
   if (state.quietRounds >= DRAW_ROUNDS || state.round >= (state.maxRounds || MAX_ROUNDS)) {
     state.done = 'draw'
@@ -157,7 +168,13 @@ function advanceToActor(state) {
 function rollDamage(state, atk, def, skill, hitIndex = 0) {
   const stat = skill.stat === 'matk' ? 'matk' : 'atk'
   const defKey = skill.stat === 'matk' ? 'mdef' : 'def'
-  const power = effStat(atk, stat) * skill.power
+  let power = effStat(atk, stat) * skill.power
+  /* 불굴 — 몰릴수록 세진다 */
+  const resolve = passiveEffect(atk, 'resolve')
+  if (resolve && atk.hp / atk.maxHp <= 0.4) power *= (1 + resolve)
+  /* 처형자 — 빈사인 적에게 추가 피해 */
+  const execute = passiveEffect(atk, 'execute')
+  if (execute && def.hp / def.maxHp <= 0.3) power *= (1 + execute)
   /* 저주 룬 — 상대 방어력을 깎고 계산한다 */
   const curse = runeEffect(atk.rune, 'curse')
   const defense = effStat(def, defKey) * (1 - curse)
@@ -177,9 +194,9 @@ function rollDamage(state, atk, def, skill, hitIndex = 0) {
 }
 
 function applyDamage(state, target, amount) {
-  /* 보호 룬 — 받는 피해를 먼저 줄인다 */
-  const guard = runeEffect(target.rune, 'guard')
-  let dealt = guard ? Math.max(1, Math.round(amount * (1 - guard))) : amount
+  /* 보호 룬 · 단단한 껍질 패시브 — 받는 피해를 먼저 줄인다 */
+  const cut = runeEffect(target.rune, 'guard') + passiveEffect(target, 'bulwark')
+  let dealt = cut > 0 ? Math.max(1, Math.round(amount * Math.max(0.1, 1 - cut))) : amount
   /* 그 다음 보호막이 흡수한다 */
   const sh = statusValue(target, 'shield')
   if (sh > 0) {
@@ -188,6 +205,13 @@ function applyDamage(state, target, amount) {
   }
   target.hp = clamp(target.hp - dealt, 0, target.maxHp)
   if (target.hp === 0) {
+    /* 불침의 의지 — 전투당 한 번, 체력 1로 버틴다 */
+    if (passiveEffect(target, 'vigil') && !target.vigilUsed) {
+      target.vigilUsed = true
+      target.hp = 1
+      state.log.push({ t: 'passive', uid: target.uid, text: `${target.dragon.name} 불침의 의지! 체력 1로 버텼다` })
+      return dealt
+    }
     target.alive = false
     state.log.push({ t: 'down', uid: target.uid, text: `${target.dragon.name} 쓰러짐!` })
   }
@@ -225,20 +249,31 @@ export function targetsFor(state, actor, skill) {
 export const needsPick = (skill) => skill.target === 'enemy' || skill.target === 'ally'
 
 /* ---------------- 행동 ---------------- */
-export function canUse(unit, skill) {
+/* 이번 라운드에 쓸 수 있는가.
+   1스킬은 홀수 라운드, 2스킬은 짝수 라운드에만 열린다.
+   궁극기는 쓴 뒤 쿨타임이 돌아야 한다. */
+export function canUse(unit, skill, round) {
   if (!unit || !skill) return false
-  if (unit.mp < skill.mp) return false
   if ((unit.cds[skill.id] || 0) > 0) return false
+  if (round != null && !turnOpen(skill, round)) return false
   return true
+}
+/* 화면에서 "왜 못 쓰는지" 알려주려고 따로 뺐다 */
+export function lockReason(unit, skill, round) {
+  if (!unit || !skill) return null
+  if ((unit.cds[skill.id] || 0) > 0) return `${unit.cds[skill.id]}라운드 뒤`
+  if (round != null && !turnOpen(skill, round)) {
+    return skill.turn === 'odd' ? '홀수 라운드' : '짝수 라운드'
+  }
+  return null
 }
 
 export function castSkill(state, skillId, targetUid) {
   const actor = currentUnit(state)
   if (!actor || state.done) return state
   const skill = skillsOf(actor.dragon).find((s) => s.id === skillId)
-  if (!skill || !canUse(actor, skill)) return state
+  if (!skill || !canUse(actor, skill, state.round)) return state
 
-  actor.mp -= skill.mp
   if (skill.cd > 0) actor.cds[skill.id] = skill.cd + 1   // 이번 턴 포함해서 감소하므로 +1
 
   let picked = targetsFor(state, actor, skill)
@@ -248,20 +283,34 @@ export function castSkill(state, skillId, targetUid) {
   }
   if (!picked.length) { endTurn(state); return state }
 
+  /* 피해는 반드시 상대편에게만, 회복은 반드시 우리 편에게만 간다.
+     예전에는 targetsFor 가 준 목록에 피해와 회복을 그대로 다 적용해서,
+     아군 전체 대상 지원기에 위력이 붙어 있으면 우리 편을 때리고,
+     적 전체 대상 스킬에 회복이 붙어 있으면 적을 치유했다.
+     "수호의 서약"으로 아군을 깎고 "여명의 심판"으로 적을 살리던 버그다. */
+  const hostile = picked.filter((u) => u.side !== actor.side)
+  const friendly = picked.filter((u) => u.side === actor.side)
+  const dmgTargets = hostile.length ? hostile : aliveOf(state, actor.side === 'ally' ? 'enemy' : 'ally')
+  const healTargets = friendly.length ? friendly : [actor]
+
   state.log.push({ t: 'skill', uid: actor.uid, text: `${actor.dragon.name} — ${skill.name}` })
 
   const hits = skill.hits || 1
   let totalDealt = 0
 
-  for (const target of picked) {
-    /* 회복 스킬 */
-    if (skill.heal) {
+  /* 회복은 우리 편에게만 */
+  if (skill.heal) {
+    for (const target of healTargets) {
+      if (!target.alive) continue
       const amount = Math.round(effStat(actor, 'matk') * skill.heal)
       const healed = applyHeal(state, target, amount)
       state.log.push({ t: 'heal', uid: target.uid, value: healed, text: `${target.dragon.name} +${healed}` })
     }
+  }
+
+  for (const target of (skill.power > 0 ? dmgTargets : [])) {
     /* 공격 스킬 */
-    if (skill.power > 0) {
+    {
       for (let h = 0; h < hits; h++) {
         if (!target.alive) break
         /* 명중 판정 — 실명이면 명중률이 깎이고, 회피 룬이면 더 깎인다 */
@@ -274,8 +323,21 @@ export function castSkill(state, skillId, targetUid) {
         const dealt = applyDamage(state, target, dmg)
         totalDealt += dealt
         state.log.push({ t: 'hit', uid: target.uid, value: dealt, crit, text: `${target.dragon.name} -${dealt}${crit ? ' 치명타!' : ''}` })
-        /* 흡혈 — 스킬 자체의 흡혈과 룬의 흡혈을 함께 적용한다 */
-        const drainPct = (skill.drain || 0) + runeEffect(actor.rune, 'drain')
+        /* 맹독 송곳니 — 때릴 때 화상을 남긴다 */
+        const venom = passiveEffect(actor, 'venom')
+        if (venom && target.alive && state.rng() * 100 < venom) {
+          addStatus(state, target, { key: 'burn', chance: 100, turns: 2, value: 0.05 })
+        }
+        /* 가시 비늘 — 맞은 쪽이 받은 피해의 일부를 되돌린다.
+           반격(룬)과 달리 확률이 아니라 항상 터지므로 수치를 낮게 뒀다. */
+        const thorns = passiveEffect(target, 'thorns')
+        if (thorns > 0 && actor.alive) {
+          const back = Math.max(1, Math.round(dealt * thorns))
+          const hurt = applyDamage(state, actor, back)
+          state.log.push({ t: 'hit', uid: actor.uid, value: hurt, text: `${target.dragon.name} 가시 비늘! ${actor.dragon.name} -${hurt}` })
+        }
+        /* 흡혈 — 스킬 · 룬 · 패시브를 함께 적용한다 */
+        const drainPct = (skill.drain || 0) + runeEffect(actor.rune, 'drain') + passiveEffect(actor, 'lifesteal')
         if (drainPct > 0) {
           const back = applyHeal(state, actor, Math.round(dealt * drainPct))
           if (back > 0) state.log.push({ t: 'heal', uid: actor.uid, value: back, text: `${actor.dragon.name} +${back} 흡혈` })
@@ -290,8 +352,13 @@ export function castSkill(state, skillId, targetUid) {
         }
       }
     }
-    /* 상태이상 부여 */
-    if (skill.status && target.alive) {
+  }
+
+  /* 상태이상 — 이로운 것은 우리 편에게, 해로운 것은 상대편에게 */
+  if (skill.status) {
+    const good = skill.status.key === 'shield' || skill.status.key === 'regen' || skill.status.key === 'haste'
+    for (const target of (good ? healTargets : dmgTargets)) {
+      if (!target.alive) continue
       if (addStatus(state, target, skill.status)) {
         state.log.push({ t: 'status', uid: target.uid, key: skill.status.key })
       }
@@ -323,8 +390,8 @@ export function flee(state) {
 
 /* ---------------- 턴 종료 · 라운드 진행 ---------------- */
 function tickStatuses(state, unit) {
-  /* 재생 룬 — 자기 턴이 끝날 때마다 최대 HP의 일정 비율을 회복한다 */
-  const regen = runeEffect(unit.rune, 'regen')
+  /* 재생 룬 · 느린 회복 패시브 — 자기 턴이 끝날 때마다 회복한다 */
+  const regen = runeEffect(unit.rune, 'regen') + passiveEffect(unit, 'mend')
   if (regen > 0 && unit.alive) {
     const heal = applyHeal(state, unit, Math.max(1, Math.round(unit.maxHp * regen)))
     if (heal > 0) state.log.push({ t: 'heal', uid: unit.uid, value: heal, text: `${unit.dragon.name} 재생 +${heal}` })
@@ -380,28 +447,28 @@ function checkEnd(state) {
 }
 
 /* ---------------- 적 AI ----------------
-   1) 궁극기가 차 있으면 쓴다
+   1) 궁극기가 열려 있으면 쓴다
    2) 회복형이고 아군이 위험하면 회복
    3) 쓸 수 있는 가장 강한 공격기
    4) 없으면 기본 공격 */
 export function enemyAction(state) {
   const actor = currentUnit(state)
   if (!actor || actor.side !== 'enemy') return state
-  const list = skillsOf(actor.dragon).filter((s) => canUse(actor, s))
+  const list = skillsOf(actor.dragon).filter((s) => canUse(actor, s, state.round))
   const foes = aliveOf(state, 'ally')
   const friends = aliveOf(state, 'enemy')
 
   const hurt = friends.some((f) => f.hp / f.maxHp < 0.55)
   /* 궁극기는 아끼지 않는다 — 단, 회복 궁극기는 다칠 때만.
      아무도 안 다쳤는데 회복 궁극기를 계속 쓰면 전투가 영원히 끝나지 않는다. */
-  const ult = list.find((s) => s.mp >= MP_MAX && (s.power > 0 || hurt))
+  const ult = list.find((s) => isUlt(s) && (s.power > 0 || hurt))
   if (ult) return castSkill(state, ult.id, pickTarget(state, actor, ult, foes, friends))
 
   const healer = list.find((s) => s.heal && s.power === 0 && hurt)
   if (healer) return castSkill(state, healer.id, pickTarget(state, actor, healer, foes, friends))
 
   const attacks = list.filter((s) => s.power > 0).sort((a, b) => b.power - a.power)
-  const pick = attacks[0] || list[0]
+  const pick = attacks[0] || list[0] || BASIC_ATTACK
   return castSkill(state, pick.id, pickTarget(state, actor, pick, foes, friends))
 }
 

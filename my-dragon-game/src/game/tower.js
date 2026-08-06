@@ -70,9 +70,9 @@ export function towerMultipliers(floor) {
   const g = growth(floor)
   const boss = isBossFloor(floor)
   return {
-    hp: (1 + g * 8.5) * (boss ? 1.4 : 1),
-    atk: (1 + g * 2.2) * (boss ? 1.12 : 1),
-    matk: (1 + g * 2.2) * (boss ? 1.12 : 1),
+    hp: (1 + g * 5.5) * (boss ? 1.4 : 1),
+    atk: (1 + g * 1.9) * (boss ? 1.12 : 1),
+    matk: (1 + g * 1.9) * (boss ? 1.12 : 1),
     def: (1 + g * 0.35) * (boss ? 1.05 : 1),
     mdef: (1 + g * 0.35) * (boss ? 1.05 : 1),
     agi: (1 + g * 0.25) * (boss ? 1.05 : 1),
