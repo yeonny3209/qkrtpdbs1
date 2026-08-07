@@ -83,6 +83,7 @@ export default function App() {
   const [battle, setBattle] = useState(null)       // { stage, allies, enemies, difficulty }
   const [beat, setBeat] = useState(null)           // { script, chapter, then }
   const [reward, setReward] = useState(null)
+  const [battleEnd, setBattleEnd] = useState(null)  // 도주/패배/무승부 결과창 (전투 화면 → 홈 전환 사이를 가린다)
   const [purchase, setPurchase] = useState(null)   // 구매 완료 알림
   const [ending, setEnding] = useState(false)      // 엔딩 선택 화면
   const [enhanceResult, setEnhanceResult] = useState(null)
@@ -383,7 +384,15 @@ export default function App() {
   const finishBattle = (outcome) => {
     const { stage, dungeon, tower } = battle
     setBattle(null)
-    if (outcome !== 'win') return
+    if (outcome !== 'win') {
+      /* 전투 화면(3D 캔버스 2개)이 사라지고 홈 화면(드래곤 미리보기 캔버스들)이
+         뜨는 그 틈을 뭔가로 덮어야 한다. 승리 때는 보상창이 같은 순간에 함께
+         그려져서 그 틈을 가려주는데, 승리가 아니면 덮어줄 게 없어서 화면
+         배경색(검정)이 잠깐 그대로 드러나 "화면이 꺼매진다"는 인상을 준다.
+         승리와 같은 자리에 결과만 다르게 띄워서 똑같이 가린다. */
+      setBattleEnd({ outcome, stage })
+      return
+    }
 
     /* ----- 무한의 탑 ----- */
     if (tower) {
@@ -679,6 +688,26 @@ export default function App() {
             )}
             <button onClick={() => setPurchase(null)}
               className="mt-5 w-full rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 py-2.5 font-black text-white hover:brightness-110">
+              확인
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 도주 · 패배 · 무승부 — 승리(보상창)와 같은 자리에 같은 방식으로 띄운다.
+          전투 화면이 사라지고 홈 화면이 뜨는 그 틈을 이걸로 가린다. */}
+      {battleEnd && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/85 p-5">
+          <div className="w-full max-w-xs rounded-3xl border border-white/12 bg-slate-900 p-6 text-center">
+            <div className="text-4xl">
+              {battleEnd.outcome === 'flee' ? '🏳️' : battleEnd.outcome === 'lose' ? '💀' : '⏱'}
+            </div>
+            <div className="mt-2 text-lg font-black text-white">
+              {battleEnd.outcome === 'flee' ? '도주했다' : battleEnd.outcome === 'lose' ? '패배…' : '무승부'}
+            </div>
+            <div className="mt-1 text-[12px] text-slate-500">{battleEnd.stage?.name}</div>
+            <button onClick={() => setBattleEnd(null)}
+              className="mt-5 w-full rounded-xl bg-white/10 py-2.5 font-black text-white hover:bg-white/20">
               확인
             </button>
           </div>
