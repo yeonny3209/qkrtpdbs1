@@ -30,7 +30,7 @@ export const LIMITED_WIN_RATE = 0.5     // 레전드 안에서 한정:상시 = 5
    BOOST 를 false 로 바꾸면 한 줄로 원래 밸런스가 돌아온다.
    천장·50:50·연속 방지 같은 구조는 어느 쪽이든 똑같이 동작한다.
    ================================================================== */
-export const BOOST = true
+export const BOOST = false
 
 const SPEC_PITY = 80
 const BOOST_PITY = 5

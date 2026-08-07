@@ -98,8 +98,10 @@ function Wing({ side, geo, flapRef, boneMat, membraneMat, bones, y, z, tilt }) {
 }
 
 /* ---------------- 머리 ----------------
-   headType 이 두개골 자체를 바꾼다. hornStyle 은 뿔만 바꾼다. */
-function Head({ el, shape, mainMat, bellyMat }) {
+   headType 이 두개골 자체를 바꾼다. hornStyle 은 뿔만 바꾼다.
+   jawRef 로 아래턱을 따로 잡아 두어, 포효할 때 실제로 입이 벌어진다.
+   턱이 안 움직이면 아무리 고개를 젖혀도 "포효"로 보이지 않는다. */
+function Head({ el, shape, mainMat, bellyMat, jawRef, maw }) {
   const sn = shape.snout ?? 1
   const type = shape.headType || 'horned'
   const horns = []
@@ -169,24 +171,61 @@ function Head({ el, shape, mainMat, bellyMat }) {
         </mesh>
       ) : (
         <>
-          <mesh position={[0, -0.05, 0.40 * sn]} material={mainMat} castShadow>
-            <boxGeometry args={[0.30, 0.24, 0.36 * sn]} />
+          {/* 주둥이 — 한 덩어리 상자로 뻗으면 얼굴에 판때기를 붙인 꼴이라
+              앞으로 갈수록 좁아지도록 세 마디로 깎았다. 옆에서 봤을 때
+              두개골에서 코끝까지 선이 이어져야 얼굴로 읽힌다. */}
+          <mesh position={[0, -0.03, 0.30 * sn]} material={mainMat} castShadow>
+            <boxGeometry args={[0.34, 0.26, 0.24 * sn]} />
           </mesh>
-          <mesh position={[0, -0.055, 0.60 * sn]} material={mainMat}>
-            <boxGeometry args={[0.22, 0.16, 0.10]} />
+          <mesh position={[0, -0.04, 0.46 * sn]} material={mainMat} castShadow>
+            <boxGeometry args={[0.27, 0.20, 0.18 * sn]} />
           </mesh>
-          {/* 아래턱 */}
-          <mesh position={[0, -0.17, 0.38 * sn]}>
-            <boxGeometry args={[0.24, 0.10, 0.34 * sn]} />
-            <meshStandardMaterial color={el.deep} roughness={0.75} />
+          <mesh position={[0, -0.05, 0.58 * sn]} material={mainMat}>
+            <boxGeometry args={[0.20, 0.15, 0.12 * sn]} />
           </mesh>
-          {/* 이빨 */}
-          {[-0.08, 0.08].map((x, i) => (
-            <mesh key={i} position={[x, -0.13, 0.55 * sn]} rotation={[Math.PI, 0, 0]}>
-              <coneGeometry args={[0.026, 0.10, 4]} />
+          {/* 콧구멍 */}
+          {[-0.055, 0.055].map((x, i) => (
+            <mesh key={i} position={[x, -0.02, 0.635 * sn]}>
+              <boxGeometry args={[0.035, 0.032, 0.02]} />
+              <meshStandardMaterial color={el.deep} roughness={0.95} />
+            </mesh>
+          ))}
+          {/* 윗니 — 위턱에 붙어 있으므로 벌어져도 안 움직인다 */}
+          {[-0.085, 0.085].map((x, i) => (
+            <mesh key={i} position={[x, -0.14, 0.48 * sn]} rotation={[Math.PI, 0, 0]}>
+              <coneGeometry args={[0.026, 0.11, 4]} />
               <meshStandardMaterial color="#fff" roughness={0.4} />
             </mesh>
           ))}
+          {/* 아래턱 — 턱관절에서 회전한다. 축을 입 안쪽에 두어야
+              벌릴 때 턱이 미끄러지지 않고 제대로 열린다. */}
+          <group ref={jawRef} position={[0, -0.12, 0.14]}>
+            {/* 턱 바깥은 몸 색이어야 한다. 속성 색(el.deep)으로 칠했더니
+                입을 다물고 있어도 얼굴에 색다른 판때기가 박힌 것처럼 보였다 */}
+            <mesh position={[0, -0.05, 0.24 * sn]} material={mainMat} castShadow>
+              <boxGeometry args={[0.24, 0.10, 0.34 * sn]} />
+            </mesh>
+            {/* 입 안쪽 — 벌어졌을 때만 보인다 */}
+            <mesh position={[0, 0.005, 0.24 * sn]}>
+              <boxGeometry args={[0.21, 0.02, 0.30 * sn]} />
+              <meshStandardMaterial color={el.deep} roughness={0.9} />
+            </mesh>
+            {/* 아랫니 — 입을 다물면 위턱에 가려 안 보일 만큼만 세운다.
+                길게 뽑았더니 다문 입에서 이빨이 뚫고 나왔다 */}
+            {[-0.075, 0.075].map((x, i) => (
+              <mesh key={i} position={[x, 0.0, 0.38 * sn]}>
+                <coneGeometry args={[0.024, 0.07, 4]} />
+                <meshStandardMaterial color="#fff" roughness={0.4} />
+              </mesh>
+            ))}
+          </group>
+          {/* 목구멍 — 입이 벌어지면 안쪽에서 빛이 새어나온다 */}
+          {maw > 0.02 && (
+            <mesh position={[0, -0.10, 0.34 * sn]}>
+              <sphereGeometry args={[0.12 + maw * 0.05, 12, 10]} />
+              <meshBasicMaterial color={el.glow} transparent opacity={0.55 * maw} toneMapped={false} />
+            </mesh>
+          )}
         </>
       )}
 
@@ -258,7 +297,12 @@ export default function DragonModel({
   dragonId = null,       // 있으면 이 드래곤만의 생김새가 나온다
   scale = 1,
   animate = true,
-  roar = false,          // 컷씬에서 포효 자세
+  roar = false,          // 자세만 바꾸는 간이 포효 (전투용)
+  /* 컷씬용 — 0~1 로 세밀하게 제어한다.
+     maw 는 입이 벌어진 정도, breath 는 뿜어져 나오는 숨의 세기.
+     roar 만 있을 때는 턱이 안 움직여서 "포효"로 안 보였다. */
+  maw = 0,
+  breath = 0,
 }) {
   const el = ELEMENT_BY_ID[elementId] || ELEMENT_BY_ID.fire
   const shape = useMemo(() => dragonLook(dragonId, rarity), [dragonId, rarity])
@@ -278,6 +322,10 @@ export default function DragonModel({
   const wingR2 = useRef()
   const auraRef = useRef()
   const segs = useRef([])
+  const jawRef = useRef()
+  const breathRef = useRef()
+  /* 포효(전투용 간이 신호)도 입을 조금은 벌리게 해준다 */
+  const mawAmt = Math.max(maw, roar ? 0.45 : 0)
 
   /* 재질은 한 번만 만들어 모든 부위가 공유한다 (드로우콜·GC 절약) */
   const mats = useMemo(() => {
@@ -326,16 +374,31 @@ export default function DragonModel({
     /* 날갯짓 — 포효 중엔 크게 펼친다. 곤충 날개는 빠르게 떤다 */
     const speed = shape.wingType === 'insect' ? 16 : 2.1
     const amp = shape.wingType === 'insect' ? 0.34 : 0.26
-    const flap = roar ? 0.45 + Math.sin(t * 5) * 0.16 : Math.sin(t * speed) * amp
+    const flap = mawAmt > 0.05
+      ? (0.30 + mawAmt * 0.55) + Math.sin(t * 5) * 0.16 * mawAmt
+      : Math.sin(t * speed) * amp
     if (wingR.current) wingR.current.rotation.z = 0.45 + flap
     if (wingL.current) wingL.current.rotation.z = -0.45 - flap
     if (wingR2.current) wingR2.current.rotation.z = 0.30 + flap * 0.8
     if (wingL2.current) wingL2.current.rotation.z = -0.30 - flap * 0.8
-    /* 목·머리 */
-    if (neck.current) neck.current.rotation.x = (roar ? -0.32 : -0.05) + Math.sin(t * 1.3) * 0.05
-    if (headRef.current) headRef.current.rotation.x = (roar ? -0.45 : 0.08) + Math.sin(t * 1.7) * 0.05
+    /* 목·머리 — 입을 벌린 만큼 고개를 젖힌다.
+       포효는 턱만 벌려선 안 되고 목이 같이 따라 올라가야 힘이 실린다. */
+    if (neck.current) neck.current.rotation.x = -0.05 - mawAmt * 0.60 + Math.sin(t * 1.3) * 0.05
+    if (headRef.current) headRef.current.rotation.x = 0.08 - mawAmt * 1.00 + Math.sin(t * 1.7) * 0.05
     /* 꼬리 */
     if (tail.current) tail.current.rotation.y = Math.sin(t * 1.1) * 0.28
+    /* 턱 — 벌어진 만큼 아래로 돈다. 살짝 떨어 포효에 힘이 실린다 */
+    if (jawRef.current) {
+      const tremble = mawAmt > 0.5 ? Math.sin(t * 34) * 0.035 * mawAmt : 0
+      jawRef.current.rotation.x = mawAmt * 0.62 + tremble
+    }
+    /* 숨결 — 입 앞으로 뻗는 원뿔. 세기에 따라 길고 굵어진다 */
+    if (breathRef.current) {
+      breathRef.current.visible = breath > 0.01
+      const flick = 1 + Math.sin(t * 26) * 0.10
+      breathRef.current.scale.set(breath * flick, breath * 2.6 * flick, breath * flick)
+      if (breathRef.current.material) breathRef.current.material.opacity = 0.72 * breath
+    }
     /* 레전드 오라 회전 */
     if (auraRef.current) auraRef.current.rotation.y += dt * 0.6
   })
@@ -397,7 +460,16 @@ export default function DragonModel({
           </mesh>
         ))}
         <group ref={headRef} position={[0, 0.66 * shape.neck, 0.56 * shape.neck]}>
-          <Head el={el} shape={shape} mainMat={mats.main} bellyMat={mats.belly} />
+          <Head el={el} shape={shape} mainMat={mats.main} bellyMat={mats.belly}
+            jawRef={jawRef} maw={mawAmt} />
+          {/* 숨결 — 주둥이 끝에서 앞으로 뿜는다.
+              머리 안에 두어야 체형이 달라도 항상 입에서 나온다. */}
+          <mesh ref={breathRef} visible={false}
+            position={[0, -0.08, 0.85 * (shape.snout ?? 1)]} rotation={[Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[0.42, 1.6, 16, 1, true]} />
+            <meshBasicMaterial color={el.glow} transparent opacity={0}
+              toneMapped={false} side={THREE.DoubleSide} depthWrite={false} />
+          </mesh>
         </group>
         {/* 동양룡 갈기 */}
         {shape.bodyType === 'eastern' && [0, 1, 2].map((i) => (
