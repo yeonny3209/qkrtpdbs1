@@ -5,6 +5,12 @@
    같은 용"이 되므로, 몸통 마디 수·다리 수·날개 종류·머리 모양을
    전부 따로 고른다. 자세한 조합 규칙은 dragonLook.js 에 있다.
 
+   [몸을 이어진 관으로 뽑는 이유]
+   전에는 구를 줄지어 놓아 몸통·목·꼬리를 만들었다. 마디마다 경계가
+   뚝뚝 끊겨 공을 꿴 애벌레처럼 보였고, 목은 눈사람 세 개였다.
+   지금은 bodyMesh.taperedTube 로 굵기가 변하는 관을 한 덩어리로
+   뽑는다. 머리도 상자 두 개가 아니라 굵기 곡선을 준 관이다.
+
    같은 컴포넌트가 도감 미리보기와 소환 컷씬, 전투 무대에 함께 쓰인다.
    어느 체형이든 발끝 y≈0, 머리 끝 y≈2.7 안에 들어오도록 맞춰 두었다.
    카메라 프레이밍이 체형마다 달라지면 안 되기 때문이다.
@@ -13,7 +19,20 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { ELEMENT_BY_ID } from '../game/elements.js'
-import { dragonLook, shiftHue, spinePoint } from './dragonLook.js'
+import {
+  dragonLook, shiftHue, spinePoint, headProfile, JAW_PROFILE, JAW_MOUNT, TOOTH,
+} from './dragonLook.js'
+import { taperedTube, undulate, bellyPlates } from './bodyMesh.js'
+
+const V = (x, y, z) => new THREE.Vector3(x, y, z)
+
+/* 프로필([z,y,r] 목록)을 관으로 — 머리·턱이 공통으로 쓴다.
+   sn 은 주둥이 길이 배수라 z 에만 곱한다. */
+function profileTube(profile, sn, opts) {
+  const pts = profile.map(([z, y]) => V(0, y, z * (z > 0 ? sn : 1)))
+  const radii = profile.map(([, , r]) => r)
+  return taperedTube(pts, radii, opts)
+}
 
 /* ---------------- 날개 막 (박쥐형) ----------------
    박쥐 날개처럼 가리비(scallop) 모양으로 파낸 실루엣.
@@ -73,45 +92,115 @@ function useInsectWing() {
   }, [])
 }
 
+/* 깃털 한 장 — 새 날개 위에 겹쳐 얹는다 */
+const FEATHER_ROW = [
+  [0.55, -0.34, 0.62], [0.95, -0.44, 0.74], [1.35, -0.42, 0.72],
+  [1.72, -0.32, 0.62], [2.02, -0.18, 0.48],
+]
+
 /* 날개 하나 (side: +1 오른쪽 / -1 왼쪽) */
-function Wing({ side, geo, flapRef, boneMat, membraneMat, bones, y, z, tilt }) {
+function Wing({ side, geo, flapRef, boneMat, membraneMat, mainMat, type, y, z, tilt }) {
   return (
     <group ref={flapRef} position={[side * 0.40, y, z]} rotation={[0, 0, side * tilt]}>
       <group scale={[side, 1, 1]}>
         <mesh geometry={geo} material={membraneMat} />
-        {/* 날개뼈 — 어깨에서 각 가리비 꼭짓점으로 뻗는다.
+
+        {/* 박쥐 날개뼈 — 어깨에서 각 가리비 꼭짓점으로 뻗는다.
             실린더 축은 기본이 Y라, 그냥 Y로 돌리면 위로 솟은 막대가 된다.
             바깥 group을 방향으로 돌리고 안쪽 mesh를 눕혀 +Z를 향하게 만든다. */}
-        {bones && WING_TIPS.map(([x, z2], i) => {
+        {type === 'bat' && WING_TIPS.map(([x, z2], i) => {
           const len = Math.hypot(x, z2)
           return (
             <group key={i} rotation-y={Math.atan2(x, z2)}>
               <mesh material={boneMat} position={[0, 0.02, len / 2]} rotation-x={Math.PI / 2}>
-                <cylinderGeometry args={[0.045, 0.026, len, 6]} />
+                <cylinderGeometry args={[0.045, 0.020, len, 6]} />
+              </mesh>
+              {/* 마디 관절 — 뼈가 그냥 막대면 우산살처럼 보인다 */}
+              <mesh material={boneMat} position={[0, 0.02, len * 0.52]}>
+                <sphereGeometry args={[0.045, 8, 6]} />
               </mesh>
             </group>
           )
         })}
+
+        {/* 새 날개 — 깃털을 겹쳐 얹어 판때기 느낌을 지운다 */}
+        {type === 'feather' && FEATHER_ROW.map(([x, z2, len], i) => (
+          <group key={i} position={[x, 0.015, z2]} rotation-y={-0.35 - i * 0.06}>
+            <mesh material={mainMat} position={[0, 0, -len / 2]} rotation-x={Math.PI / 2}>
+              <coneGeometry args={[0.11, len, 4]} />
+            </mesh>
+          </group>
+        ))}
+
+        {/* 앞가장자리 뼈 — 어느 날개든 앞선이 있어야 형태가 산다 */}
+        <group rotation-y={Math.atan2(WING_TIPS[0][0], WING_TIPS[0][1])}>
+          <mesh material={boneMat} position={[0, 0.03, Math.hypot(...WING_TIPS[0]) / 2]} rotation-x={Math.PI / 2}>
+            <cylinderGeometry args={[0.05, 0.022, Math.hypot(...WING_TIPS[0]), 6]} />
+          </mesh>
+        </group>
       </group>
     </group>
   )
 }
 
+/* ---------------- 눈 ----------------
+   구 하나만 두면 붙여 놓은 구슬로 보인다. 눈알 · 홍채 · 눈꺼풀 ·
+   눈두덩을 겹쳐야 표정이 생긴다. */
+function Eye({ side, el, mainMat, x, y, z, size }) {
+  return (
+    <group position={[side * x, y, z]}>
+      {/* 눈알 */}
+      <mesh>
+        <sphereGeometry args={[size, 14, 12]} />
+        <meshStandardMaterial color="#0b0b12" roughness={0.25} metalness={0.1} />
+      </mesh>
+      {/* 홍채 — 속성 색으로 빛난다 */}
+      <mesh position={[side * size * 0.42, 0, size * 0.52]}>
+        <sphereGeometry args={[size * 0.62, 12, 10]} />
+        <meshStandardMaterial color={el.glow} emissive={el.glow}
+          emissiveIntensity={2.4} toneMapped={false} />
+      </mesh>
+      {/* 세로 동공 — 파충류 눈 */}
+      <mesh position={[side * size * 0.52, 0, size * 0.62]} scale={[0.28, 1, 0.28]}>
+        <sphereGeometry args={[size * 0.46, 8, 8]} />
+        <meshBasicMaterial color="#07070c" toneMapped={false} />
+      </mesh>
+      {/* 위 눈꺼풀 — 살짝 덮어야 노려보는 눈이 된다 */}
+      <mesh position={[0, size * 0.52, 0]} rotation={[-0.35, 0, 0]} material={mainMat}>
+        <sphereGeometry args={[size * 1.12, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.42]} />
+      </mesh>
+      {/* 눈두덩 — 눈 위로 튀어나온 뼈 */}
+      <mesh position={[0, size * 0.95, -size * 0.15]} rotation={[0.25, side * 0.25, 0]} material={mainMat}>
+        <boxGeometry args={[size * 2.3, size * 0.55, size * 1.5]} />
+      </mesh>
+    </group>
+  )
+}
+
 /* ---------------- 머리 ----------------
-   headType 이 두개골 자체를 바꾼다. hornStyle 은 뿔만 바꾼다.
+   headType 이 두개골 곡선 자체를 바꾼다. hornStyle 은 뿔만 바꾼다.
    jawRef 로 아래턱을 따로 잡아 두어, 포효할 때 실제로 입이 벌어진다.
    턱이 안 움직이면 아무리 고개를 젖혀도 "포효"로 보이지 않는다. */
-function Head({ el, shape, mainMat, bellyMat, jawRef, maw }) {
+function Head({ el, shape, mainMat, bellyMat, boneMat, jawRef, maw }) {
   const sn = shape.snout ?? 1
   const type = shape.headType || 'horned'
+
+  const skullGeo = useMemo(
+    () => profileTube(headProfile(type), sn, { radial: 14, rings: 26, flat: 0.74 }),
+    [type, sn],
+  )
+  const jawGeo = useMemo(
+    () => profileTube(JAW_PROFILE, sn, { radial: 10, rings: 16, flat: 0.62 }),
+    [sn],
+  )
+
   const horns = []
   const hornCount = type === 'blunt' ? Math.min(2, shape.horns) : shape.horns
-
   for (let i = 0; i < hornCount; i++) {
     const side = i % 2 === 0 ? 1 : -1
     const row = Math.floor(i / 2)
     const len = shape.hornLen - row * 0.09
-    const pos = [side * (0.17 + row * 0.045), 0.20 - row * 0.07, -0.10 - row * 0.16]
+    const pos = [side * (0.15 + row * 0.045), 0.20 - row * 0.07, -0.14 - row * 0.14]
     if (shape.hornStyle === 'curved') {
       horns.push(
         <group key={i} position={pos} rotation={[-0.55 - row * 0.2, side * 0.3, side * 0.55]}>
@@ -149,97 +238,67 @@ function Head({ el, shape, mainMat, bellyMat, jawRef, maw }) {
 
   return (
     <group scale={shape.headSize ?? 1}>
-      {/* 두개골 — 종류마다 형태가 다르다 */}
-      {type === 'beak' ? (
-        <mesh material={mainMat} castShadow>
-          <coneGeometry args={[0.28, 0.62, 7]} />
-        </mesh>
-      ) : type === 'blunt' ? (
-        <mesh material={mainMat} castShadow>
-          <sphereGeometry args={[0.28, 14, 12]} />
-        </mesh>
-      ) : (
-        <mesh material={mainMat} castShadow>
-          <boxGeometry args={[0.46, 0.40, 0.52]} />
-        </mesh>
-      )}
+      {/* 두개골 — 코끝에서 뒤통수까지 한 덩어리 */}
+      <mesh geometry={skullGeo} material={mainMat} castShadow />
 
-      {/* 주둥이 — 부리형은 뾰족하게 하나로 뻗는다 */}
-      {type === 'beak' ? (
-        <mesh position={[0, -0.02, 0.34 * sn]} rotation={[Math.PI / 2, 0, 0]} material={mainMat}>
-          <coneGeometry args={[0.13, 0.55 * sn, 6]} />
-        </mesh>
-      ) : (
-        <>
-          {/* 주둥이 — 한 덩어리 상자로 뻗으면 얼굴에 판때기를 붙인 꼴이라
-              앞으로 갈수록 좁아지도록 세 마디로 깎았다. 옆에서 봤을 때
-              두개골에서 코끝까지 선이 이어져야 얼굴로 읽힌다. */}
-          <mesh position={[0, -0.03, 0.30 * sn]} material={mainMat} castShadow>
-            <boxGeometry args={[0.34, 0.26, 0.24 * sn]} />
-          </mesh>
-          <mesh position={[0, -0.04, 0.46 * sn]} material={mainMat} castShadow>
-            <boxGeometry args={[0.27, 0.20, 0.18 * sn]} />
-          </mesh>
-          <mesh position={[0, -0.05, 0.58 * sn]} material={mainMat}>
-            <boxGeometry args={[0.20, 0.15, 0.12 * sn]} />
-          </mesh>
-          {/* 콧구멍 */}
-          {[-0.055, 0.055].map((x, i) => (
-            <mesh key={i} position={[x, -0.02, 0.635 * sn]}>
-              <boxGeometry args={[0.035, 0.032, 0.02]} />
-              <meshStandardMaterial color={el.deep} roughness={0.95} />
-            </mesh>
-          ))}
-          {/* 윗니 — 위턱에 붙어 있으므로 벌어져도 안 움직인다 */}
-          {[-0.085, 0.085].map((x, i) => (
-            <mesh key={i} position={[x, -0.14, 0.48 * sn]} rotation={[Math.PI, 0, 0]}>
-              <coneGeometry args={[0.026, 0.11, 4]} />
-              <meshStandardMaterial color="#fff" roughness={0.4} />
-            </mesh>
-          ))}
-          {/* 아래턱 — 턱관절에서 회전한다. 축을 입 안쪽에 두어야
-              벌릴 때 턱이 미끄러지지 않고 제대로 열린다. */}
-          <group ref={jawRef} position={[0, -0.12, 0.14]}>
-            {/* 턱 바깥은 몸 색이어야 한다. 속성 색(el.deep)으로 칠했더니
-                입을 다물고 있어도 얼굴에 색다른 판때기가 박힌 것처럼 보였다 */}
-            <mesh position={[0, -0.05, 0.24 * sn]} material={mainMat} castShadow>
-              <boxGeometry args={[0.24, 0.10, 0.34 * sn]} />
-            </mesh>
-            {/* 입 안쪽 — 벌어졌을 때만 보인다 */}
-            <mesh position={[0, 0.005, 0.24 * sn]}>
-              <boxGeometry args={[0.21, 0.02, 0.30 * sn]} />
-              <meshStandardMaterial color={el.deep} roughness={0.9} />
-            </mesh>
-            {/* 아랫니 — 입을 다물면 위턱에 가려 안 보일 만큼만 세운다.
-                길게 뽑았더니 다문 입에서 이빨이 뚫고 나왔다 */}
-            {[-0.075, 0.075].map((x, i) => (
-              <mesh key={i} position={[x, 0.0, 0.38 * sn]}>
-                <coneGeometry args={[0.024, 0.07, 4]} />
-                <meshStandardMaterial color="#fff" roughness={0.4} />
-              </mesh>
-            ))}
-          </group>
-          {/* 목구멍 — 입이 벌어지면 안쪽에서 빛이 새어나온다 */}
-          {maw > 0.02 && (
-            <mesh position={[0, -0.10, 0.34 * sn]}>
-              <sphereGeometry args={[0.12 + maw * 0.05, 12, 10]} />
-              <meshBasicMaterial color={el.glow} transparent opacity={0.55 * maw} toneMapped={false} />
-            </mesh>
-          )}
-        </>
-      )}
-
-      {/* 눈 — 속성 색으로 빛난다 */}
+      {/* 볼 근육 — 턱을 무는 힘이 붙는 자리. 없으면 얼굴이 납작하다 */}
       {[-1, 1].map((s) => (
-        <mesh key={s} position={[s * 0.17, 0.06, 0.20]}>
-          <sphereGeometry args={[0.062, 12, 10]} />
-          <meshStandardMaterial color={el.glow} emissive={el.glow} emissiveIntensity={2.2} toneMapped={false} />
+        <mesh key={s} position={[s * 0.19, -0.03, -0.06]} scale={[0.75, 0.9, 1.15]} material={mainMat}>
+          <sphereGeometry args={[0.135, 12, 10]} />
         </mesh>
       ))}
+
+      {/* 콧등 능선 — 눈 사이에서 코끝까지 얇게 솟는다 */}
+      {type !== 'blunt' && [0.10, 0.28, 0.46].map((z, i) => (
+        <mesh key={i} position={[0, 0.055 - i * 0.022, z * sn]} rotation={[0.12, 0, 0]} material={boneMat}>
+          <boxGeometry args={[0.075 - i * 0.014, 0.05, 0.16]} />
+        </mesh>
+      ))}
+
+      {/* 윗니 — 위턱에 붙어 있으므로 벌어져도 안 움직인다.
+          턱보다 바깥쪽(x)에 세워야 다물었을 때 턱을 뚫지 않는다. */}
+      {type !== 'beak' && [-TOOTH.upperX, TOOTH.upperX].map((x, i) => (
+        <mesh key={i} position={[x, TOOTH.upperY, 0.40 * sn]} rotation={[Math.PI, 0, 0]}>
+          <coneGeometry args={[0.024, 0.10, 4]} />
+          <meshStandardMaterial color="#fff" roughness={0.4} />
+        </mesh>
+      ))}
+
+      {/* 아래턱 — 턱관절에서 회전한다. 축을 입 안쪽에 두어야
+          벌릴 때 턱이 미끄러지지 않고 제대로 열린다. */}
+      <group ref={jawRef} position={[0, JAW_MOUNT.y, JAW_MOUNT.z]}>
+        <mesh geometry={jawGeo} material={mainMat} castShadow />
+        {/* 입 안쪽 — 벌어졌을 때만 보인다 */}
+        <mesh position={[0, 0.05, 0.24 * sn]}>
+          <boxGeometry args={[0.155, 0.02, 0.42 * sn]} />
+          <meshStandardMaterial color={el.deep} roughness={0.95} />
+        </mesh>
+        {/* 아랫니 — 입을 다물면 위턱 안에 숨는다 */}
+        {[-TOOTH.lowerX, TOOTH.lowerX].map((x, i) => (
+          <mesh key={i} position={[x, TOOTH.lowerY, 0.34 * sn]}>
+            <coneGeometry args={[0.022, 0.07, 4]} />
+            <meshStandardMaterial color="#fff" roughness={0.4} />
+          </mesh>
+        ))}
+      </group>
+
+      {/* 목구멍 — 입이 벌어지면 안쪽에서 빛이 새어나온다 */}
+      {maw > 0.02 && (
+        <mesh position={[0, -0.20, 0.18 * sn]}>
+          <sphereGeometry args={[0.11 + maw * 0.06, 12, 10]} />
+          <meshBasicMaterial color={el.glow} transparent opacity={0.6 * maw} toneMapped={false} />
+        </mesh>
+      )}
+
+      {/* 눈 */}
+      {[-1, 1].map((s) => (
+        <Eye key={s} side={s} el={el} mainMat={mainMat} x={0.185} y={0.055} z={0.075} size={0.058} />
+      ))}
+
       {/* 콧구멍 */}
       {type !== 'beak' && [-1, 1].map((s) => (
-        <mesh key={s} position={[s * 0.06, 0.02, 0.645 * sn]}>
-          <sphereGeometry args={[0.017, 8, 6]} />
+        <mesh key={s} position={[s * 0.048, -0.015, 0.585 * sn]}>
+          <sphereGeometry args={[0.018, 8, 6]} />
           <meshStandardMaterial color="#111" />
         </mesh>
       ))}
@@ -247,19 +306,19 @@ function Head({ el, shape, mainMat, bellyMat, jawRef, maw }) {
 
       {/* 볏 — crest 형은 머리 위로 부채가 선다 */}
       {type === 'crest' && [0, 1, 2, 3, 4].map((i) => (
-        <mesh key={i} position={[0, 0.24 + i * 0.02, -0.02 - i * 0.11]} rotation={[-0.5, 0, 0]} material={bellyMat}>
+        <mesh key={i} position={[0, 0.26 + i * 0.02, -0.06 - i * 0.11]} rotation={[-0.5, 0, 0]} material={bellyMat}>
           <coneGeometry args={[0.055, 0.30 - i * 0.04, 4]} />
         </mesh>
       ))}
       {/* 볼 지느러미 (에픽 이상) */}
       {shape.frill && [-1, 1].map((s) => (
-        <mesh key={s} position={[s * 0.24, -0.02, -0.16]} rotation={[0, 0, s * -0.5]} material={bellyMat}>
-          <coneGeometry args={[0.10, 0.30, 3]} />
+        <mesh key={s} position={[s * 0.245, -0.02, -0.20]} rotation={[0, 0, s * -0.5]} material={bellyMat}>
+          <coneGeometry args={[0.10, 0.32, 3]} />
         </mesh>
       ))}
       {/* 동양룡 수염 */}
       {shape.bodyType === 'eastern' && [-1, 1].map((s) => (
-        <mesh key={s} position={[s * 0.13, -0.02, 0.55 * sn]} rotation={[0.5, 0, s * 0.5]}>
+        <mesh key={s} position={[s * 0.11, -0.06, 0.50 * sn]} rotation={[0.5, 0, s * 0.5]}>
           <cylinderGeometry args={[0.012, 0.004, 0.85, 5]} />
           <meshStandardMaterial color={el.glow} emissive={el.glow} emissiveIntensity={0.7} />
         </mesh>
@@ -268,22 +327,61 @@ function Head({ el, shape, mainMat, bellyMat, jawRef, maw }) {
   )
 }
 
-/* 다리 하나 */
-function Leg({ x, y, z, len, mainMat, thick }) {
+/* ---------------- 다리 ----------------
+   막대 하나로 두면 의자 다리처럼 보인다. 허벅지가 뒤로, 정강이가
+   앞으로 꺾이는 새·도마뱀식 뒷다리라야 딛고 선 느낌이 난다. */
+function Leg({ x, y, z, len, mainMat, boneMat, thick, front }) {
+  const thighA = front ? 0.22 : 0.55         // 허벅지가 뒤로 눕는 각
+  const shinA = front ? -0.42 : -0.95        // 정강이가 앞으로 꺾이는 각
+  const thighL = 0.34 * len
+  const shinL = 0.32 * len
+
   return (
-    <group position={[x, y, z]} scale={[1, len, 1]}>
-      <mesh position={[0, -0.12, 0]} material={mainMat} castShadow>
-        <capsuleGeometry args={[0.13 * thick, 0.30, 4, 8]} />
-      </mesh>
-      <mesh position={[0, -0.40, 0.09]} material={mainMat}>
-        <boxGeometry args={[0.22 * thick, 0.11, 0.30]} />
-      </mesh>
-      {[-0.07, 0, 0.07].map((cx, j) => (
-        <mesh key={j} position={[cx * thick, -0.43, 0.24]} rotation={[1.25, 0, 0]}>
-          <coneGeometry args={[0.026, 0.11, 4]} />
-          <meshStandardMaterial color="#f1f5f9" roughness={0.4} />
+    <group position={[x, y, z]}>
+      {/* 허벅지 */}
+      <group rotation={[thighA, 0, 0]}>
+        <mesh position={[0, -thighL / 2, 0]} material={mainMat} castShadow>
+          <capsuleGeometry args={[0.145 * thick, thighL * 0.8, 4, 10]} />
         </mesh>
-      ))}
+        {/* 무릎 */}
+        <group position={[0, -thighL, 0]}>
+          <mesh material={boneMat}>
+            <sphereGeometry args={[0.10 * thick, 10, 8]} />
+          </mesh>
+          {/* 정강이 */}
+          <group rotation={[shinA, 0, 0]}>
+            <mesh position={[0, -shinL / 2, 0]} material={mainMat} castShadow>
+              <capsuleGeometry args={[0.095 * thick, shinL * 0.8, 4, 8]} />
+            </mesh>
+            {/* 발목 · 발 */}
+            <group position={[0, -shinL, 0]} rotation={[-(thighA + shinA), 0, 0]}>
+              <mesh material={boneMat}>
+                <sphereGeometry args={[0.078 * thick, 8, 8]} />
+              </mesh>
+              <mesh position={[0, -0.045, 0.075]} material={mainMat}>
+                <boxGeometry args={[0.20 * thick, 0.085, 0.26]} />
+              </mesh>
+              {/* 발가락 세 개 + 발톱 */}
+              {[-0.068, 0, 0.068].map((cx, j) => (
+                <group key={j} position={[cx * thick, -0.05, 0.19]}>
+                  <mesh material={mainMat}>
+                    <boxGeometry args={[0.055 * thick, 0.06, 0.10]} />
+                  </mesh>
+                  <mesh position={[0, -0.005, 0.085]} rotation={[1.25, 0, 0]}>
+                    <coneGeometry args={[0.024, 0.11, 4]} />
+                    <meshStandardMaterial color="#f1f5f9" roughness={0.35} metalness={0.3} />
+                  </mesh>
+                </group>
+              ))}
+              {/* 뒷발톱 */}
+              <mesh position={[0, -0.04, -0.07]} rotation={[-1.5, 0, 0]}>
+                <coneGeometry args={[0.020, 0.08, 4]} />
+                <meshStandardMaterial color="#f1f5f9" roughness={0.35} />
+              </mesh>
+            </group>
+          </group>
+        </group>
+      </group>
     </group>
   )
 }
@@ -321,7 +419,8 @@ export default function DragonModel({
   const wingL2 = useRef()
   const wingR2 = useRef()
   const auraRef = useRef()
-  const segs = useRef([])
+  const bodyRef = useRef()
+  const tailMeshRef = useRef()
   const jawRef = useRef()
   const breathRef = useRef()
   /* 포효(전투용 간이 신호)도 입을 조금은 벌리게 해준다 */
@@ -337,6 +436,7 @@ export default function DragonModel({
       main: new THREE.MeshStandardMaterial({ color: main, roughness: 0.55, metalness: 0.25 }),
       belly: new THREE.MeshStandardMaterial({ color: glow, roughness: 0.7, metalness: 0.1 }),
       bone: new THREE.MeshStandardMaterial({ color: deep, roughness: 0.6, metalness: 0.2 }),
+      plate: new THREE.MeshStandardMaterial({ color: glow, roughness: 0.85, metalness: 0.05 }),
       membrane: new THREE.MeshStandardMaterial({
         color: deep, emissive: main, emissiveIntensity: 0.35,
         roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide,
@@ -352,6 +452,60 @@ export default function DragonModel({
   )
   const long = shape.spine > 5      // 뱀·동양룡 계열인가
 
+  /* ---- 몸통 중심선 ----
+     어깨 앞으로 가슴을 한 번 더 내밀어야 목이 몸에 얹힌 것처럼 보인다.
+     마디 좌표만 이으면 목이 몸통에서 갑자기 튀어나온다. */
+  const bodyPath = useMemo(() => {
+    const s0 = spine[0]
+    const pts = [], radii = []
+    const reach = long ? 0.42 : 0.95
+    pts.push(V(s0.x, s0.y + 0.20, s0.z + reach * shape.body))
+    radii.push(s0.r * 0.46)
+    pts.push(V(s0.x, s0.y + 0.05, s0.z + reach * 0.52 * shape.body))
+    radii.push(s0.r * (long ? 0.86 : 1.06))
+    spine.forEach((p) => { pts.push(V(p.x, p.y, p.z)); radii.push(p.r) })
+    return { pts, radii }
+  }, [spine, shape.body, long])
+
+  const bodyGeo = useMemo(
+    () => taperedTube(bodyPath.pts, bodyPath.radii, {
+      radial: long ? 12 : 16,
+      rings: Math.max(22, bodyPath.pts.length * 5),
+      flat: long ? 0.92 : 0.86,
+    }),
+    [bodyPath, long],
+  )
+
+  /* ---- 목 ---- */
+  const neckGeo = useMemo(() => {
+    const n = shape.neck
+    const pts = [
+      V(0, -0.12, -0.10), V(0, 0.16 * n, 0.06 * n),
+      V(0, 0.42 * n, 0.26 * n), V(0, 0.62 * n, 0.48 * n),
+    ]
+    const base = (long ? 0.20 : 0.27) * (shape.body * 0.5 + 0.6)
+    return taperedTube(pts, [base * 1.15, base, base * 0.86, base * 0.72],
+      { radial: 12, rings: 20, flat: 0.9 })
+  }, [shape.neck, shape.body, long])
+
+  /* ---- 꼬리 ---- */
+  const tailGeo = useMemo(() => {
+    const r0 = spine[spine.length - 1].r
+    const L = shape.tailLen
+    const pts = [
+      V(0, 0, 0.06), V(0, -0.05, -0.42 * L),
+      V(0, -0.12, -0.86 * L), V(0, -0.18, -1.24 * L), V(0, -0.22, -1.52 * L),
+    ]
+    return taperedTube(pts, [r0 * 1.02, r0 * 0.74, r0 * 0.48, r0 * 0.26, r0 * 0.10],
+      { radial: 10, rings: 24, flat: 0.9 })
+  }, [spine, shape.tailLen])
+
+  /* ---- 배 비늘판 ---- */
+  const plates = useMemo(
+    () => bellyPlates(bodyPath.pts, bodyPath.radii, long ? 14 : 8),
+    [bodyPath, long],
+  )
+
   useFrame((state, dt) => {
     if (!animate) return
     const t = state.clock.elapsedTime
@@ -360,18 +514,11 @@ export default function DragonModel({
       root.current.position.y = Math.sin(t * 1.5) * 0.06
       root.current.rotation.z = Math.sin(t * 0.7) * 0.02
     }
-    /* 긴 몸은 마디마다 시차를 두고 물결친다 */
-    if (long) {
-      segs.current.forEach((m, i) => {
-        if (!m) return
-        const p = spine[i]
-        if (!p) return
-        const w = Math.sin(t * 1.6 - i * 0.55) * 0.13
-        m.position.x = p.x + w
-        m.position.y = p.y + Math.cos(t * 1.4 - i * 0.5) * 0.05
-      })
-    }
-    /* 날갯짓 — 포효 중엔 크게 펼친다. 곤충 날개는 빠르게 떤다 */
+    /* 긴 몸은 통째로 물결친다 — 마디마다 따로 움직이면 이음매가 벌어진다 */
+    if (long && bodyRef.current) undulate(bodyRef.current.geometry, t * 1.6, 0.20, 3.4)
+    if (tailMeshRef.current) undulate(tailMeshRef.current.geometry, t * 1.3, long ? 0.16 : 0.10, 2.4)
+
+    /* 날갯짓 — 입을 벌린 만큼 크게 펼친다. 곤충 날개는 빠르게 떤다 */
     const speed = shape.wingType === 'insect' ? 16 : 2.1
     const amp = shape.wingType === 'insect' ? 0.34 : 0.26
     const flap = mawAmt > 0.05
@@ -407,7 +554,7 @@ export default function DragonModel({
   const spikes = useMemo(() => Array.from({ length: shape.spikes }, (_, i) => {
     const f = i / Math.max(1, shape.spikes - 1)
     const p = spinePoint(f * (shape.spine - 1), shape.spine, shape)
-    return { x: p.x, y: p.y + p.r * 0.85, z: p.z, s: (0.13 - f * 0.05) * (long ? 0.8 : 1) }
+    return { x: p.x, y: p.y + p.r * 0.82, z: p.z, s: (0.13 - f * 0.05) * (long ? 0.8 : 1) }
   }), [shape, long])
 
   /* 다리 위치 — 다리 수에 따라 앞/뒤로 붙는다 */
@@ -419,9 +566,11 @@ export default function DragonModel({
     const w = 0.34 * shape.body
     const out = []
     /* 뒷다리는 어느 체형이나 있다 */
-    out.push({ x: w, y: hip.y - hip.r * 0.5, z: hip.z + 0.30 }, { x: -w, y: hip.y - hip.r * 0.5, z: hip.z + 0.30 })
+    out.push({ x: w, y: hip.y - hip.r * 0.42, z: hip.z + 0.30, front: true },
+      { x: -w, y: hip.y - hip.r * 0.42, z: hip.z + 0.30, front: true })
     if (n >= 4) {
-      out.push({ x: w * 0.9, y: rear.y - rear.r * 0.5, z: rear.z }, { x: -w * 0.9, y: rear.y - rear.r * 0.5, z: rear.z })
+      out.push({ x: w * 0.9, y: rear.y - rear.r * 0.42, z: rear.z, front: false },
+        { x: -w * 0.9, y: rear.y - rear.r * 0.42, z: rear.z, front: false })
     }
     return out
   }, [shape, long])
@@ -434,46 +583,49 @@ export default function DragonModel({
   return (
     <group ref={root} scale={scale * shape.size}>
       {/* ---------- 몸통 ---------- */}
-      {spine.map((p, i) => (
-        <mesh key={i} ref={(m) => { segs.current[i] = m }}
-          position={[p.x, p.y, p.z]} material={mats.main} castShadow>
-          <sphereGeometry args={[p.r, long ? 12 : 20, long ? 10 : 16]} />
+      <mesh ref={bodyRef} geometry={bodyGeo} material={mats.main} castShadow />
+
+      {/* 배 비늘판 — 아래쪽에 가로로 늘어선다 */}
+      {plates.map((pl, i) => (
+        <mesh key={i} position={pl.pos} rotation={[pl.pitch, 0, 0]} material={mats.plate}>
+          <boxGeometry args={[pl.w, 0.035, pl.d]} />
         </mesh>
       ))}
-      {/* 가슴 — 마디가 적은 체형만 따로 부풀린다 */}
-      {!long && (
-        <>
-          <mesh position={[0, shoulder.y - 0.03, shoulder.z + 0.57]} material={mats.main} castShadow>
-            <sphereGeometry args={[0.46 * shape.body, 18, 14]} />
-          </mesh>
-          <mesh position={[0, shoulder.y - 0.25, shoulder.z + 0.25]} material={mats.belly}>
-            <sphereGeometry args={[0.40 * shape.body, 16, 12]} />
-          </mesh>
-        </>
-      )}
+
+      {/* 어깨 근육 — 날개가 붙는 자리가 밋밋하면 날개가 얹힌 것처럼 보인다 */}
+      {shape.wingType !== 'none' && [-1, 1].map((s) => (
+        <mesh key={s} position={[s * 0.30 * shape.body, wingY - 0.06, wingZ + 0.12]}
+          scale={[0.9, 1, 1.25]} material={mats.main}>
+          <sphereGeometry args={[0.24 * shape.body, 12, 10]} />
+        </mesh>
+      ))}
 
       {/* ---------- 목 · 머리 ---------- */}
-      <group ref={neck} position={[0, shoulder.y + 0.27, shoulder.z + 0.70]}>
-        {[0, 1, 2].map((i) => (
-          <mesh key={i} position={[0, i * 0.20 * shape.neck, i * 0.17 * shape.neck]} material={mats.main} castShadow>
-            <sphereGeometry args={[(0.24 - i * 0.028) * (long ? 0.8 : 1), 14, 12]} />
-          </mesh>
-        ))}
-        <group ref={headRef} position={[0, 0.66 * shape.neck, 0.56 * shape.neck]}>
+      <group ref={neck} position={[0, shoulder.y + 0.16, shoulder.z + 0.72 * (long ? 0.6 : 1)]}>
+        <mesh geometry={neckGeo} material={mats.main} castShadow />
+        <group ref={headRef} position={[0, 0.66 * shape.neck, 0.52 * shape.neck]}>
           <Head el={el} shape={shape} mainMat={mats.main} bellyMat={mats.belly}
-            jawRef={jawRef} maw={mawAmt} />
+            boneMat={mats.bone} jawRef={jawRef} maw={mawAmt} />
           {/* 숨결 — 주둥이 끝에서 앞으로 뿜는다.
               머리 안에 두어야 체형이 달라도 항상 입에서 나온다. */}
           <mesh ref={breathRef} visible={false}
-            position={[0, -0.08, 0.85 * (shape.snout ?? 1)]} rotation={[Math.PI / 2, 0, 0]}>
+            position={[0, -0.19, 0.88 * (shape.snout ?? 1)]} rotation={[Math.PI / 2, 0, 0]}>
             <coneGeometry args={[0.42, 1.6, 16, 1, true]} />
             <meshBasicMaterial color={el.glow} transparent opacity={0}
               toneMapped={false} side={THREE.DoubleSide} depthWrite={false} />
           </mesh>
         </group>
+        {/* 목 비늘 — 앞쪽에 가로줄 */}
+        {[0, 1, 2, 3].map((i) => (
+          <mesh key={i} material={mats.plate}
+            position={[0, 0.06 + i * 0.17 * shape.neck, 0.14 + i * 0.13 * shape.neck]}
+            rotation={[0.5, 0, 0]}>
+            <boxGeometry args={[0.26 - i * 0.02, 0.03, 0.13]} />
+          </mesh>
+        ))}
         {/* 동양룡 갈기 */}
         {shape.bodyType === 'eastern' && [0, 1, 2].map((i) => (
-          <mesh key={i} position={[0, 0.16 + i * 0.20, -0.10 + i * 0.14]} rotation={[-0.7, 0, 0]} material={mats.belly}>
+          <mesh key={i} position={[0, 0.16 + i * 0.20, -0.14 + i * 0.12]} rotation={[-0.7, 0, 0]} material={mats.belly}>
             <coneGeometry args={[0.13, 0.34, 4]} />
           </mesh>
         ))}
@@ -483,16 +635,16 @@ export default function DragonModel({
       {shape.wingType !== 'none' && (
         <group scale={shape.wingScale}>
           <Wing side={1} geo={wingGeo} flapRef={wingR} boneMat={mats.bone} membraneMat={mats.membrane}
-            bones={shape.wingType === 'bat'} y={wingY} z={wingZ} tilt={0.45} />
+            mainMat={mats.main} type={shape.wingType} y={wingY} z={wingZ} tilt={0.45} />
           <Wing side={-1} geo={wingGeo} flapRef={wingL} boneMat={mats.bone} membraneMat={mats.membrane}
-            bones={shape.wingType === 'bat'} y={wingY} z={wingZ} tilt={0.45} />
+            mainMat={mats.main} type={shape.wingType} y={wingY} z={wingZ} tilt={0.45} />
           {/* 곤충 날개는 두 쌍 */}
           {shape.wingPairs > 1 && (
             <group scale={0.78}>
               <Wing side={1} geo={wingGeo} flapRef={wingR2} boneMat={mats.bone} membraneMat={mats.membrane}
-                bones={false} y={wingY - 0.16} z={wingZ - 0.34} tilt={0.30} />
+                mainMat={mats.main} type={shape.wingType} y={wingY - 0.16} z={wingZ - 0.34} tilt={0.30} />
               <Wing side={-1} geo={wingGeo} flapRef={wingL2} boneMat={mats.bone} membraneMat={mats.membrane}
-                bones={false} y={wingY - 0.16} z={wingZ - 0.34} tilt={0.30} />
+                mainMat={mats.main} type={shape.wingType} y={wingY - 0.16} z={wingZ - 0.34} tilt={0.30} />
             </group>
           )}
         </group>
@@ -500,23 +652,27 @@ export default function DragonModel({
 
       {/* ---------- 꼬리 ---------- */}
       <group ref={tail} position={[tailBase.x, tailBase.y, tailBase.z]}>
-        {[0, 1, 2, 3, 4].map((i) => (
-          <mesh key={i} position={[0, -i * 0.045, -i * 0.30 * shape.tailLen]} material={mats.main} castShadow>
-            <sphereGeometry args={[Math.max(0.05, tailBase.r * (1 - i * 0.19)), 12, 10]} />
-          </mesh>
-        ))}
+        <mesh ref={tailMeshRef} geometry={tailGeo} material={mats.main} castShadow />
         {/* 꼬리 끝 — 드래곤마다 다르다 */}
-        <group position={[0, -0.20, -1.42 * shape.tailLen]}>
+        <group position={[0, -0.22, -1.58 * shape.tailLen]}>
           {shape.tailTip === 'spike' && (
             <mesh rotation={[-Math.PI / 2, 0, 0]}>
-              <coneGeometry args={[0.13, 0.72, 6]} />
+              <coneGeometry args={[0.11, 0.62, 6]} />
               <meshStandardMaterial color="#f1f5f9" roughness={0.35} metalness={0.4} />
             </mesh>
           )}
           {shape.tailTip === 'club' && (
-            <mesh material={mats.main}>
-              <sphereGeometry args={[0.26, 12, 10]} />
-            </mesh>
+            <>
+              <mesh material={mats.main}>
+                <sphereGeometry args={[0.22, 12, 10]} />
+              </mesh>
+              {[0, 1, 2, 3].map((i) => (
+                <mesh key={i} rotation={[0, (i / 4) * Math.PI * 2, 0]} position={[0, 0.02, 0]}>
+                  <coneGeometry args={[0.05, 0.20, 4]} />
+                  <meshStandardMaterial color="#f1f5f9" roughness={0.35} metalness={0.4} />
+                </mesh>
+              ))}
+            </>
           )}
           {shape.tailTip === 'fan' && [-1, 0, 1].map((s) => (
             <mesh key={s} rotation={[0.35, s * 0.5, 0]} material={mats.membrane}>
@@ -525,7 +681,7 @@ export default function DragonModel({
           ))}
           {shape.tailTip === 'blade' && (
             <mesh rotation={[0.35, 0, 0]} material={mats.membrane}>
-              <coneGeometry args={[0.26, 0.52, 4]} />
+              <coneGeometry args={[0.24, 0.52, 4]} />
             </mesh>
           )}
         </group>
@@ -533,9 +689,9 @@ export default function DragonModel({
 
       {/* ---------- 다리 ---------- */}
       {legs.map((L, i) => (
-        <Leg key={i} x={L.x} y={L.y} z={L.z} len={shape.legLen}
+        <Leg key={i} x={L.x} y={L.y} z={L.z} len={shape.legLen} front={L.front}
           thick={shape.bodyType === 'titan' ? 1.4 : shape.bodyType === 'eastern' ? 0.65 : 1}
-          mainMat={mats.main} />
+          mainMat={mats.main} boneMat={mats.bone} />
       ))}
 
       {/* ---------- 등줄기 가시 ---------- */}

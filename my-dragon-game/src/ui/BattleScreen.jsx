@@ -251,7 +251,7 @@ function UnitBar({ unit, compact, onClick, selectable, isTurn }) {
   )
 }
 
-export default function BattleScreen({ stage, allies, enemies, difficulty, maxRounds, onFinish }) {
+export default function BattleScreen({ stage, allies, enemies, difficulty, maxRounds, onFinish, onSkillUsed }) {
   const [st, setSt] = useState(() => createBattle({ allies, enemies, seed: Date.now() >>> 0, maxRounds }))
   const [pending, setPending] = useState(null)     // 대상 지정을 기다리는 스킬
   const [flash, setFlash] = useState(null)
@@ -328,6 +328,7 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
     if (fx) return
     runAction(() => castSkill(st, skill.id, targetUid))
     setPending(null)
+    onSkillUsed?.()
   }
 
   const onSkill = (skill) => {
@@ -371,7 +372,7 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
       </div>
 
       {/* 적 진영 */}
-      <div className="relative z-10 flex gap-2 px-3">
+      <div data-tut="enemy" className="relative z-10 flex gap-2 px-3">
         {foeUnits.map((u) => (
           <div key={u.uid} className="flex-1">
             <UnitBar unit={u} compact
@@ -447,7 +448,7 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
             <button onClick={() => setPending(null)} className="ml-2 text-slate-300 underline">취소</button>
           </div>
         )}
-        <div className="grid grid-cols-4 gap-1.5">
+        <div data-tut="skills" className="grid grid-cols-4 gap-1.5">
           {skills.map((sk) => {
             const usable = myTurn && canUse(actor, sk, st.round)
             const lock = actor ? lockReason(actor, sk, st.round) : null

@@ -12,6 +12,7 @@ import DungeonScreen from './ui/DungeonScreen.jsx'
 import TowerScreen from './ui/TowerScreen.jsx'
 import DexScreen from './ui/DexScreen.jsx'
 import StoryDialogue from './ui/StoryDialogue.jsx'
+import TutorialOverlay from './ui/TutorialOverlay.jsx'
 import EndingScreen from './ui/EndingScreen.jsx'
 import BattleScreen from './ui/BattleScreen.jsx'
 import SummonCutscene from './three/SummonCutscene.jsx'
@@ -34,6 +35,11 @@ import {
   canEnter, spendEntry, addTickets,
 } from './game/dungeon.js'
 import { scriptFor, applyGain, freshFlags, FINAL_PROLOGUE, FINAL_STAGE_ID } from './game/story.js'
+import {
+  freshTutorial, visibleOn as tutVisible,
+  advance as tutAdvance, onScreen as tutOnScreen, onEvent as tutOnEvent,
+  skipAll as tutSkip, TUT_EVENTS,
+} from './game/tutorial.js'
 import {
   MAX_PLUS, failChance, enhanceGold, PROTECT_GEM_COST, salvageGold,
   INVENTORY_MAX, SLOT_IDS, gearInfo,
@@ -72,6 +78,7 @@ const fresh = () => ({
   gear: {},                   // 드래곤별 장착 — id -> { loadout: {slot:uid}, rune: uid }
   tower: freshTower(),        // 무한의 탑 { best }
   orbs: freshOrbs(),          // 경험 구슬 — 레벨업은 이걸 먹여서 한다
+  tutorial: freshTutorial(),  // 튜토리얼 진행 { step, done, version }
 })
 
 export default function App() {
@@ -91,6 +98,29 @@ export default function App() {
   const commit = useCallback((next) => { setS(next); save(next) }, [])
   /* 대화 중 선택처럼 최신 상태 위에 얹어야 할 때 쓴다 */
   const update = useCallback((fn) => setS((cur) => { const n = fn(cur); save(n); return n }), [])
+
+  /* ---------- 튜토리얼 ----------
+     단계마다 보상이 딸려 있어, 넘어가는 지점을 한 군데로 모아 둔다.
+     여러 곳에서 각자 setS 를 부르면 보상이 두 번 들어가기 쉽다. */
+  const tutStep = useCallback((fn) => update((cur) => {
+    const { tut, reward } = fn(cur.tutorial)
+    if (tut === cur.tutorial) return cur
+    let next = { ...cur, tutorial: tut }
+    if (reward) {
+      if (reward.gems) next.gems = next.gems + reward.gems
+      if (reward.gold) next.gold = next.gold + reward.gold
+      if (reward.orbs) next.orbs = addOrbs(next.orbs, reward.orbs)
+    }
+    return next
+  }), [update])
+
+  const tutFire = useCallback((name) => tutStep((t) => tutOnEvent(t, name)), [tutStep])
+
+  /* 화면 이동은 여기로만 — 튜토리얼이 이동을 조건으로 삼는 단계가 있다 */
+  const goScreen = useCallback((id) => {
+    setScreen(id)
+    tutStep((t) => tutOnScreen(t, id))
+  }, [tutStep])
   const featured = useMemo(
     () => (bannerId === 'limited' ? limitedLegends()[0] : DRAGON_BY_ID.slegend_0), [bannerId],
   )
@@ -125,7 +155,8 @@ export default function App() {
     })
     setResults(rolled)
     setCutscene(bestOf(rolled))
-  }, [S, bannerId, featured, commit])
+    tutFire(TUT_EVENTS.pulled)
+  }, [S, bannerId, featured, commit, tutFire])
 
   /* ---------- 편성 ---------- */
   const toggleTeam = (id) => {
@@ -205,7 +236,7 @@ export default function App() {
 
   /* ---------- 경험 구슬로 레벨업 ----------
      전투는 구슬만 떨구고, 어느 드래곤을 키울지는 플레이어가 정한다. */
-  const feedOrb = (dragonId, orbId, count = 1) => update((cur) => {
+  const feedOrb = (dragonId, orbId, count = 1) => { tutFire(TUT_EVENTS.orbFed); return update((cur) => {
     const d = cur.dragons[dragonId]
     const orb = ORB_BY_ID[orbId]
     if (!d || !orb || d.level >= MAX_LEVEL) return cur
@@ -217,10 +248,10 @@ export default function App() {
       orbs: spendOrbs(cur.orbs, orbId, n),
       dragons: { ...cur.dragons, [dragonId]: { ...d, level: g.level, exp: g.exp } },
     }
-  })
+  }) }
 
   /* 만렙까지 알아서 먹인다 — 큰 구슬부터 넘치지 않게 */
-  const autoFeed = (dragonId) => update((cur) => {
+  const autoFeed = (dragonId) => { tutFire(TUT_EVENTS.orbFed); return update((cur) => {
     const d = cur.dragons[dragonId]
     if (!d || d.level >= MAX_LEVEL) return cur
     const { plan, total, count } = planFeed(cur.orbs, expToMax(d.level, d.exp))
@@ -231,7 +262,7 @@ export default function App() {
       orbs: spendPlan(cur.orbs, plan),
       dragons: { ...cur.dragons, [dragonId]: { ...d, level: g.level, exp: g.exp } },
     }
-  })
+  }) }
 
   /* ---------- 장비 · 룬 ---------- */
   const wornOf = useCallback((st, id) => {
@@ -242,7 +273,7 @@ export default function App() {
   }, [])
 
   /* 한 장비는 한 드래곤만 낄 수 있다. 다른 드래곤이 끼고 있으면 거기서 뺀다. */
-  const equipGear = (dragonId, slot, uid) => update((cur) => {
+  const equipGear = (dragonId, slot, uid) => { tutFire(TUT_EVENTS.gearEquipped); return update((cur) => {
     const gear = { ...cur.gear }
     const inventory = cur.inventory.map((i) => (i.uid === uid ? { ...i, equippedBy: dragonId } : i))
     /* 그 자리에 있던 장비는 가방으로 돌아간다 */
@@ -253,7 +284,7 @@ export default function App() {
       loadout: { ...(gear[dragonId]?.loadout || {}), [slot]: uid },
     }
     return { ...cur, gear, inventory: inv2 }
-  })
+  }) }
 
   const unequipGear = (dragonId, slot) => update((cur) => {
     const gear = { ...cur.gear }
@@ -343,7 +374,7 @@ export default function App() {
     if (!S.team.length) { setScreen('roster'); return }
     const allies = teamUnits()
     const { enemies, difficulty } = buildEncounter(stage, S.difficulty, Date.now() >>> 0, allies.length)
-    const go = () => setBattle({ stage, allies, enemies, difficulty })
+    const go = () => { setBattle({ stage, allies, enemies, difficulty }); tutFire(TUT_EVENTS.battleStarted) }
     /* 스테이지에 대화가 붙어 있고 아직 안 봤다면 먼저 보여준다 */
     const script = scriptFor(stage.id)
     if (script && !S.seenBeats[stage.id]) {
@@ -384,6 +415,7 @@ export default function App() {
   const finishBattle = (outcome) => {
     const { stage, dungeon, tower } = battle
     setBattle(null)
+    if (outcome === 'win') tutFire(TUT_EVENTS.battleWon)
     if (outcome !== 'win') {
       /* 전투 화면(3D 캔버스 2개)이 사라지고 홈 화면(드래곤 미리보기 캔버스들)이
          뜨는 그 틈을 뭔가로 덮어야 한다. 승리 때는 보상창이 같은 순간에 함께
@@ -478,9 +510,16 @@ export default function App() {
   /* ---------- 전투 ---------- */
   if (battle) {
     return (
-      <BattleScreen {...battle}
-        onFinish={finishBattle}
- />
+      <>
+        <BattleScreen {...battle}
+          onFinish={finishBattle}
+          onSkillUsed={() => tutFire(TUT_EVENTS.skillUsed)} />
+        {tutVisible(S.tutorial, 'battle') && (
+          <TutorialOverlay tut={S.tutorial} screen="battle"
+            onTap={() => tutStep(tutAdvance)}
+            onSkip={() => update((cur) => ({ ...cur, tutorial: tutSkip(cur.tutorial) }))} />
+        )}
+      </>
     )
   }
 
@@ -500,7 +539,7 @@ export default function App() {
           <div className="relative mx-auto max-w-2xl px-5 py-6">
             <div className="flex items-center justify-between">
               <h1 className="text-lg font-black text-white">🐉 드래곤 마스터</h1>
-              <div className="flex gap-2 text-[12px] font-black">
+              <div data-tut="currency" className="flex gap-2 text-[12px] font-black">
                 {subActive(S.sub) && (
                   <span className="rounded-full border border-amber-300/40 bg-amber-300/10 px-2.5 py-1 text-amber-200">👑</span>
                 )}
@@ -542,7 +581,7 @@ export default function App() {
             </div>
 
             {/* 메뉴 */}
-            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div data-tut="menu" className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
                 { id: 'campaign', icon: '⚔', name: '캠페인', sub: '용의 섬 10장' },
                 { id: 'gacha', icon: '🔮', name: '소환', sub: '드래곤 뽑기' },
@@ -552,7 +591,7 @@ export default function App() {
                 { id: 'dex', icon: '📖', name: '도감', sub: `${Object.keys(S.dragons).length} / ${DRAGONS.length}종` },
                 { id: 'shop', icon: '🛒', name: '상점', sub: '보석 · 프리미엄', hot: canClaimDaily(S.sub) },
               ].map((m) => (
-                <button key={m.id} onClick={() => setScreen(m.id)}
+                <button key={m.id} data-tut={m.id} onClick={() => goScreen(m.id)}
                   className="relative rounded-2xl border border-white/10 bg-white/[.05] p-5 text-center transition hover:-translate-y-1 hover:bg-white/[.1]">
                   {/* 오늘 월정액 보석을 아직 안 받았으면 알림 점 */}
                   {m.hot && <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-rose-500" />}
@@ -572,7 +611,7 @@ export default function App() {
           difficulty={S.difficulty}
           setDifficulty={(d) => commit({ ...S, difficulty: d })}
           onStart={startStage}
-          onBack={() => setScreen('home')} />
+          onBack={() => goScreen('home')} />
       )}
 
       {screen === 'roster' && (
@@ -586,22 +625,22 @@ export default function App() {
             onEquipRune: equipRune, onUnequipRune: unequipRune,
             onEnhance: enhanceGear, onSalvage: salvageGear, onSalvageRune: salvageRune,
           }}
-          onBack={() => setScreen('home')} />
+          onBack={() => goScreen('home')} />
       )}
 
       {screen === 'tower' && (
-        <TowerScreen tower={S.tower} onClimb={climbTower} onBack={() => setScreen('home')} />
+        <TowerScreen tower={S.tower} onClimb={climbTower} onBack={() => goScreen('home')} />
       )}
 
       {screen === 'dex' && (
-        <DexScreen dragons={S.dragons} onBack={() => setScreen('home')} />
+        <DexScreen dragons={S.dragons} onBack={() => goScreen('home')} />
       )}
 
       {screen === 'dungeon' && (
         <DungeonScreen
           entries={S.entries} sub={S.sub} clearedCount={clearedCount}
           onEnter={enterDungeon}
-          onBack={() => setScreen('home')} />
+          onBack={() => goScreen('home')} />
       )}
 
       {screen === 'shop' && (
@@ -612,7 +651,7 @@ export default function App() {
           onBuySubscription={buySubscription}
           onClaimDaily={claimSubDaily}
           onBuyPremium={buyPremiumItem}
-          onBack={() => setScreen('home')} />
+          onBack={() => goScreen('home')} />
       )}
 
       {screen === 'gacha' && (
@@ -634,6 +673,13 @@ export default function App() {
       )}
 
       {cutscene && <SummonCutscene result={cutscene} onDone={() => setCutscene(null)} />}
+
+      {/* 튜토리얼 — 대화·컷씬이 떠 있을 땐 비켜 준다 (겹치면 둘 다 못 읽는다) */}
+      {!beat && !cutscene && !reward && !battleEnd && tutVisible(S.tutorial, screen) && (
+        <TutorialOverlay tut={S.tutorial} screen={screen}
+          onTap={() => tutStep(tutAdvance)}
+          onSkip={() => update((cur) => ({ ...cur, tutorial: tutSkip(cur.tutorial) }))} />
+      )}
 
       {beat && (
         <StoryDialogue

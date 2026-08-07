@@ -60,7 +60,8 @@ export default function CampaignScreen({ cleared, difficulty, setDifficulty, onS
               const done = !!cleared[s.id]
               const rw = stageReward(s, difficulty)
               return (
-                <button key={s.id} onClick={() => open && onStart(s)} disabled={!open}
+                <button key={s.id} data-tut={open && !cleared[s.id] ? 'stage' : undefined}
+                  onClick={() => open && onStart(s)} disabled={!open}
                   className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
                     open ? 'border-white/10 bg-white/[.04] hover:bg-white/[.09]' : 'cursor-not-allowed border-white/5 bg-black/30 opacity-50'}`}>
                   <span className="text-xl">{s.boss ? '👑' : open ? '⚔' : '🔒'}</span>

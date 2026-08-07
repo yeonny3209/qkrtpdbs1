@@ -320,10 +320,12 @@ function DetailPanel({
           </div>
 
           {/* 장비 · 룬 */}
+          <div data-tut="gear">
           <GearPanel
             dragonId={o.id} loadout={loadout} runeId={runeId}
             inventory={inventory} runeBag={runeBag} gold={gold} gems={gems}
             {...gearActions} />
+          </div>
 
           <button onClick={onClose} className="mt-4 w-full rounded-xl bg-white/10 py-2.5 text-sm font-bold text-white hover:bg-white/20">
             닫기
