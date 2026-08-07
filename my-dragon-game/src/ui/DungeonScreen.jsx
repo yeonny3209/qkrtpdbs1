@@ -79,6 +79,7 @@ export default function DungeonScreen({ entries, sub, clearedCount, onEnter, onB
                             {rw.exp > 0 && <span className="text-sky-300">EXP {rw.exp.toLocaleString()}</span>}
                             {rw.gold > 0 && <span className="text-amber-300">{rw.gold.toLocaleString()}G</span>}
                             {rw.stones > 0 && <span className="text-violet-300">💠{rw.stones}</span>}
+                            {rw.drinks > 0 && <span className="text-pink-300">🧪{rw.drinks}</span>}
                           </span>
                           {!unlocked && (
                             <span className="shrink-0 text-[10px] text-slate-500">🔒 {t.needCleared}스테이지</span>

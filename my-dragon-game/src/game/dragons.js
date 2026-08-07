@@ -14,6 +14,7 @@
      기본값과 성장률을 맞췄고, 마지막에 범위로 한 번 더 조인다.
    ================================================================== */
 import { ELEMENTS, ELEMENT_IDS } from './elements.js'
+import { ABSOLUTE_MAX_LEVEL } from './breakthrough.js'
 
 /* ---------------- 등급 ---------------- */
 export const RARITIES = [
@@ -38,11 +39,20 @@ export const STAT_KEYS = ['hp', 'atk', 'matk', 'def', 'mdef', 'agi']
 export const STAT_LABEL = { hp: 'HP', atk: '공격', matk: '마공', def: '방어', mdef: '마방', agi: '민첩' }
 /* 사용자 확정 범위 — 어떤 계산도 이 밖으로 나가지 않는다 */
 export const STAT_MIN = { hp: 500, atk: 30, matk: 30, def: 20, mdef: 20, agi: 20 }
-export const STAT_MAX = { hp: 5000, atk: 500, matk: 500, def: 300, mdef: 300, agi: 300 }
+/* 상한은 600레벨·6진화를 감당할 만큼 넉넉해야 한다.
+   5000 으로 두었을 때는 진화한 레전드가 100레벨에서 이미 상한에 닿아,
+   그 뒤로 아무리 키워도 수치가 안 움직였다. */
+export const STAT_MAX = { hp: 60000, atk: 6000, matk: 6000, def: 3600, mdef: 3600, agi: 3600 }
 
-export const MAX_LEVEL = 100
-/* Lv.1 → Lv.100 이 약 4.17배. (레전드 HP 1200 → 5004 ≈ 상한 5000) */
+/* 돌파로 열리는 이론상 최대 레벨. 실제 상한은 진화·돌파가 정한다. */
+export const MAX_LEVEL = ABSOLUTE_MAX_LEVEL
+
+/* 100레벨까지는 예전 곡선 그대로다 (Lv.100 에서 4.17배).
+   그 위로는 완만하게 이어 붙인다 — 같은 기울기로 600까지 가면
+   20배가 넘어 전투가 숫자 놀음이 된다. */
 export const LEVEL_GROWTH = 0.032
+export const LATE_LEVEL_GROWTH = 0.016
+export const LATE_LEVEL_FROM = 100
 
 /* ---------------- 진화 (사용자 확정) ---------------- */
 export const MAX_EVOLUTION = 6
@@ -159,7 +169,12 @@ export const poolOfRarity = (rarity) => DRAGONS.filter((d) => d.kind === 'standa
 /* ==================================================================
    실제 능력치 — 레벨과 진화를 반영한 값
    ================================================================== */
-export const levelMul = (level) => 1 + (Math.max(1, Math.min(MAX_LEVEL, level)) - 1) * LEVEL_GROWTH
+export function levelMul(level) {
+  const lv = Math.max(1, Math.min(MAX_LEVEL, level))
+  if (lv <= LATE_LEVEL_FROM) return 1 + (lv - 1) * LEVEL_GROWTH
+  const atCut = 1 + (LATE_LEVEL_FROM - 1) * LEVEL_GROWTH
+  return atCut + (lv - LATE_LEVEL_FROM) * LATE_LEVEL_GROWTH
+}
 
 export function statsOf(dragon, level = 1, evo = 0) {
   const lm = levelMul(level)
@@ -172,27 +187,40 @@ export function statsOf(dragon, level = 1, evo = 0) {
   return out
 }
 
-/* ---------------- 성장 (경험치) ---------------- */
-export const expToNext = (level) => Math.round(58 * Math.pow(level, 1.52))
+/* ---------------- 성장 (경험치) ----------------
+   100레벨까지는 예전 곡선 그대로. 그 위는 지수를 크게 낮춘다.
+   1.52 를 600까지 끌고 가면 한 레벨에 100만 경험치가 필요해져서,
+   구슬을 아무리 부어도 눈금이 안 움직인다. */
+const EXP_AT_CUT = Math.round(58 * Math.pow(LATE_LEVEL_FROM, 1.52))
+export function expToNext(level) {
+  const lv = Math.max(1, level)
+  if (lv < LATE_LEVEL_FROM) return Math.round(58 * Math.pow(lv, 1.52))
+  return Math.round(EXP_AT_CUT * Math.pow(lv / LATE_LEVEL_FROM, 0.25))
+}
 
 /* 지금 상태에서 만렙까지 남은 총 경험치.
    구슬을 "만렙까지 알아서 먹이기" 할 때 얼마나 필요한지 계산한다. */
-export function expToMax(level, exp) {
-  if (level >= MAX_LEVEL) return 0
+export function expToMax(level, exp, cap = MAX_LEVEL) {
+  const top = Math.min(cap, MAX_LEVEL)
+  if (level >= top) return 0
   let need = -exp
-  for (let lv = level; lv < MAX_LEVEL; lv++) need += expToNext(lv)
+  for (let lv = level; lv < top; lv++) need += expToNext(lv)
   return Math.max(0, need)
 }
 
 /* 경험치를 넣고 레벨업을 처리한다. { level, exp, gained } 를 돌려준다. */
-export function gainExp(level, exp, amount) {
+/* cap 은 돌파·진화가 정한 지금의 상한이다. 거기 닿으면 경험치는
+   더 쌓이지 않는다 — 벽에 막힌 채 경험치만 계속 먹으면
+   돌파하는 순간 몇 레벨이 한꺼번에 올라 이상하다. */
+export function gainExp(level, exp, amount, cap = MAX_LEVEL) {
+  const top = Math.min(cap, MAX_LEVEL)
   let lv = level, ex = exp + amount, gained = 0
-  while (lv < MAX_LEVEL && ex >= expToNext(lv)) {
+  while (lv < top && ex >= expToNext(lv)) {
     ex -= expToNext(lv)
     lv += 1
     gained += 1
   }
-  if (lv >= MAX_LEVEL) { lv = MAX_LEVEL; ex = 0 }
+  if (lv >= top) { lv = top; ex = 0 }
   return { level: lv, exp: ex, gained }
 }
 

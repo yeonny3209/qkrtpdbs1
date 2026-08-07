@@ -115,8 +115,12 @@ export const PREMIUM_ITEMS = [
     gems: 1500, daily: 1, grant: { stones: 120 } },
   { id: 'ticket', icon: '🎟️', name: '던전 입장권', desc: '오늘 던전 입장 +1',
     gems: 200, daily: 3, grant: { dungeonTickets: 1 } },
-  { id: 'exp_potion', icon: '🧪', name: '경험의 물약', desc: '편성 드래곤 전원 경험치 +4,000',
-    gems: 400, daily: 3, grant: { teamExp: 4000 } },
+  { id: 'exp_potion', icon: '🧪', name: '경험의 물약', desc: '편성 드래곤 전원 경험치 +40,000',
+    gems: 400, daily: 3, grant: { teamExp: 40000 } },
+  { id: 'drink_s', icon: '🧃', name: '드래곤 드링크 3병', desc: '돌파 재료 3개',
+    gems: 600, daily: 3, grant: { drinks: 3 } },
+  { id: 'drink_l', icon: '🍾', name: '드래곤 드링크 상자', desc: '돌파 재료 20개',
+    gems: 3200, daily: 1, grant: { drinks: 20 } },
 ]
 export const PREMIUM_BY_ID = Object.fromEntries(PREMIUM_ITEMS.map((i) => [i.id, i]))
 

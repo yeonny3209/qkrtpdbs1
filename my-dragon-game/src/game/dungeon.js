@@ -33,33 +33,47 @@ export const DUNGEONS = [
     desc: '진화석이 나온다. 진화에 부족한 분신을 대신할 수 있다.',
     elements: ['ice', 'dark'],
   },
+  {
+    id: 'drink', icon: '🧪', name: '용의 샘', currency: 'drinks',
+    color: '#f472b6',
+    desc: '드래곤 드링크가 나온다. 레벨 상한을 돌파할 때 쓴다.',
+    elements: ['fire', 'wind'],
+  },
 ]
 export const DUNGEON_BY_ID = Object.fromEntries(DUNGEONS.map((d) => [d.id, d]))
 
 /* 단계별 적 레벨 · 해금 조건(클리어한 스테이지 수) · 보상 배수 */
 export const TIERS = [
   { id: 'low', name: '초급', level: 12, needCleared: 5, mul: 1 },
-  { id: 'mid', name: '중급', level: 40, needCleared: 30, mul: 3.4 },
-  { id: 'high', name: '상급', level: 78, needCleared: 60, mul: 9 },
+  { id: 'mid', name: '중급', level: 45, needCleared: 40, mul: 3.4 },
+  { id: 'high', name: '상급', level: 110, needCleared: 110, mul: 9 },
+  /* 캠페인을 거의 다 깬 뒤에 여는 구간. 600레벨을 노리려면 여기를 돈다 */
+  { id: 'abyss', name: '심연', level: 230, needCleared: 240, mul: 30 },
 ]
 export const TIER_BY_ID = Object.fromEntries(TIERS.map((t) => [t.id, t]))
 
 /* 종류마다 주력 보상만 크게 주고 나머지는 거의 안 준다.
    그래야 "오늘은 뭘 돌지" 고르는 의미가 생긴다. */
 const BASE_REWARD = {
-  exp: { exp: 900, gold: 60, stones: 0 },
-  gold: { exp: 90, gold: 5200, stones: 0 },
-  stone: { exp: 120, gold: 200, stones: 8 },
+  /* 경험치 던전은 크게 올렸다. 600레벨까지 4,500만이 드는데
+     예전 값(초급 900)으로는 하루 세 판 돌아 2,700 이었다. */
+  exp: { exp: 14000, gold: 300, stones: 0, drinks: 0 },
+  gold: { exp: 900, gold: 26000, stones: 0, drinks: 0 },
+  stone: { exp: 1200, gold: 1000, stones: 8, drinks: 0 },
+  drink: { exp: 1200, gold: 800, stones: 0, drinks: 2 },
 }
 
 export function dungeonReward(dungeonId, tierId) {
   const base = BASE_REWARD[dungeonId]
   const tier = TIER_BY_ID[tierId]
-  if (!base || !tier) return { exp: 0, gold: 0, stones: 0 }
+  if (!base || !tier) return { exp: 0, gold: 0, stones: 0, drinks: 0 }
   return {
     exp: Math.round(base.exp * tier.mul),
     gold: Math.round(base.gold * tier.mul),
     stones: Math.round(base.stones * tier.mul),
+    /* 드링크는 배수를 그대로 곱하면 심연에서 60개가 쏟아진다.
+       돌파는 천천히 쌓아야 의미가 있으므로 제곱근으로 눌러 준다. */
+    drinks: Math.round(base.drinks * Math.sqrt(tier.mul)),
   }
 }
 
@@ -88,6 +102,7 @@ export function dungeonStage(dungeonId, tierId) {
     gold: reward.gold,
     dungeon: dungeonId,
     stones: reward.stones,
+    drinks: reward.drinks,
   }
 }
 

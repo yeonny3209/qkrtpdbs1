@@ -13,6 +13,8 @@ import TowerScreen from './ui/TowerScreen.jsx'
 import DexScreen from './ui/DexScreen.jsx'
 import StoryDialogue from './ui/StoryDialogue.jsx'
 import TutorialOverlay from './ui/TutorialOverlay.jsx'
+import NameScreen from './ui/NameScreen.jsx'
+import AttendanceScreen from './ui/AttendanceScreen.jsx'
 import EndingScreen from './ui/EndingScreen.jsx'
 import BattleScreen from './ui/BattleScreen.jsx'
 import SummonCutscene from './three/SummonCutscene.jsx'
@@ -20,7 +22,7 @@ import DragonPreview from './ui/DragonPreview.jsx'
 import { ELEMENTS, ELEMENT_BY_ID } from './game/elements.js'
 import {
   DRAGONS, DRAGON_BY_ID, limitedLegends, gainExp, evoCost, evoGoldCost,
-  MAX_EVOLUTION, MAX_LEVEL, expToMax,
+  MAX_EVOLUTION, expToMax,
 } from './game/dragons.js'
 import { createGachaState, pullMany, bestOf, costOf } from './game/gacha.js'
 import { CAMPAIGN, CHAPTER_BY_ID, TOTAL_STAGES } from './game/campaign.js'
@@ -35,6 +37,11 @@ import {
   canEnter, spendEntry, addTickets,
 } from './game/dungeon.js'
 import { scriptFor, applyGain, freshFlags, FINAL_PROLOGUE, FINAL_STAGE_ID } from './game/story.js'
+import { freshProfile, hasName, setName } from './game/profile.js'
+import {
+  freshAttendance, canClaim as canAttend, claim as claimAttend, scaledReward,
+} from './game/attendance.js'
+import { levelCap, applyBreak } from './game/breakthrough.js'
 import {
   freshTutorial, visibleOn as tutVisible,
   advance as tutAdvance, onScreen as tutOnScreen, onEvent as tutOnEvent,
@@ -79,6 +86,9 @@ const fresh = () => ({
   tower: freshTower(),        // 무한의 탑 { best }
   orbs: freshOrbs(),          // 경험 구슬 — 레벨업은 이걸 먹여서 한다
   tutorial: freshTutorial(),  // 튜토리얼 진행 { step, done, version }
+  profile: freshProfile(),    // 닉네임 — 한 번 정하면 못 바꾼다
+  attendance: freshAttendance(),  // 일일 출석
+  drinks: 0,                  // 드래곤 드링크 — 돌파 재료
 })
 
 export default function App() {
@@ -130,7 +140,7 @@ export default function App() {
     const out = { ...dragons }
     list.forEach((d) => {
       const cur = out[d.id]
-      out[d.id] = cur ? { ...cur, count: cur.count + 1 } : { count: 1, level: 1, exp: 0, evo: 0 }
+      out[d.id] = cur ? { ...cur, count: cur.count + 1 } : { count: 1, level: 1, exp: 0, evo: 0, breaks: 0 }
     })
     return out
   }
@@ -186,6 +196,39 @@ export default function App() {
     })
   }
 
+  /* ---------- 돌파 ----------
+     레벨 상한을 20씩 민다. 드래곤 드링크와 골드를 쓴다. */
+  const breakThrough = (id) => update((cur) => {
+    const d = cur.dragons[id]
+    if (!d) return cur
+    const r = applyBreak({ ...d, breaks: d.breaks ?? 0 }, cur.drinks ?? 0, cur.gold)
+    if (!r.ok) return cur
+    return {
+      ...cur,
+      gold: r.gold,
+      drinks: r.drinks,
+      dragons: { ...cur.dragons, [id]: r.dragon },
+    }
+  })
+
+  /* ---------- 출석 ---------- */
+  const claimAttendance = () => update((cur) => {
+    const { attendance, reward } = claimAttend(cur.attendance)
+    if (!reward) return cur
+    const r = scaledReward(reward, cur.sub)
+    const next = {
+      ...cur,
+      attendance,
+      gems: cur.gems + (r.gems || 0),
+      gold: cur.gold + (r.gold || 0),
+      stones: (cur.stones ?? 0) + (r.stones || 0),
+      drinks: (cur.drinks ?? 0) + (r.drinks || 0),
+    }
+    if (r.orbs) next.orbs = addOrbs(next.orbs, r.orbs)
+    setPurchase({ gems: r.gems, title: '출석 보상', attend: r })
+    return next
+  })
+
   /* ---------- 상점 ----------
      모의 결제다. 실제 결제는 서버에서 검증해야 하므로 여기서는 처리하지 않는다. */
   const buyPackage = (packageId) => {
@@ -220,12 +263,14 @@ export default function App() {
     if (g.gold) next.gold = S.gold + g.gold
     if (g.stones) next.stones = (S.stones ?? 0) + g.stones
     if (g.dungeonTickets) next.entries = addTickets(S.entries, g.dungeonTickets)
+    if (g.drinks) next.drinks = (S.drinks ?? 0) + g.drinks
     if (g.teamExp) {
       const dragons = { ...S.dragons }
       S.team.forEach((id) => {
         const cur = dragons[id]
         if (!cur) return
-        const gained = gainExp(cur.level, cur.exp, g.teamExp)
+        /* 경험치도 각자의 상한을 넘지 못한다 */
+        const gained = gainExp(cur.level, cur.exp, g.teamExp, levelCap(cur.evo ?? 0, cur.breaks ?? 0))
         dragons[id] = { ...cur, level: gained.level, exp: gained.exp }
       })
       next.dragons = dragons
@@ -239,10 +284,11 @@ export default function App() {
   const feedOrb = (dragonId, orbId, count = 1) => { tutFire(TUT_EVENTS.orbFed); return update((cur) => {
     const d = cur.dragons[dragonId]
     const orb = ORB_BY_ID[orbId]
-    if (!d || !orb || d.level >= MAX_LEVEL) return cur
+    const cap = levelCap(d?.evo ?? 0, d?.breaks ?? 0)
+    if (!d || !orb || d.level >= cap) return cur
     const n = Math.min(count, cur.orbs?.[orbId] || 0)
     if (n <= 0) return cur
-    const g = gainExp(d.level, d.exp, orb.exp * n)
+    const g = gainExp(d.level, d.exp, orb.exp * n, cap)
     return {
       ...cur,
       orbs: spendOrbs(cur.orbs, orbId, n),
@@ -253,10 +299,12 @@ export default function App() {
   /* 만렙까지 알아서 먹인다 — 큰 구슬부터 넘치지 않게 */
   const autoFeed = (dragonId) => { tutFire(TUT_EVENTS.orbFed); return update((cur) => {
     const d = cur.dragons[dragonId]
-    if (!d || d.level >= MAX_LEVEL) return cur
-    const { plan, total, count } = planFeed(cur.orbs, expToMax(d.level, d.exp))
+    const cap = levelCap(d?.evo ?? 0, d?.breaks ?? 0)
+    if (!d || d.level >= cap) return cur
+    /* 지금 상한까지만 먹인다 — 벽 너머까지 계산하면 구슬이 헛되이 사라진다 */
+    const { plan, total, count } = planFeed(cur.orbs, expToMax(d.level, d.exp, cap))
     if (count <= 0) return cur
-    const g = gainExp(d.level, d.exp, total)
+    const g = gainExp(d.level, d.exp, total, cap)
     return {
       ...cur,
       orbs: spendPlan(cur.orbs, plan),
@@ -365,6 +413,7 @@ export default function App() {
     dragon: DRAGON_BY_ID[id],
     level: S.dragons[id]?.level ?? 1,
     evo: S.dragons[id]?.evo ?? 0,
+    breaks: S.dragons[id]?.breaks ?? 0,
     items: wornOf(S, id),
     rune: (S.runeBag || []).find((r) => r.uid === S.gear?.[id]?.rune) || null,
   })).filter((a) => a.dragon)
@@ -462,13 +511,24 @@ export default function App() {
       : stageReward(stage, S.difficulty)
     /* 월정액 보유 시 경험치 +10% (기획서 7장) */
     const expMul = expMultiplier(S.sub)
-    const rw = { ...base, exp: Math.round(base.exp * expMul), stones: stage.stones || 0 }
+    const rw = {
+      ...base,
+      exp: Math.round(base.exp * expMul),
+      stones: stage.stones || 0,
+      drinks: stage.drinks || 0,
+    }
+    /* 스테이지 첫 클리어에만 보석을 준다. 두 번째부터 주면
+       가장 쉬운 스테이지를 반복해서 무한히 캘 수 있다. */
+    const firstClear = !dungeon && !S.cleared[stage.id]
+    if (firstClear) rw.gems = stage.gems || 0
     /* 경험치는 구슬로 떨어진다. 드래곤은 구슬을 먹여서 키운다. */
     const gotOrbs = expToOrbs(rw.exp)
     const next = {
       ...S,
       gold: S.gold + rw.gold,
+      gems: S.gems + (rw.gems || 0),
       stones: (S.stones ?? 0) + rw.stones,
+      drinks: (S.drinks ?? 0) + rw.drinks,
       orbs: addOrbs(S.orbs, gotOrbs),
     }
     if (!dungeon) next.cleared = { ...S.cleared, [stage.id]: true }
@@ -477,8 +537,19 @@ export default function App() {
     if (!dungeon && stage.id === FINAL_STAGE_ID && !S.ending) {
       setBeat({ script: FINAL_PROLOGUE, chapter: CHAPTER_BY_ID[10], then: () => setEnding(true) })
     } else {
-      setReward({ ...rw, orbs: gotOrbs, stage, expBonus: expMul > 1, dungeon: !!dungeon })
+      setReward({ ...rw, orbs: gotOrbs, stage, expBonus: expMul > 1, dungeon: !!dungeon, firstClear })
     }
+  }
+
+  /* ---------- 닉네임 ----------
+     스타터보다 먼저 묻는다. 이름 없이 시작한 저장본도 여기로 온다. */
+  if (!hasName(S.profile)) {
+    return (
+      <NameScreen onConfirm={(name) => update((cur) => {
+        const r = setName(cur.profile, name)
+        return r.ok ? { ...cur, profile: r.profile } : cur
+      })} />
+    )
   }
 
   /* ---------- 스타터 선택 화면 ---------- */
@@ -538,13 +609,16 @@ export default function App() {
             style={{ background: 'radial-gradient(ellipse at 50% 0%, #2a1f4a, transparent 60%)' }} />
           <div className="relative mx-auto max-w-2xl px-5 py-6">
             <div className="flex items-center justify-between">
-              <h1 className="text-lg font-black text-white">🐉 드래곤 마스터</h1>
+              <h1 className="text-lg font-black text-white">
+                🐉 <span className="text-fuchsia-200">{S.profile.name}</span>
+              </h1>
               <div data-tut="currency" className="flex gap-2 text-[12px] font-black">
                 {subActive(S.sub) && (
                   <span className="rounded-full border border-amber-300/40 bg-amber-300/10 px-2.5 py-1 text-amber-200">👑</span>
                 )}
                 <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-white">💎 {S.gems.toLocaleString()}</span>
                 <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-amber-200">🪙 {S.gold.toLocaleString()}</span>
+                <span className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-pink-200">🧪 {(S.drinks ?? 0).toLocaleString()}</span>
               </div>
             </div>
 
@@ -590,6 +664,7 @@ export default function App() {
                 { id: 'roster', icon: '🐲', name: '드래곤', sub: '장비 · 룬 · 진화', hot: orbCount(S.orbs) > 0 },
                 { id: 'dex', icon: '📖', name: '도감', sub: `${Object.keys(S.dragons).length} / ${DRAGONS.length}종` },
                 { id: 'shop', icon: '🛒', name: '상점', sub: '보석 · 프리미엄', hot: canClaimDaily(S.sub) },
+                { id: 'attend', icon: '📅', name: '출석', sub: `누적 ${S.attendance?.totalDays ?? 0}일`, hot: canAttend(S.attendance) },
               ].map((m) => (
                 <button key={m.id} data-tut={m.id} onClick={() => goScreen(m.id)}
                   className="relative rounded-2xl border border-white/10 bg-white/[.05] p-5 text-center transition hover:-translate-y-1 hover:bg-white/[.1]">
@@ -603,6 +678,11 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {screen === 'attend' && (
+        <AttendanceScreen attendance={S.attendance} sub={S.sub}
+          onClaim={claimAttendance} onBack={() => goScreen('home')} />
       )}
 
       {screen === 'campaign' && (
@@ -620,6 +700,7 @@ export default function App() {
           orbs={S.orbs || {}}
           inventory={S.inventory || []} runeBag={S.runeBag || []} gear={S.gear || {}}
           onToggleTeam={toggleTeam} onEvolve={evolve} onFeed={feedOrb} onAutoFeed={autoFeed}
+          onBreak={breakThrough} drinks={S.drinks ?? 0}
           gearActions={{
             onEquip: equipGear, onUnequip: unequipGear,
             onEquipRune: equipRune, onUnequipRune: unequipRune,
@@ -787,7 +868,13 @@ export default function App() {
                 <div className="flex justify-between"><span className="text-slate-400">진화석</span><span className="font-black text-violet-300">+{reward.stones}</span></div>
               )}
               {reward.gems > 0 && (
-                <div className="flex justify-between"><span className="text-slate-400">보석</span><span className="font-black text-fuchsia-300">+{reward.gems}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">보석{reward.firstClear && <span className="ml-1 text-[10px] text-amber-300">첫 클리어</span>}</span>
+                  <span className="font-black text-fuchsia-300">+{reward.gems}</span>
+                </div>
+              )}
+              {reward.drinks > 0 && (
+                <div className="flex justify-between"><span className="text-slate-400">드래곤 드링크</span><span className="font-black text-pink-300">+{reward.drinks}</span></div>
               )}
 
             </div>

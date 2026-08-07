@@ -17,6 +17,8 @@ import {
   turnOpen, passiveEffect, isUlt,
 } from './skills.js'
 import { finalStats, activeSet } from './equipment.js'
+import { levelMul } from './dragons.js'
+import { skillPowerMul } from './breakthrough.js'
 import { runeEffect, runeStatMul } from './runes.js'
 /* 난수는 rng.js 로 옮겼지만, 여기서 가져다 쓰던 곳이 많아 그대로 다시 내보낸다 */
 import { makeRng } from './rng.js'
@@ -55,6 +57,9 @@ function makeUnit(entry, side, idx) {
     dragon: entry.dragon,
     level: entry.level ?? 1,
     evo: entry.evo ?? 0,
+    breaks: entry.breaks ?? 0,
+    /* 돌파할수록 스킬이 세진다 — 상한만 열리면 성장이 아니라 관문이다 */
+    skillMul: skillPowerMul(entry.breaks ?? 0),
     base: st,
     maxHp: st.hp,
     hp: st.hp,
@@ -168,7 +173,7 @@ function advanceToActor(state) {
 function rollDamage(state, atk, def, skill, hitIndex = 0) {
   const stat = skill.stat === 'matk' ? 'matk' : 'atk'
   const defKey = skill.stat === 'matk' ? 'mdef' : 'def'
-  let power = effStat(atk, stat) * skill.power
+  let power = effStat(atk, stat) * skill.power * (atk.skillMul ?? 1)
   /* 불굴 — 몰릴수록 세진다 */
   const resolve = passiveEffect(atk, 'resolve')
   if (resolve && atk.hp / atk.maxHp <= 0.4) power *= (1 + resolve)
@@ -182,7 +187,11 @@ function rollDamage(state, atk, def, skill, hitIndex = 0) {
      기준값(K)이 작으면 방어가 조금만 높아도 피해가 급감해 전투가 한없이
      길어진다. HP는 최대 5000인데 공격은 최대 500이라 원래도 비율이 큰데,
      여기서 더 깎으면 보스전이 40라운드를 넘어간다. K=200이 적당하다. */
-  const K = 200
+  /* 레벨이 오르면 방어력도 같이 오르므로 K 를 고정하면 안 된다.
+     600레벨에서 방어가 3천을 넘어가는데 K=200 이면 피해가 95% 깎여
+     전투가 끝나지 않는다. 레벨 배율에 맞춰 같이 키운다 —
+     1레벨에서는 예전과 똑같은 200 이다. */
+  const K = 200 * levelMul(def.level ?? 1)
   let dmg = power * (K / (K + defense))
   /* 크리티컬 확률은 기본 5% + 공격형 세트 보정 */
   const crit = state.rng() * 100 < BASE_CRIT + (atk.critAdd || 0)

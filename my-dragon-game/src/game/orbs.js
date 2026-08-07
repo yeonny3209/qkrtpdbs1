@@ -15,6 +15,10 @@ export const EXP_ORBS = [
   { id: 'small', name: '경험 구슬', icon: '🔷', exp: 1200, color: '#38bdf8' },
   { id: 'big', name: '큰 경험 구슬', icon: '💠', exp: 8000, color: '#818cf8' },
   { id: 'huge', name: '찬란한 경험 구슬', icon: '🌟', exp: 45000, color: '#fbbf24' },
+  /* 600레벨까지 4,500만 경험치가 든다. 찬란한 구슬만으로는 천 개를
+     넘게 먹여야 해서 손이 남아나지 않는다. 후반용 큰 단위를 둔다. */
+  { id: 'radiant', name: '태고의 경험 구슬', icon: '☀️', exp: 300000, color: '#fb923c' },
+  { id: 'eternal', name: '영겁의 경험 구슬', icon: '🌌', exp: 2000000, color: '#e879f9' },
 ]
 export const ORB_BY_ID = Object.fromEntries(EXP_ORBS.map((o) => [o.id, o]))
 export const ORB_IDS = EXP_ORBS.map((o) => o.id)

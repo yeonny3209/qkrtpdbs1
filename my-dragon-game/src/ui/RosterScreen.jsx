@@ -13,6 +13,10 @@ import { EXP_ORBS, planFeed } from '../game/orbs.js'
 import { skillsetOf, passiveDesc } from '../game/skills.js'
 import { SLOT_IDS, finalStats, gearedPower } from '../game/equipment.js'
 import { runeStatMul } from '../game/runes.js'
+import {
+  levelCap, evoLevelCap, isWalled, canBreak, drinkCost, breakGoldCost,
+  skillPowerMul, LEVELS_PER_BREAK,
+} from '../game/breakthrough.js'
 
 export const TEAM_SIZE = 3
 
@@ -98,9 +102,9 @@ function OrbFeeder({ orbs, level, exp, onFeed, onAuto }) {
 }
 
 export default function RosterScreen({
-  dragons, team, gold, gems = 0, stones = 0, orbs = {},
+  dragons, team, gold, gems = 0, stones = 0, orbs = {}, drinks = 0,
   inventory = [], runeBag = [], gear = {},
-  onToggleTeam, onEvolve, onFeed, onAutoFeed, onBack, gearActions = {},
+  onToggleTeam, onEvolve, onFeed, onAutoFeed, onBreak, onBack, gearActions = {},
 }) {
   const [detail, setDetail] = useState(null)
   /* 드래곤별 장착 정보 — gear[id] = { loadout: {slot:uid}, rune: uid } */
@@ -185,7 +189,8 @@ export default function RosterScreen({
 
       {/* 상세 · 진화 */}
       {d && (
-        <DetailPanel o={d} gold={gold} gems={gems} stones={stones} orbs={orbs} onFeed={onFeed} onAutoFeed={onAutoFeed}
+        <DetailPanel o={d} gold={gold} gems={gems} stones={stones} orbs={orbs} drinks={drinks}
+          onFeed={onFeed} onAutoFeed={onAutoFeed} onBreak={onBreak}
           worn={wornOf(d.id)} runeMul={runeMulOf(d.id)}
           loadout={gear[d.id]?.loadout || {}} runeId={gear[d.id]?.rune || null}
           inventory={inventory} runeBag={runeBag} gearActions={gearActions}
@@ -196,10 +201,19 @@ export default function RosterScreen({
 }
 
 function DetailPanel({
-  o, gold, gems, stones, orbs, worn, runeMul, loadout, runeId, inventory, runeBag, gearActions,
-  onEvolve, onFeed, onAutoFeed, onClose,
+  o, gold, gems, stones, orbs, drinks = 0, worn, runeMul, loadout, runeId,
+  inventory, runeBag, gearActions,
+  onEvolve, onFeed, onAutoFeed, onBreak, onClose,
 }) {
   const skillset = skillsetOf(o.dragon)
+  /* 돌파 상태 — 지금 상한, 벽에 막혔는지, 돌파할 수 있는지 */
+  const breaks = o.breaks ?? 0
+  const cap = levelCap(o.evo, breaks)
+  const atCap = o.level >= cap
+  const walled = isWalled(o.level, o.evo, breaks)
+  const chk = canBreak(o.level, o.evo, breaks, drinks, gold)
+  const breakOk = chk.ok
+  const breakWhy = chk.why
   const el = ELEMENT_BY_ID[o.dragon.element]
   const rar = RARITY_BY_ID[o.dragon.rarity]
   /* 장비·룬까지 반영한 실제 값 — 전투에 들어가는 수치와 같다 */
@@ -230,23 +244,76 @@ function DetailPanel({
             {el.icon} {el.name} · {el.role}
           </div>
 
-          {/* 레벨 · 경험 구슬 */}
+          {/* 레벨 · 경험 구슬 · 돌파 */}
           <div className="mt-3 rounded-xl bg-white/5 p-3">
             <div className="flex justify-between text-[12px]">
-              <span className="font-black text-white">Lv.{o.level}{o.level >= MAX_LEVEL && <span className="ml-1 text-amber-300">MAX</span>}</span>
-              <span className="text-slate-400 tabular-nums">
-                {o.level >= MAX_LEVEL ? '만렙' : `${o.exp} / ${expToNext(o.level)} EXP`}
+              <span className="font-black text-white">
+                Lv.{o.level}
+                <span className="ml-1 text-slate-500">/ {cap}</span>
+                {o.level >= MAX_LEVEL && <span className="ml-1 text-amber-300">MAX</span>}
+              </span>
+              <span className="tabular-nums text-slate-400">
+                {atCap ? (walled ? '돌파 필요' : '상한') : `${o.exp} / ${expToNext(o.level)} EXP`}
               </span>
             </div>
             <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full rounded-full bg-sky-400"
-                style={{ width: `${o.level >= MAX_LEVEL ? 100 : Math.min(100, (o.exp / expToNext(o.level)) * 100)}%` }} />
+              <div className="h-full rounded-full transition-all"
+                style={{
+                  width: `${atCap ? 100 : Math.min(100, (o.exp / expToNext(o.level)) * 100)}%`,
+                  background: walled ? '#fbbf24' : '#38bdf8',
+                }} />
             </div>
+
             {/* 구슬을 먹여 레벨을 올린다 — 한 번에 여러 개 쓸 수 있다 */}
-            {o.level < MAX_LEVEL && (
+            {!atCap && (
               <OrbFeeder orbs={orbs} level={o.level} exp={o.exp}
                 onFeed={(orbId, n) => onFeed(o.id, orbId, n)}
                 onAuto={() => onAutoFeed(o.id)} />
+            )}
+
+            {/* 돌파 — 상한에 닿았을 때만 뜬다 */}
+            {atCap && (
+              <div className="mt-2.5 rounded-lg border p-2.5"
+                style={{
+                  borderColor: breakOk ? 'rgba(251,191,36,.45)' : 'rgba(255,255,255,.10)',
+                  background: breakOk ? 'rgba(251,191,36,.08)' : 'rgba(255,255,255,.03)',
+                }}>
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-black text-amber-200">
+                    ⚡ 돌파 {breaks}회
+                    <span className="ml-1.5 font-bold text-slate-400">
+                      스킬 위력 ×{skillPowerMul(breaks).toFixed(2)}
+                    </span>
+                  </div>
+                  {walled && (
+                    <div className="text-[10px] text-slate-400">
+                      🧪 {drinkCost(breaks)} · 🪙 {breakGoldCost(breaks).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+
+                {walled ? (
+                  <>
+                    <div className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                      상한이 Lv.{cap + LEVELS_PER_BREAK} 로 열리고,
+                      스킬 위력이 ×{skillPowerMul(breaks + 1).toFixed(2)} 가 됩니다.
+                    </div>
+                    <button disabled={!breakOk} onClick={() => onBreak?.(o.id)}
+                      className="mt-2 w-full rounded-lg py-2 text-[12px] font-black transition disabled:cursor-not-allowed"
+                      style={breakOk
+                        ? { background: '#fbbf24', color: '#0f172a' }
+                        : { background: 'rgba(255,255,255,.08)', color: '#64748b' }}>
+                      {breakOk ? '돌파하기' : breakWhy}
+                    </button>
+                  </>
+                ) : (
+                  <div className="mt-1 text-[10px] text-slate-400">
+                    {o.evo >= MAX_EVOLUTION
+                      ? '더 올릴 수 있는 상한이 없습니다.'
+                      : `진화하면 상한이 Lv.${evoLevelCap(o.evo + 1)} 로 늘어납니다.`}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
