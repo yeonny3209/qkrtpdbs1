@@ -17,11 +17,27 @@ import { standardLegends, limitedLegends, poolOfRarity, DRAGON_BY_ID } from './d
 export const PULL_COST = 300
 export const TEN_PULL_COST = 3000
 export const TEN_PULL_SIZE = 10
-export const PITY = 80                  // 한정 소환 천장
-export const LIMITED_WIN_RATE = 0.5     // 레전드 0.5% 안에서 한정:상시 = 0.25% : 0.25%
+export const LIMITED_WIN_RATE = 0.5     // 레전드 안에서 한정:상시 = 50:50
+
+/* ==================================================================
+   확률 부스트
+
+   레전드 컷씬(굴러 들어와 포효하는 그 연출)은 기획서 확률 0.5% 로는
+   200 뽑에 한 번꼴이라 거의 볼 일이 없다. 컷씬을 자주 보려고 확률을
+   크게 올려 둔 상태다.
+
+   기획서 원본 수치는 SPEC 쪽에 그대로 남겨 두었으니,
+   BOOST 를 false 로 바꾸면 한 줄로 원래 밸런스가 돌아온다.
+   천장·50:50·연속 방지 같은 구조는 어느 쪽이든 똑같이 동작한다.
+   ================================================================== */
+export const BOOST = true
+
+const SPEC_PITY = 80
+const BOOST_PITY = 5
+export const PITY = BOOST ? BOOST_PITY : SPEC_PITY
 
 /* 등급 확률 — 소수점 오차를 피하려고 정수(만분율)로 둔다 */
-export const BANNERS = {
+export const SPEC_BANNERS = {
   standard: {
     id: 'standard', name: '상시 소환', sub: '언제나 열려 있는 기본 소환진',
     rates: { common: 8000, rare: 1500, epic: 450, legend: 50 },   // 80 / 15 / 4.5 / 0.5 %
@@ -32,9 +48,25 @@ export const BANNERS = {
     /* 레전드가 6% → 0.5% 로 내려가면서 남은 5.5% 는 일반이 흡수한다.
        레어·에픽은 기획서 숫자(15% / 4%)를 그대로 둔다. */
     rates: { common: 8050, rare: 1500, epic: 400, legend: 50 },     // 80.5 / 15 / 4 / 0.5 %
-    pity: PITY,
+    pity: SPEC_PITY,
   },
 }
+
+/* 부스트 — 레전드를 절반 넘게 띄운다. 일반은 거의 안 나온다. */
+export const BOOST_BANNERS = {
+  standard: {
+    ...SPEC_BANNERS.standard,
+    rates: { common: 1000, rare: 1500, epic: 2500, legend: 5000 },  // 10 / 15 / 25 / 50 %
+    pity: 0,
+  },
+  limited: {
+    ...SPEC_BANNERS.limited,
+    rates: { common: 500, rare: 1000, epic: 2500, legend: 6000 },   // 5 / 10 / 25 / 60 %
+    pity: BOOST_PITY,
+  },
+}
+
+export const BANNERS = BOOST ? BOOST_BANNERS : SPEC_BANNERS
 const TOTAL = 10000
 
 export const createGachaState = () => ({
