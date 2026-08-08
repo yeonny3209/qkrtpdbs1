@@ -12,10 +12,11 @@ import {
 } from '../game/tower.js'
 import { ELEMENT_BY_ID } from '../game/elements.js'
 import { floorElements } from '../game/tower.js'
+import { TeamVerdict } from './Matchup.jsx'
 
 const WINDOW = 12   // 한 번에 보여줄 층 수
 
-export default function TowerScreen({ tower, onClimb, onBack }) {
+export default function TowerScreen({ tower, teamElements = [], onClimb, onBack }) {
   const best = tower?.best ?? 0
   const target = nextFloor(tower)
   const cleared = best >= MAX_FLOOR
@@ -131,6 +132,9 @@ export default function TowerScreen({ tower, onClimb, onBack }) {
                 <span className="flex shrink-0 gap-0.5 text-[11px]">
                   {els.map((e, i) => <span key={i}>{ELEMENT_BY_ID[e].icon}</span>)}
                 </span>
+                {/* 탑은 같은 편성으로 계속 오르는 곳이라, 어느 층에서
+                    막히는지 미리 보이면 편성을 바꿀 이유가 생긴다 */}
+                {!done && <TeamVerdict compact myElements={teamElements} foeElements={els} />}
                 <span className="ml-auto flex items-center gap-1.5 text-[10px] tabular-nums">
                   {milestone && (
                     <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-bold text-amber-200">

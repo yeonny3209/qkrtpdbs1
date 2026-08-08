@@ -38,6 +38,7 @@ export function readAction(log, from = 0) {
       case 'hit':
         (e.dot ? dots : hits).push({
           uid: e.uid, value: e.value || 0, crit: !!e.crit, reflect: !!e.reflect,
+          aff: e.aff || 'even',
         })
         break
       case 'miss': hits.push({ uid: e.uid, value: 0, miss: true }); break
@@ -93,6 +94,9 @@ export function shakeStrength(action) {
   if (!action) return 0
   if (action.kind === 'ult') return 1
   if (action.crit) return 0.55
+  /* 상성으로 찌른 타격도 살짝 흔든다 — 숫자만 커지면 뭐가 달랐는지
+     모르고 지나간다. 치명타보다는 약하게 둬서 서열이 뒤집히지 않게. */
+  if (action.hits.some((h) => !h.miss && h.aff === 'strong')) return 0.35
   return 0
 }
 
@@ -103,7 +107,7 @@ export function popsFor(action, uid) {
   action.hits.filter((h) => h.uid === uid).forEach((h) => {
     out.push(h.miss
       ? { text: 'MISS', miss: true }
-      : { text: `-${h.value}`, crit: h.crit, reflect: h.reflect })
+      : { text: `-${h.value}`, crit: h.crit, reflect: h.reflect, aff: h.aff || 'even' })
   })
   action.heals.filter((h) => h.uid === uid && h.value > 0).forEach((h) => {
     out.push({ text: `+${h.value}`, heal: true })

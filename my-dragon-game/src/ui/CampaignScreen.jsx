@@ -7,6 +7,7 @@ import {
   CAMPAIGN, DIFFICULTIES, chapterUnlocked, stageUnlocked, chapterProgress, difficultyOpen, TOTAL_STAGES,
 } from '../game/campaign.js'
 import { stageReward } from '../game/encounter.js'
+import { EnemyElements, TeamVerdict } from './Matchup.jsx'
 
 /* 스토리 연출 — 한 장면씩 넘긴다 */
 export function StoryBeat({ beat, chapter, onDone }) {
@@ -29,7 +30,7 @@ export function StoryBeat({ beat, chapter, onDone }) {
   )
 }
 
-export default function CampaignScreen({ cleared, difficulty, setDifficulty, onStart, onBack }) {
+export default function CampaignScreen({ cleared, difficulty, setDifficulty, teamElements = [], onStart, onBack }) {
   const [openChapter, setOpenChapter] = useState(null)
   const ch = openChapter != null ? CAMPAIGN.find((c) => c.id === openChapter) : null
 
@@ -72,13 +73,17 @@ export default function CampaignScreen({ cleared, difficulty, setDifficulty, onS
                     open ? 'border-white/10 bg-white/[.04] hover:bg-white/[.09]' : 'cursor-not-allowed border-white/5 bg-black/30 opacity-50'}`}>
                   <span className="text-xl">{s.boss ? '👑' : open ? '⚔' : '🔒'}</span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-black text-white">
+                    <div className="flex items-center gap-1.5 truncate text-[13px] font-black text-white">
                       {ch.id}-{s.no} {s.boss && <span className="text-amber-300">보스</span>}
+                      {/* 어떤 속성이 나오는지 먼저 보여준다 — 편성은 전투
+                          전에 바꿀 수 있어야 의미가 있다 */}
+                      {open && <EnemyElements elements={s.elements} />}
                     </div>
                     <div className="truncate text-[11px] text-slate-500">
                       Lv.{s.level} · 적 {s.count}마리 · EXP {rw.exp} · {rw.gold}G
                     </div>
                   </div>
+                  {open && <TeamVerdict compact myElements={teamElements} foeElements={s.elements} />}
                   {done && <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-black text-emerald-300">클리어</span>}
                 </button>
               )

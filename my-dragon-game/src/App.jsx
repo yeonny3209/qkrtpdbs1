@@ -690,6 +690,7 @@ export default function App() {
           cleared={S.cleared}
           difficulty={S.difficulty}
           setDifficulty={(d) => commit({ ...S, difficulty: d })}
+          teamElements={teamDragons.map((d) => d.element)}
           onStart={startStage}
           onBack={() => goScreen('home')} />
       )}
@@ -710,7 +711,8 @@ export default function App() {
       )}
 
       {screen === 'tower' && (
-        <TowerScreen tower={S.tower} onClimb={climbTower} onBack={() => goScreen('home')} />
+        <TowerScreen tower={S.tower} teamElements={teamDragons.map((d) => d.element)}
+          onClimb={climbTower} onBack={() => goScreen('home')} />
       )}
 
       {screen === 'dex' && (

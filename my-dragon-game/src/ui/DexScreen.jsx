@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react'
 import DragonPreview from './DragonPreview.jsx'
 import { ELEMENTS, ELEMENT_BY_ID } from '../game/elements.js'
+import { AffinityChart, ElementMatchupLine } from './Matchup.jsx'
 import { DRAGONS, RARITY_BY_ID, RARITIES, statsOf, STAT_KEYS, STAT_LABEL } from '../game/dragons.js'
 import { skillsetOf, passiveDesc } from '../game/skills.js'
 
@@ -75,6 +76,8 @@ function Detail({ dragon, owned, onClose }) {
             {el.icon} {el.name} · {el.role}
             {owned && <span className="ml-2 text-slate-500">「{dragon.epithet}」</span>}
           </div>
+          {/* 이 드래곤을 어디에 데려가면 되는지 — 카드에서 바로 읽힌다 */}
+          <div className="mt-1.5"><ElementMatchupLine elementId={dragon.element} /></div>
 
           {/* 능력치 범위 */}
           <div className="mt-3 rounded-2xl bg-black/40 p-3">
@@ -193,6 +196,12 @@ export default function DexScreen({ dragons = {}, onBack }) {
             <button onClick={() => setOnlyOwned(!onlyOwned)} className={chip(onlyOwned)}>보유만</button>
           </div>
         </div>
+
+        {/* 상성표 — 접어 둔다. 매번 펼쳐 두면 목록이 한 화면 아래로 밀린다 */}
+        <details className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-3">
+          <summary className="cursor-pointer text-[12px] font-black text-white">🔄 속성 상성표</summary>
+          <div className="mt-3"><AffinityChart /></div>
+        </details>
 
         <div className="mt-3 text-[11px] text-slate-500">{list.length}마리</div>
 

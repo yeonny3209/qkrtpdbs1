@@ -53,7 +53,7 @@ export const ELEMENTS = [
   {
     id: 'light', name: '빛', role: '밸런스형', icon: '☀️',
     color: '#fde68a', glow: '#fffbeb', deep: '#78350f',
-    desc: '약점이 없다. 어떤 조합에도 무난하게 들어간다.',
+    desc: '모든 능력치가 고르다. 어둠을 몰아내지만 신비에는 흩어진다.',
     bias: { hp: 1.05, atk: 1.05, matk: 1.05, def: 1.05, mdef: 1.05, agi: 1.05 },
   },
 ]

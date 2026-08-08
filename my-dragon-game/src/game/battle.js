@@ -20,6 +20,7 @@ import { finalStats, activeSet } from './equipment.js'
 import { levelMul } from './dragons.js'
 import { skillPowerMul } from './breakthrough.js'
 import { runeEffect, runeStatMul } from './runes.js'
+import { affinity, matchup } from './affinity.js'
 /* 난수는 rng.js 로 옮겼지만, 여기서 가져다 쓰던 곳이 많아 그대로 다시 내보낸다 */
 import { makeRng } from './rng.js'
 export { makeRng }
@@ -193,13 +194,18 @@ function rollDamage(state, atk, def, skill, hitIndex = 0) {
      1레벨에서는 예전과 똑같은 200 이다. */
   const K = 200 * levelMul(def.level ?? 1)
   let dmg = power * (K / (K + defense))
+  /* 속성 상성 — 방어 감쇠 뒤에 곱한다.
+     감쇠 앞에 곱하면 K/(K+def) 가 배수를 도로 먹어버려 1.5배가
+     실제로는 1.2배쯤으로 뭉개진다. 눈에 보이는 배수여야 한다. */
+  const aff = affinity(atk.dragon.element, def.dragon.element)
+  dmg *= aff
   /* 크리티컬 확률은 기본 5% + 공격형 세트 보정 */
   const crit = state.rng() * 100 < BASE_CRIT + (atk.critAdd || 0)
   /* 공격 강화 룬은 크리티컬 배수를 키운다 */
   if (crit) dmg *= CRIT_MUL + runeEffect(atk.rune, 'critDmg')
   dmg *= 0.92 + state.rng() * 0.16          // ±8% 변동
   void hitIndex
-  return { dmg: Math.max(1, Math.round(dmg)), crit }
+  return { dmg: Math.max(1, Math.round(dmg)), crit, aff: matchup(atk.dragon.element, def.dragon.element) }
 }
 
 /* note 를 주면 피해 로그를 여기서 남긴다.
@@ -342,9 +348,13 @@ export function castSkill(state, skillId, targetUid) {
           state.log.push({ t: 'miss', uid: target.uid, text: `${target.dragon.name}에게 빗나갔다` })
           continue
         }
-        const { dmg, crit } = rollDamage(state, actor, target, skill, h)
+        const { dmg, crit, aff } = rollDamage(state, actor, target, skill, h)
         const dealt = applyDamage(state, target, dmg,
-          (v) => ({ crit, text: `${target.dragon.name} -${v}${crit ? ' 치명타!' : ''}` }))
+          (v) => ({
+            crit, aff,
+            text: `${target.dragon.name} -${v}${crit ? ' 치명타!' : ''}${
+              aff === 'strong' ? ' 효과가 굉장하다!' : aff === 'weak' ? ' 효과가 별로다…' : ''}`,
+          }))
         totalDealt += dealt
         /* 맹독 송곳니 — 때릴 때 화상을 남긴다 */
         const venom = passiveEffect(actor, 'venom')
@@ -371,7 +381,7 @@ export function castSkill(state, skillId, targetUid) {
         if (counter > 0 && target.alive && actor.alive && state.rng() < counter) {
           const back = rollDamage(state, target, actor, BASIC_ATTACK, 0)
           applyDamage(state, actor, back.dmg,
-            (v) => ({ reflect: true, text: `${target.dragon.name} 반격! ${actor.dragon.name} -${v}` }))
+            (v) => ({ reflect: true, aff: back.aff, text: `${target.dragon.name} 반격! ${actor.dragon.name} -${v}` }))
         }
       }
     }
@@ -503,8 +513,12 @@ function pickTarget(state, actor, skill, foes, friends) {
     return hurt ? hurt.uid : actor.uid
   }
   if (skill.target === 'enemy') {
-    /* 가장 약해진 적을 노린다 */
-    const weak = [...foes].sort((a, b) => a.hp - b.hp)[0]
+    /* 상성으로 찌를 수 있는 쪽을 먼저 노리고, 그중 가장 약해진 적을 문다.
+       체력만 보면 적이 상성을 무시하고 때려 플레이어만 상성을 신경 쓰는
+       일방적인 규칙이 된다. 양쪽 다 같은 규칙 위에 있어야 한다. */
+    const weak = [...foes].sort((a, b) =>
+      affinity(actor.dragon.element, b.dragon.element) - affinity(actor.dragon.element, a.dragon.element)
+      || a.hp - b.hp)[0]
     return weak ? weak.uid : null
   }
   return null

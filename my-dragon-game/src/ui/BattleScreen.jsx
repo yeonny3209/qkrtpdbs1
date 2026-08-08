@@ -15,6 +15,7 @@ import {
   canUse, lockReason, needsPick, targetsFor, flee,
 } from '../game/battle.js'
 import { readAction, roleOf, shakeStrength, popsFor } from '../game/fx.js'
+import { MatchupTag } from './Matchup.jsx'
 import {
   attackPose, hurtPose, dodgePose, progress, attackElapsed, trailPoses, chargeGlow,
   ATTACK_MS, ATTACK_TOTAL_MS, HURT_MS, IMPACT_AT, HITSTOP_MS, shakeAmount,
@@ -204,10 +205,16 @@ function Pops({ pops }) {
               : p.heal ? 'text-emerald-300 text-2xl'
                 : p.dot ? 'text-orange-300 text-lg'
                   : p.reflect ? 'text-rose-300 text-xl'
-                    : p.crit ? 'dm-pop-crit text-amber-300 text-5xl' : 'text-white text-3xl'
+                    : p.crit ? 'dm-pop-crit text-amber-300 text-5xl'
+                      /* 상성 타격은 크기부터 다르게 — 숫자만 커지면
+                         그냥 굴림이 잘 나온 줄 안다 */
+                      : p.aff === 'strong' ? 'text-rose-200 text-4xl'
+                        : p.aff === 'weak' ? 'text-sky-200 text-2xl' : 'text-white text-3xl'
           }`}
           style={{ animationDelay: `${i * 90}ms`, textShadow: '0 2px 10px rgba(0,0,0,.95)' }}>
           {p.crit && !p.miss ? '치명! ' : ''}{p.dot ? '🔥' : ''}{p.reflect ? '↩' : ''}{p.text}
+          {!p.miss && !p.heal && !p.dot && p.aff === 'strong' && <span className="ml-0.5 text-rose-300">▲</span>}
+          {!p.miss && !p.heal && !p.dot && p.aff === 'weak' && <span className="ml-0.5 text-sky-300">▼</span>}
         </span>
       ))}
     </div>
@@ -215,7 +222,7 @@ function Pops({ pops }) {
 }
 
 /* HP/MP 바 + 상태이상 */
-function UnitBar({ unit, compact, onClick, selectable, isTurn }) {
+function UnitBar({ unit, compact, onClick, selectable, isTurn, actorElement }) {
   const el = ELEMENT_BY_ID[unit.dragon.element]
   const rar = RARITY_BY_ID[unit.dragon.rarity]
   const hpPct = Math.max(0, (unit.hp / unit.maxHp) * 100)
@@ -230,6 +237,9 @@ function UnitBar({ unit, compact, onClick, selectable, isTurn }) {
       <div className="flex items-center gap-1.5">
         <span className="text-sm">{el.icon}</span>
         <span className="truncate text-[11px] font-black text-white">{unit.dragon.name}</span>
+        {/* 지금 행동하는 쪽이 이 유닛을 때리면 어떤지 — 대상을 고르는
+            순간에 필요한 정보라 이름 옆에 붙인다 */}
+        {unit.alive && <MatchupTag fromElement={actorElement} toElement={unit.dragon.element} />}
         <span className="ml-auto shrink-0 text-[9px]" style={{ color: rar.color }}>Lv.{unit.level}</span>
       </div>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
@@ -376,6 +386,9 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
         {foeUnits.map((u) => (
           <div key={u.uid} className="flex-1">
             <UnitBar unit={u} compact
+              /* 상성 표시는 지금 행동하는 쪽의 반대편에만 붙인다.
+                 같은 편끼리의 상성은 때릴 일이 없어 읽을 이유가 없다 */
+              actorElement={actor && actor.side !== u.side ? actor.dragon.element : null}
               isTurn={actor && actor.uid === u.uid}
               selectable={!!pending && u.alive && targetsFor(st, actor, pending).some((t) => t.uid === u.uid)}
               onClick={() => act(pending, u.uid)} />
@@ -433,6 +446,7 @@ export default function BattleScreen({ stage, allies, enemies, difficulty, maxRo
         {allyUnits.map((u) => (
           <div key={u.uid} className="flex-1">
             <UnitBar unit={u}
+              actorElement={actor && actor.side !== u.side ? actor.dragon.element : null}
               isTurn={actor && actor.uid === u.uid}
               selectable={!!pending && u.alive && targetsFor(st, actor, pending).some((t) => t.uid === u.uid)}
               onClick={() => act(pending, u.uid)} />
