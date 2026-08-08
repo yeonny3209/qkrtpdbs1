@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { ELEMENT_BY_ID } from '../game/elements.js'
 import {
-  CAMPAIGN, DIFFICULTIES, chapterUnlocked, stageUnlocked, chapterProgress,
+  CAMPAIGN, DIFFICULTIES, chapterUnlocked, stageUnlocked, chapterProgress, difficultyOpen, TOTAL_STAGES,
 } from '../game/campaign.js'
 import { stageReward } from '../game/encounter.js'
 
@@ -42,16 +42,22 @@ export default function CampaignScreen({ cleared, difficulty, setDifficulty, onS
           <h2 className="mt-2 text-2xl font-black text-white">{ch.id}장 · {ch.name}</h2>
           <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{ch.intro}</p>
 
-          {/* 난이도 */}
+          {/* 난이도 — 심연은 일정 진행도(needCleared) 전에는 잠겨 있다.
+              잠금 여부를 안 걸면 0클리어로도 심연을 고를 수 있었다. */}
           <div className="mt-4 flex gap-2">
-            {DIFFICULTIES.map((d) => (
-              <button key={d.id} onClick={() => setDifficulty(d.id)}
-                className={`flex-1 rounded-xl border py-2 text-[12px] font-black transition ${
-                  difficulty === d.id ? 'border-fuchsia-400/60 bg-fuchsia-500/15 text-white'
-                    : 'border-white/10 bg-white/[.03] text-slate-400 hover:bg-white/[.07]'}`}>
-                {d.name}
-              </button>
-            ))}
+            {DIFFICULTIES.map((d) => {
+              const open = difficultyOpen(d, cleared)
+              return (
+                <button key={d.id} disabled={!open}
+                  onClick={() => open && setDifficulty(d.id)}
+                  className={`flex-1 rounded-xl border py-2 text-[12px] font-black transition ${
+                    !open ? 'cursor-not-allowed border-white/5 bg-black/30 text-slate-600'
+                      : difficulty === d.id ? 'border-fuchsia-400/60 bg-fuchsia-500/15 text-white'
+                        : 'border-white/10 bg-white/[.03] text-slate-400 hover:bg-white/[.07]'}`}>
+                  {open ? d.name : `🔒 ${d.name}`}
+                </button>
+              )
+            })}
           </div>
 
           <div className="mt-4 space-y-2">
@@ -92,7 +98,7 @@ export default function CampaignScreen({ cleared, difficulty, setDifficulty, onS
       <div className="mx-auto max-w-2xl px-5 py-6">
         <button onClick={onBack} className="text-[12px] font-bold text-slate-400 hover:text-white">← 홈</button>
         <h2 className="mt-2 text-2xl font-black text-white">⚔ 메인 캠페인</h2>
-        <p className="text-[12px] text-slate-500">용의 섬 — 10장 100스테이지</p>
+        <p className="text-[12px] text-slate-500">용의 섬 — {CAMPAIGN.length}장 {TOTAL_STAGES}스테이지</p>
 
         <div className="mt-5 space-y-2.5">
           {CAMPAIGN.map((c) => {
