@@ -23,6 +23,9 @@ import {
   dragonLook, shiftHue, spinePoint, headProfile, JAW_PROFILE, JAW_MOUNT, TOOTH,
 } from './dragonLook.js'
 import { taperedTube, undulate, bellyPlates } from './bodyMesh.js'
+import {
+  ScalePlates, Runes, Shards, Crown, Halo, ChestCore, MythicWing,
+} from './MythicParts.jsx'
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z)
 
@@ -182,6 +185,7 @@ function Eye({ side, el, mainMat, x, y, z, size }) {
    jawRef 로 아래턱을 따로 잡아 두어, 포효할 때 실제로 입이 벌어진다.
    턱이 안 움직이면 아무리 고개를 젖혀도 "포효"로 보이지 않는다. */
 function Head({ el, shape, mainMat, bellyMat, boneMat, jawRef, maw }) {
+  const myth = shape.mythic
   const sn = shape.snout ?? 1
   const type = shape.headType || 'horned'
 
@@ -303,6 +307,8 @@ function Head({ el, shape, mainMat, bellyMat, boneMat, jawRef, maw }) {
         </mesh>
       ))}
       {horns}
+      {/* 한정 레전드 — 뒤통수를 두르는 왕관 */}
+      {myth && <Crown n={myth.crown} color={el.glow} />}
 
       {/* 볏 — crest 형은 머리 위로 부채가 선다 */}
       {type === 'crest' && [0, 1, 2, 3, 4].map((i) => (
@@ -433,17 +439,26 @@ export default function DragonModel({
     const glow = shiftHue(el.glow, shape.hue)
     const deep = shiftHue(el.deep, shape.hue)
     return {
-      main: new THREE.MeshStandardMaterial({ color: main, roughness: 0.55, metalness: 0.25 }),
+      /* 한정 레전드는 비늘이 금속처럼 받아쳐야 한다.
+         같은 무광 재질을 쓰면 장식을 아무리 붙여도 상시와 같아 보인다. */
+      main: new THREE.MeshStandardMaterial(shape.mythic
+        ? { color: main, roughness: 0.30, metalness: 0.62, emissive: deep, emissiveIntensity: 0.22 }
+        : { color: main, roughness: 0.55, metalness: 0.25 }),
       belly: new THREE.MeshStandardMaterial({ color: glow, roughness: 0.7, metalness: 0.1 }),
       bone: new THREE.MeshStandardMaterial({ color: deep, roughness: 0.6, metalness: 0.2 }),
       plate: new THREE.MeshStandardMaterial({ color: glow, roughness: 0.85, metalness: 0.05 }),
+      /* 비늘판은 금속처럼 번들거려야 갑주로 보인다 */
+      plateHard: new THREE.MeshStandardMaterial({
+        color: deep, emissive: glow, emissiveIntensity: 0.28,
+        roughness: 0.22, metalness: 0.85, side: THREE.DoubleSide,
+      }),
       membrane: new THREE.MeshStandardMaterial({
         color: deep, emissive: main, emissiveIntensity: 0.35,
         roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide,
         transparent: true, opacity: shape.wingType === 'insect' ? 0.6 : 0.93,
       }),
     }
-  }, [el, shape.hue, shape.wingType])
+  }, [el, shape.hue, shape.wingType, shape.mythic])
 
   /* 몸통 마디 — 체형에 따라 3개(짧고 굵게)에서 11개(뱀처럼)까지 */
   const spine = useMemo(
@@ -592,6 +607,19 @@ export default function DragonModel({
         </mesh>
       ))}
 
+      {/* ---------- 한정 레전드 장식 ---------- */}
+      {shape.mythic && (
+        <>
+          <ScalePlates pts={bodyPath.pts} radii={bodyPath.radii}
+            rows={shape.mythic.plateRows} perRow={shape.mythic.perRow} material={mats.plateHard} />
+          <Runes pts={bodyPath.pts} radii={bodyPath.radii} n={shape.mythic.runes} color={el.glow} />
+          <Shards n={shape.mythic.shards} color={el.glow} boneMat={mats.bone} />
+          <group position={[0, shoulder.y - 0.02, shoulder.z + 0.62 * shape.body]}>
+            <ChestCore color={el.glow} boneMat={mats.bone} size={0.9 + shape.body * 0.25} />
+          </group>
+        </>
+      )}
+
       {/* 어깨 근육 — 날개가 붙는 자리가 밋밋하면 날개가 얹힌 것처럼 보인다 */}
       {shape.wingType !== 'none' && [-1, 1].map((s) => (
         <mesh key={s} position={[s * 0.30 * shape.body, wingY - 0.06, wingZ + 0.12]}
@@ -615,6 +643,13 @@ export default function DragonModel({
               toneMapped={false} side={THREE.DoubleSide} depthWrite={false} />
           </mesh>
         </group>
+        {/* 한정 레전드 — 머리 뒤 후광 */}
+        {shape.mythic && (
+          <group position={[0, 0.62 * shape.neck, 0.48 * shape.neck]}>
+            <Halo rings={shape.mythic.halo} color={el.glow} />
+          </group>
+        )}
+
         {/* 목 비늘 — 앞쪽에 가로줄 */}
         {[0, 1, 2, 3].map((i) => (
           <mesh key={i} material={mats.plate}
@@ -631,13 +666,25 @@ export default function DragonModel({
         ))}
       </group>
 
-      {/* ---------- 날개 ---------- */}
+      {/* ---------- 날개 ----------
+           한정 레전드는 손가락뼈가 갈라진 날개를 단다 */}
       {shape.wingType !== 'none' && (
         <group scale={shape.wingScale}>
-          <Wing side={1} geo={wingGeo} flapRef={wingR} boneMat={mats.bone} membraneMat={mats.membrane}
-            mainMat={mats.main} type={shape.wingType} y={wingY} z={wingZ} tilt={0.45} />
-          <Wing side={-1} geo={wingGeo} flapRef={wingL} boneMat={mats.bone} membraneMat={mats.membrane}
-            mainMat={mats.main} type={shape.wingType} y={wingY} z={wingZ} tilt={0.45} />
+          {shape.mythic ? (
+            <>
+              <MythicWing side={1} flapRef={wingR} boneMat={mats.bone} membraneMat={mats.membrane}
+                color={el.glow} y={wingY} z={wingZ} tilt={0.45} />
+              <MythicWing side={-1} flapRef={wingL} boneMat={mats.bone} membraneMat={mats.membrane}
+                color={el.glow} y={wingY} z={wingZ} tilt={0.45} />
+            </>
+          ) : (
+            <>
+              <Wing side={1} geo={wingGeo} flapRef={wingR} boneMat={mats.bone} membraneMat={mats.membrane}
+                mainMat={mats.main} type={shape.wingType} y={wingY} z={wingZ} tilt={0.45} />
+              <Wing side={-1} geo={wingGeo} flapRef={wingL} boneMat={mats.bone} membraneMat={mats.membrane}
+                mainMat={mats.main} type={shape.wingType} y={wingY} z={wingZ} tilt={0.45} />
+            </>
+          )}
           {/* 곤충 날개는 두 쌍 */}
           {shape.wingPairs > 1 && (
             <group scale={0.78}>
@@ -717,6 +764,14 @@ export default function DragonModel({
       )}
       {/* 속성 색 조명 — 모델이 어디에 놓여도 자기 색을 낸다 */}
       <pointLight position={[0, 1.5, 1.6]} intensity={shape.aura > 0 ? 9 : 4} distance={7} color={el.glow} />
+      {/* 한정 레전드 — 뒤에서 테두리를 훑는 빛.
+          앞에서만 비추면 실루엣이 배경에 묻힌다. */}
+      {shape.mythic && (
+        <>
+          <pointLight position={[0, 2.1, -2.4]} intensity={14} distance={9} color={el.glow} />
+          <pointLight position={[-2.2, 1.2, -0.6]} intensity={6} distance={7} color={el.glow} />
+        </>
+      )}
     </group>
   )
 }

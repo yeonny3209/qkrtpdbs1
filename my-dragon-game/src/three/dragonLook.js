@@ -11,6 +11,8 @@
    같이 내보내면 Vite 의 빠른 새로고침이 동작하지 않는다.
    ================================================================== */
 import * as THREE from 'three'
+import { DRAGON_BY_ID } from '../game/dragons.js'
+import { mythicTier } from './mythic.js'
 
 /* 등급이 올라갈수록 크고, 뿔이 늘고, 장식이 붙는다 */
 export const RARITY_SHAPE = {
@@ -82,7 +84,12 @@ const DEFAULT = {
 
 export function dragonLook(dragonId, rarity) {
   const base = RARITY_SHAPE[rarity] || RARITY_SHAPE.common
-  if (!dragonId) return { ...DEFAULT, ...base }
+  if (!dragonId) return { ...DEFAULT, ...base, mythic: null }
+
+  /* 한정 레전드만 따로 취급한다. 0.25% 짜리가 상시와 뿔 개수만
+     다르면 어렵게 뽑은 보람이 없다. 별도 장식 계층이 붙는다. */
+  const entry = DRAGON_BY_ID[dragonId]
+  const mythic = entry?.kind === 'limitedLegend' ? mythicTier(entry.epithet) : null
 
   const h = hash32(dragonId)
   const f = (shift, lo, hi) => lo + (((h >>> shift) % 100) / 100) * (hi - lo)
@@ -95,8 +102,11 @@ export function dragonLook(dragonId, rarity) {
   return {
     ...base,
     ...shape,
+    mythic,
+    /* 한정 레전드는 날개가 없는 체형이라도 날개를 단다 —
+       실루엣이 밋밋하면 아무리 장식을 붙여도 안 산다 */
     bodyType,
-    wingType,
+    wingType: mythic && wingType === 'none' ? 'bat' : wingType,
     /* 요정룡은 잠자리처럼 날개가 두 쌍 */
     wingPairs: wingType === 'insect' ? 2 : 1,
     headType: pickFrom(HEAD_TYPES, 13),
@@ -117,6 +127,9 @@ export function dragonLook(dragonId, rarity) {
     hue: f(24, -20, 20),
     spikeTilt: f(2, -0.55, -0.05),
     horns: Math.max(2, base.horns + ((h >>> 14) % 3) - 1),
+    /* 한정은 조금 더 크고 오라가 세다 */
+    size: base.size * (mythic ? 1.06 : 1),
+    aura: mythic ? mythic.aura : base.aura,
   }
 }
 
