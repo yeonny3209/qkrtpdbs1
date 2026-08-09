@@ -46,8 +46,23 @@ export function generateVocab(a) {
       <h1>${escapeHtml(title)}</h1>
       <p class="sub" style="margin:0">단어 600개 · 초급 200 · 중급 200 · 상급 200</p>
     </div>
-    <button id="toHome" hidden>처음으로</button>
+    <nav class="row">
+      <button id="navStudy" class="primary">학습</button>
+      <button id="navDict">단어 도감</button>
+    </nav>
   </header>
+
+  <!-- ================= 단어 도감 ================= -->
+  <section id="dict" hidden>
+    <div class="row" id="dictLevels" style="flex-wrap:wrap"></div>
+    <input id="dictSearch" placeholder="단어나 뜻으로 찾기 (예: apple, 사과)"
+      autocomplete="off" style="width:100%;margin-top:12px">
+    <div class="row" style="justify-content:space-between;margin:12px 0 10px;flex-wrap:wrap">
+      <span class="sub" style="margin:0" id="dictCount"></span>
+      <span class="row" id="dictFilters"></span>
+    </div>
+    <div id="dictList"></div>
+  </section>
 
   <!-- ================= 시작 화면 ================= -->
   <section id="home">
@@ -120,7 +135,28 @@ export function generateVocab(a) {
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
 /* 스펠링을 쓸 때는 글자 하나하나가 또렷해야 한다 */
 #answerInput { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .04em; }
-.miss { color: #dc2626; font-weight: 700; }`
+.miss { color: #dc2626; font-weight: 700; }
+
+/* ---------- 단어 도감 ---------- */
+.entry { padding: 13px 15px; margin-bottom: 7px; }
+.entry .w {
+  font-size: 16px; font-weight: 700; letter-spacing: .01em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.entry .mean { color: var(--fg); font-size: 14px; margin-top: 2px; }
+/* 사용 예는 한 단계 물러나 보이게 — 뜻을 먼저 읽어야 한다 */
+.entry .ex {
+  color: var(--muted); font-size: 13px; margin-top: 7px;
+  padding-left: 10px; border-left: 2px solid var(--border); line-height: 1.55;
+}
+.entry .ex b { color: var(--accent); }
+.badge {
+  flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.badge.right { border-color: #16a34a; color: #16a34a; }
+.badge.wrong { border-color: #dc2626; color: #dc2626; }
+.more { width: 100%; margin-top: 8px; }`
 
   const script = `${dictJs()}
 
@@ -136,10 +172,16 @@ ${storageJs(keep, 'vocab.' + (a.title || 'default'))}
 
 ${beepJs}
 
-var store = load({ best: {}, wrong: [] });
+var store = load({ best: {}, wrong: [], right: [] });
 var best = store.best || {};
+store.wrong = store.wrong || [];
+store.right = store.right || [];      // 한 번이라도 맞힌 단어 (도감의 학습 상태)
 
 var level = 'easy';
+var dictLevel = 'easy';               // 도감에서 보고 있는 등급
+var dictQuery = '';
+var dictFilter = 'all';               // all | wrong | right | new
+var dictLimit = 60;                   // 처음에 이만큼만 그린다
 var useTypes = TYPES.slice();      // 지금 켜 놓은 유형
 var quiz = [];                     // 이번 판 문제들
 var pos = 0;
@@ -150,7 +192,29 @@ function $(id) { return document.getElementById(id); }
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-function persist() { save({ best: best, wrong: store.wrong || [] }); }
+function persist() {
+  save({ best: best, wrong: store.wrong, right: store.right });
+}
+
+/* 등급+번호로 단어 하나를 가리키는 열쇠. 등급이 다르면 같은 번호라도
+   다른 단어이므로 번호만으로는 안 된다. */
+function keyOf(lvl, i) { return lvl + ':' + i; }
+function inList(list, lvl, i) {
+  var k = keyOf(lvl, i);
+  for (var n = 0; n < list.length; n++) {
+    if (keyOf(list[n].level, list[n].index) === k) return n;
+  }
+  return -1;
+}
+
+/* 그 단어의 학습 상태 — 도감이 이걸로 표시를 고른다.
+   틀린 적이 있으면 나중에 맞혔더라도 '복습'이 우선이다. */
+function statusOf(lvl, i) {
+  if (inList(store.wrong, lvl, i) >= 0) return 'wrong';
+  if (inList(store.right, lvl, i) >= 0) return 'right';
+  return 'new';
+}
+var STATUS_TEXT = { wrong: '복습 필요', right: '맞힘', new: '아직' };
 
 /* 셔플 — 뒤에서부터 무작위 자리와 바꾼다 (Fisher-Yates).
    sort(() => Math.random() - 0.5) 는 고르게 섞이지 않는다. */
@@ -262,12 +326,80 @@ function toggleType(t) {
 }
 
 /* ------------------------------------------------------------------
+   단어 도감 — 등급별로 뜻·스펠링·사용 예를 훑어보는 곳
+
+   푸는 화면에서는 예문의 그 자리가 빈칸이지만, 도감에서는 단어를
+   채워 넣어 보여준다. 도감의 목적은 맞히는 게 아니라 "이 단어가
+   문장에서 어떻게 쓰이는지" 보는 것이다.
+   ------------------------------------------------------------------ */
+function renderDict() {
+  $('dictLevels').innerHTML = LEVELS.map(function (l) {
+    return '<button class="chip' + (dictLevel === l.id ? ' on' : '') + '" data-dlevel="' + l.id + '">'
+      + l.name + ' <span style="opacity:.7">' + DICT[l.id].length + '</span></button>';
+  }).join('');
+
+  var pool = DICT[dictLevel];
+  var counts = { all: pool.length, wrong: 0, right: 0, new: 0 };
+  pool.forEach(function (_, i) { counts[statusOf(dictLevel, i)]++; });
+
+  $('dictFilters').innerHTML = [
+    ['all', '전체'], ['wrong', '복습 필요'], ['right', '맞힘'], ['new', '아직']
+  ].map(function (f) {
+    return '<button class="chip' + (dictFilter === f[0] ? ' on' : '') + '" data-dfilter="' + f[0] + '"'
+      + ' style="padding:5px 10px;font-size:12px">' + f[1] + ' ' + counts[f[0]] + '</button>';
+  }).join('');
+
+  /* 단어로도 뜻으로도 찾을 수 있어야 한다 — 뜻이 기억날 때가 더 많다 */
+  var q = dictQuery.trim().toLowerCase();
+  var rows = [];
+  for (var i = 0; i < pool.length; i++) {
+    var e = pool[i];
+    if (dictFilter !== 'all' && statusOf(dictLevel, i) !== dictFilter) continue;
+    if (q && e[0].toLowerCase().indexOf(q) < 0 && e[1].toLowerCase().indexOf(q) < 0) continue;
+    rows.push({ i: i, e: e });
+  }
+
+  $('dictCount').textContent = q || dictFilter !== 'all'
+    ? rows.length + '개 찾음'
+    : pool.length + '개';
+
+  if (!rows.length) {
+    $('dictList').innerHTML = '<div class="empty">찾는 단어가 없어요.</div>';
+    return;
+  }
+
+  var shown = rows.slice(0, dictLimit);
+  $('dictList').innerHTML = shown.map(function (r) {
+    var st = statusOf(dictLevel, r.i);
+    /* 예문의 빈칸을 단어로 메워 실제 쓰임을 보여준다.
+       빈칸 앞뒤로 띄워 둔 공백이 그대로 남으면 "in the kitchen ." 처럼
+       읽히므로, 문장부호 앞 공백은 여기서 붙여 준다. */
+    var ex = esc(r.e[2])
+      .replace('___', '<b>' + esc(r.e[0]) + '</b>')
+      .replace(/\\s+([.,!?;:])/g, '$1');
+    return '<div class="card entry">'
+      + '<div class="row" style="justify-content:space-between;align-items:flex-start">'
+      + '<span class="w">' + esc(r.e[0]) + '</span>'
+      + '<span class="badge ' + st + '">' + STATUS_TEXT[st] + '</span></div>'
+      + '<div class="mean">' + esc(r.e[1]) + '</div>'
+      + '<div class="ex">' + ex + '</div>'
+      + '</div>';
+  }).join('')
+    /* 200개를 한꺼번에 그리면 느린 기기에서 눈에 띄게 버벅인다 */
+    + (rows.length > shown.length
+      ? '<button class="more" id="dictMore">더 보기 (' + (rows.length - shown.length) + '개 남음)</button>'
+      : '');
+}
+
+/* ------------------------------------------------------------------
    푸는 화면
    ------------------------------------------------------------------ */
 function go(v) {
-  ['home', 'play', 'result'].forEach(function (id) { $(id).hidden = id !== v; });
-  $('toHome').hidden = v === 'home';
+  ['home', 'play', 'result', 'dict'].forEach(function (id) { $(id).hidden = id !== v; });
+  $('navStudy').className = v === 'dict' ? '' : 'primary';
+  $('navDict').className = v === 'dict' ? 'primary' : '';
   if (v === 'home') renderHome();
+  if (v === 'dict') renderDict();
 }
 
 function start(lvl, only) {
@@ -362,7 +494,7 @@ function diffHtml(given, answer) {
 
 function afterAnswer(correct, answerText, given) {
   var item = quiz[pos];
-  if (!correct) rememberWrong(item);
+  if (correct) rememberRight(item); else rememberWrong(item);
   var last = pos === quiz.length - 1;
   var detail = correct ? '정답입니다!'
     : item.type === 'spelling'
@@ -379,11 +511,20 @@ function afterAnswer(correct, answerText, given) {
 
 /* 틀린 단어를 모아 둔다. 같은 단어를 또 틀려도 한 번만 담는다. */
 function rememberWrong(item) {
-  store.wrong = store.wrong || [];
-  var dup = store.wrong.some(function (x) {
-    return x.level === item.level && x.index === item.index;
-  });
-  if (!dup) store.wrong.push({ level: item.level, index: item.index, word: item.word });
+  if (inList(store.wrong, item.level, item.index) < 0) {
+    store.wrong.push({ level: item.level, index: item.index, word: item.word });
+  }
+  persist();
+}
+
+/* 맞히면 오답 노트에서 빼준다. 한 번 틀린 단어가 영영 남아 있으면
+   노트가 계속 불어나기만 해서 "아직 못 외운 단어"라는 뜻을 잃는다. */
+function rememberRight(item) {
+  var at = inList(store.wrong, item.level, item.index);
+  if (at >= 0) store.wrong.splice(at, 1);
+  if (inList(store.right, item.level, item.index) < 0) {
+    store.right.push({ level: item.level, index: item.index, word: item.word });
+  }
   persist();
 }
 
@@ -436,7 +577,11 @@ document.addEventListener('click', function (e) {
   else if (t.id === 'next') next();
   else if (t.id === 'submitAnswer') submitSpelling();
   else if (t.id === 'again') start(level, null);
-  else if (t.id === 'home2' || t.id === 'toHome') go('home');
+  else if (t.id === 'home2' || t.id === 'navStudy') go('home');
+  else if (t.id === 'navDict') go('dict');
+  else if (t.dataset.dlevel) { dictLevel = t.dataset.dlevel; dictLimit = 60; renderDict(); }
+  else if (t.dataset.dfilter) { dictFilter = t.dataset.dfilter; dictLimit = 60; renderDict(); }
+  else if (t.id === 'dictMore') { dictLimit += 60; renderDict(); }
   else if (t.id === 'reviewWrong') {
     /* 오답 노트는 등급이 섞여 있으니, 가장 많이 틀린 등급으로 몬다 */
     var byLevel = {};
@@ -448,6 +593,12 @@ document.addEventListener('click', function (e) {
     persist();
     renderHome();
   }
+});
+
+$('dictSearch').addEventListener('input', function (e) {
+  dictQuery = e.target.value;
+  dictLimit = 60;        // 새로 검색하면 처음부터 보여준다
+  renderDict();
 });
 
 document.addEventListener('keydown', function (e) {
@@ -483,6 +634,8 @@ go('home');`
       + `난이도를 고르면 그 등급에서 무작위로 뽑아 냅니다 `
       + `(쉬움 10문제 · 보통 15문제 · 상급 30문제). `
       + `문제 유형은 ${types.map((t) => typeNames[t]).join(', ')}이고, `
-      + `틀린 단어는 오답 노트에 모아 두었다가 모아서 다시 풀 수 있어요.`,
+      + `틀린 단어는 오답 노트에 모아 두었다가 모아서 다시 풀 수 있어요. `
+      + `[단어 도감]에서는 등급별로 뜻·스펠링·사용 예를 훑어볼 수 있고, `
+      + `단어나 뜻으로 찾거나 아직 못 외운 것만 골라 볼 수 있습니다.`,
   }
 }
