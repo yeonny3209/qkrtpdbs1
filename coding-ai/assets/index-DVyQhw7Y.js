@@ -936,8 +936,23 @@ ${e(ne.hard)}
       <h1>${p(t)}</h1>
       <p class="sub" style="margin:0">단어 600개 · 초급 200 · 중급 200 · 상급 200</p>
     </div>
-    <button id="toHome" hidden>처음으로</button>
+    <nav class="row">
+      <button id="navStudy" class="primary">학습</button>
+      <button id="navDict">단어 도감</button>
+    </nav>
   </header>
+
+  <!-- ================= 단어 도감 ================= -->
+  <section id="dict" hidden>
+    <div class="row" id="dictLevels" style="flex-wrap:wrap"></div>
+    <input id="dictSearch" placeholder="단어나 뜻으로 찾기 (예: apple, 사과)"
+      autocomplete="off" style="width:100%;margin-top:12px">
+    <div class="row" style="justify-content:space-between;margin:12px 0 10px;flex-wrap:wrap">
+      <span class="sub" style="margin:0" id="dictCount"></span>
+      <span class="row" id="dictFilters"></span>
+    </div>
+    <div id="dictList"></div>
+  </section>
 
   <!-- ================= 시작 화면 ================= -->
   <section id="home">
@@ -998,10 +1013,16 @@ ${g(n,`vocab.`+(e.title||`default`))}
 
 ${_}
 
-var store = load({ best: {}, wrong: [] });
+var store = load({ best: {}, wrong: [], right: [] });
 var best = store.best || {};
+store.wrong = store.wrong || [];
+store.right = store.right || [];      // 한 번이라도 맞힌 단어 (도감의 학습 상태)
 
 var level = 'easy';
+var dictLevel = 'easy';               // 도감에서 보고 있는 등급
+var dictQuery = '';
+var dictFilter = 'all';               // all | wrong | right | new
+var dictLimit = 60;                   // 처음에 이만큼만 그린다
 var useTypes = TYPES.slice();      // 지금 켜 놓은 유형
 var quiz = [];                     // 이번 판 문제들
 var pos = 0;
@@ -1012,7 +1033,29 @@ function $(id) { return document.getElementById(id); }
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-function persist() { save({ best: best, wrong: store.wrong || [] }); }
+function persist() {
+  save({ best: best, wrong: store.wrong, right: store.right });
+}
+
+/* 등급+번호로 단어 하나를 가리키는 열쇠. 등급이 다르면 같은 번호라도
+   다른 단어이므로 번호만으로는 안 된다. */
+function keyOf(lvl, i) { return lvl + ':' + i; }
+function inList(list, lvl, i) {
+  var k = keyOf(lvl, i);
+  for (var n = 0; n < list.length; n++) {
+    if (keyOf(list[n].level, list[n].index) === k) return n;
+  }
+  return -1;
+}
+
+/* 그 단어의 학습 상태 — 도감이 이걸로 표시를 고른다.
+   틀린 적이 있으면 나중에 맞혔더라도 '복습'이 우선이다. */
+function statusOf(lvl, i) {
+  if (inList(store.wrong, lvl, i) >= 0) return 'wrong';
+  if (inList(store.right, lvl, i) >= 0) return 'right';
+  return 'new';
+}
+var STATUS_TEXT = { wrong: '복습 필요', right: '맞힘', new: '아직' };
 
 /* 셔플 — 뒤에서부터 무작위 자리와 바꾼다 (Fisher-Yates).
    sort(() => Math.random() - 0.5) 는 고르게 섞이지 않는다. */
@@ -1124,12 +1167,80 @@ function toggleType(t) {
 }
 
 /* ------------------------------------------------------------------
+   단어 도감 — 등급별로 뜻·스펠링·사용 예를 훑어보는 곳
+
+   푸는 화면에서는 예문의 그 자리가 빈칸이지만, 도감에서는 단어를
+   채워 넣어 보여준다. 도감의 목적은 맞히는 게 아니라 "이 단어가
+   문장에서 어떻게 쓰이는지" 보는 것이다.
+   ------------------------------------------------------------------ */
+function renderDict() {
+  $('dictLevels').innerHTML = LEVELS.map(function (l) {
+    return '<button class="chip' + (dictLevel === l.id ? ' on' : '') + '" data-dlevel="' + l.id + '">'
+      + l.name + ' <span style="opacity:.7">' + DICT[l.id].length + '</span></button>';
+  }).join('');
+
+  var pool = DICT[dictLevel];
+  var counts = { all: pool.length, wrong: 0, right: 0, new: 0 };
+  pool.forEach(function (_, i) { counts[statusOf(dictLevel, i)]++; });
+
+  $('dictFilters').innerHTML = [
+    ['all', '전체'], ['wrong', '복습 필요'], ['right', '맞힘'], ['new', '아직']
+  ].map(function (f) {
+    return '<button class="chip' + (dictFilter === f[0] ? ' on' : '') + '" data-dfilter="' + f[0] + '"'
+      + ' style="padding:5px 10px;font-size:12px">' + f[1] + ' ' + counts[f[0]] + '</button>';
+  }).join('');
+
+  /* 단어로도 뜻으로도 찾을 수 있어야 한다 — 뜻이 기억날 때가 더 많다 */
+  var q = dictQuery.trim().toLowerCase();
+  var rows = [];
+  for (var i = 0; i < pool.length; i++) {
+    var e = pool[i];
+    if (dictFilter !== 'all' && statusOf(dictLevel, i) !== dictFilter) continue;
+    if (q && e[0].toLowerCase().indexOf(q) < 0 && e[1].toLowerCase().indexOf(q) < 0) continue;
+    rows.push({ i: i, e: e });
+  }
+
+  $('dictCount').textContent = q || dictFilter !== 'all'
+    ? rows.length + '개 찾음'
+    : pool.length + '개';
+
+  if (!rows.length) {
+    $('dictList').innerHTML = '<div class="empty">찾는 단어가 없어요.</div>';
+    return;
+  }
+
+  var shown = rows.slice(0, dictLimit);
+  $('dictList').innerHTML = shown.map(function (r) {
+    var st = statusOf(dictLevel, r.i);
+    /* 예문의 빈칸을 단어로 메워 실제 쓰임을 보여준다.
+       빈칸 앞뒤로 띄워 둔 공백이 그대로 남으면 "in the kitchen ." 처럼
+       읽히므로, 문장부호 앞 공백은 여기서 붙여 준다. */
+    var ex = esc(r.e[2])
+      .replace('___', '<b>' + esc(r.e[0]) + '</b>')
+      .replace(/\\s+([.,!?;:])/g, '$1');
+    return '<div class="card entry">'
+      + '<div class="row" style="justify-content:space-between;align-items:flex-start">'
+      + '<span class="w">' + esc(r.e[0]) + '</span>'
+      + '<span class="badge ' + st + '">' + STATUS_TEXT[st] + '</span></div>'
+      + '<div class="mean">' + esc(r.e[1]) + '</div>'
+      + '<div class="ex">' + ex + '</div>'
+      + '</div>';
+  }).join('')
+    /* 200개를 한꺼번에 그리면 느린 기기에서 눈에 띄게 버벅인다 */
+    + (rows.length > shown.length
+      ? '<button class="more" id="dictMore">더 보기 (' + (rows.length - shown.length) + '개 남음)</button>'
+      : '');
+}
+
+/* ------------------------------------------------------------------
    푸는 화면
    ------------------------------------------------------------------ */
 function go(v) {
-  ['home', 'play', 'result'].forEach(function (id) { $(id).hidden = id !== v; });
-  $('toHome').hidden = v === 'home';
+  ['home', 'play', 'result', 'dict'].forEach(function (id) { $(id).hidden = id !== v; });
+  $('navStudy').className = v === 'dict' ? '' : 'primary';
+  $('navDict').className = v === 'dict' ? 'primary' : '';
   if (v === 'home') renderHome();
+  if (v === 'dict') renderDict();
 }
 
 function start(lvl, only) {
@@ -1224,7 +1335,7 @@ function diffHtml(given, answer) {
 
 function afterAnswer(correct, answerText, given) {
   var item = quiz[pos];
-  if (!correct) rememberWrong(item);
+  if (correct) rememberRight(item); else rememberWrong(item);
   var last = pos === quiz.length - 1;
   var detail = correct ? '정답입니다!'
     : item.type === 'spelling'
@@ -1241,11 +1352,20 @@ function afterAnswer(correct, answerText, given) {
 
 /* 틀린 단어를 모아 둔다. 같은 단어를 또 틀려도 한 번만 담는다. */
 function rememberWrong(item) {
-  store.wrong = store.wrong || [];
-  var dup = store.wrong.some(function (x) {
-    return x.level === item.level && x.index === item.index;
-  });
-  if (!dup) store.wrong.push({ level: item.level, index: item.index, word: item.word });
+  if (inList(store.wrong, item.level, item.index) < 0) {
+    store.wrong.push({ level: item.level, index: item.index, word: item.word });
+  }
+  persist();
+}
+
+/* 맞히면 오답 노트에서 빼준다. 한 번 틀린 단어가 영영 남아 있으면
+   노트가 계속 불어나기만 해서 "아직 못 외운 단어"라는 뜻을 잃는다. */
+function rememberRight(item) {
+  var at = inList(store.wrong, item.level, item.index);
+  if (at >= 0) store.wrong.splice(at, 1);
+  if (inList(store.right, item.level, item.index) < 0) {
+    store.right.push({ level: item.level, index: item.index, word: item.word });
+  }
   persist();
 }
 
@@ -1298,7 +1418,11 @@ document.addEventListener('click', function (e) {
   else if (t.id === 'next') next();
   else if (t.id === 'submitAnswer') submitSpelling();
   else if (t.id === 'again') start(level, null);
-  else if (t.id === 'home2' || t.id === 'toHome') go('home');
+  else if (t.id === 'home2' || t.id === 'navStudy') go('home');
+  else if (t.id === 'navDict') go('dict');
+  else if (t.dataset.dlevel) { dictLevel = t.dataset.dlevel; dictLimit = 60; renderDict(); }
+  else if (t.dataset.dfilter) { dictFilter = t.dataset.dfilter; dictLimit = 60; renderDict(); }
+  else if (t.id === 'dictMore') { dictLimit += 60; renderDict(); }
   else if (t.id === 'reviewWrong') {
     /* 오답 노트는 등급이 섞여 있으니, 가장 많이 틀린 등급으로 몬다 */
     var byLevel = {};
@@ -1310,6 +1434,12 @@ document.addEventListener('click', function (e) {
     persist();
     renderHome();
   }
+});
+
+$('dictSearch').addEventListener('input', function (e) {
+  dictQuery = e.target.value;
+  dictLimit = 60;        // 새로 검색하면 처음부터 보여준다
+  renderDict();
 });
 
 document.addEventListener('keydown', function (e) {
@@ -1356,7 +1486,28 @@ go('home');`,s={meaning:`스펠링 보고 뜻 맞히기`,spelling:`뜻 보고 �
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
 /* 스펠링을 쓸 때는 글자 하나하나가 또렷해야 한다 */
 #answerInput { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .04em; }
-.miss { color: #dc2626; font-weight: 700; }`}),summary:`영어 단어장을 만들었어요. 단어 600개(초급·중급·상급 각 200개)가 들어 있고, 난이도를 고르면 그 등급에서 무작위로 뽑아 냅니다 (쉬움 10문제 · 보통 15문제 · 상급 30문제). 문제 유형은 ${i.map(e=>s[e]).join(`, `)}이고, 틀린 단어는 오답 노트에 모아 두었다가 모아서 다시 풀 수 있어요.`}}var ae=[{id:`todo`,name:`할 일 목록`,icon:`✅`,desc:`적고, 지우고, 다 한 것을 표시합니다`,make:y},{id:`quiz`,name:`퀴즈`,icon:`🧠`,desc:`문제를 내고 점수를 매깁니다`,make:b},{id:`timer`,name:`집중 타이머`,icon:`⏱`,desc:`집중과 휴식을 번갈아 재줍니다`,make:x},{id:`vocab`,name:`영어 단어장`,icon:`📖`,desc:`단어 600개로 뜻·스펠링·빈칸 문제를 냅니다`,make:ie},{id:`landing`,name:`소개 페이지`,icon:`🪧`,desc:`나 · 우리 가게 · 동아리를 소개합니다`,make:S}],oe=Object.fromEntries(ae.map(e=>[e.id,e]));function se(e={}){let t=oe[e.kind];if(!t)throw Error(`알 수 없는 종류: ${e.kind}`);let{html:n,summary:r}=t.make(e);return{files:[{path:`${ce(e.title||t.name)}.html`,code:n}],summary:r}}function ce(e){return String(e).replace(/[\\/:*?"<>|]/g,``).replace(/\s+/g,`-`).replace(/^[-.]+|[-.]+$/g,``).slice(0,40)||`my-app`}var le=ae.map(e=>({value:e.id,label:`${e.icon} ${e.name}`,desc:e.desc})),ue=[{value:`violet`,label:`보라`,desc:`차분하고 무난하다`},{value:`blue`,label:`파랑`,desc:`신뢰감 있는 기본색`},{value:`emerald`,label:`초록`,desc:`눈이 편하다`},{value:`amber`,label:`주황`,desc:`활기차다`},{value:`rose`,label:`분홍`,desc:`부드럽다`}],T=(e,t)=>Object.prototype.hasOwnProperty.call(e,t),E=[{id:`kind`,kind:`choice`,text:`안녕하세요! 무엇을 만들어 드릴까요?`,hint:`고르면 그에 맞춰 필요한 것만 더 여쭤볼게요.`,when:()=>!0,options:le},{id:`title`,kind:`text`,text:`이름을 뭐라고 할까요?`,hint:`화면 맨 위에 크게 들어갑니다. 비워두면 기본 이름을 씁니다.`,placeholder:`예: 나의 하루`,when:e=>!!e.kind},{id:`todoFields`,kind:`multi`,text:`할 일 하나에 무엇까지 적을 수 있게 할까요?`,hint:`여러 개 고를 수 있고, 아무것도 안 골라도 됩니다.`,when:e=>e.kind===`todo`,options:[{value:`due`,label:`📅 마감일`,desc:`지난 것은 빨갛게 표시합니다`},{value:`priority`,label:`🔥 중요도`,desc:`높음/보통/낮음 — 높은 것이 위로 옵니다`},{value:`tag`,label:`🏷 분류`,desc:`분류별로 걸러 볼 수 있습니다`},{value:`none`,label:`아니요, 제목만`,desc:`가장 단순한 형태`}]},{id:`quizTopic`,kind:`text`,text:`퀴즈 주제가 무엇인가요?`,hint:`문제는 직접 넣을 수 있게 만들어 드리고, 예시 문제 3개를 미리 채워둡니다.`,placeholder:`예: 한국사, 영어 단어`,when:e=>e.kind===`quiz`},{id:`quizTimer`,kind:`choice`,text:`문제마다 제한 시간을 둘까요?`,when:e=>e.kind===`quiz`,options:[{value:`none`,label:`없음`,desc:`천천히 풀게 합니다`},{value:`10`,label:`10초`,desc:`빠른 순발력 퀴즈`},{value:`30`,label:`30초`,desc:`생각할 틈은 주는 정도`}]},{id:`vocabTypes`,kind:`multi`,text:`어떤 방식으로 물어볼까요?`,hint:`여러 개 고르면 번갈아 나옵니다. 안 고르면 세 가지 다 넣어 드려요.`,when:e=>e.kind===`vocab`,options:[{value:`meaning`,label:`🔤 스펠링 보고 뜻 맞히기`,desc:`보기 네 개 중에서 고릅니다`},{value:`spelling`,label:`⌨️ 뜻 보고 스펠링 쓰기`,desc:`직접 타이핑합니다. 틀린 글자를 짚어줍니다`},{value:`blank`,label:`📝 문장 빈칸 채우기`,desc:`예문에 들어갈 낱말을 고릅니다`}]},{id:`timerFocus`,kind:`choice`,text:`한 번에 몇 분씩 집중할까요?`,when:e=>e.kind===`timer`,options:[{value:`25`,label:`25분`,desc:`뽀모도로 기본값`},{value:`45`,label:`45분`,desc:`한 과목 분량`},{value:`50`,label:`50분`,desc:`수업 한 교시`}]},{id:`timerBreak`,kind:`choice`,text:`쉬는 시간은요?`,when:e=>e.kind===`timer`,options:[{value:`5`,label:`5분`,desc:`짧게 끊고 바로 복귀`},{value:`10`,label:`10분`,desc:`가볍게 걷다 올 정도`},{value:`15`,label:`15분`,desc:`충분히 쉬기`}]},{id:`landingSections`,kind:`multi`,text:`어떤 내용을 넣을까요?`,hint:`고른 순서와 상관없이 읽기 좋은 순서로 배치합니다.`,when:e=>e.kind===`landing`,options:[{value:`about`,label:`소개`,desc:`무엇을 하는 곳인지`},{value:`features`,label:`특징 3가지`,desc:`카드 세 장으로 보여줍니다`},{value:`gallery`,label:`사진 갤러리`,desc:`자리를 잡아 두고 사진만 바꾸면 됩니다`},{value:`contact`,label:`연락처`,desc:`이메일과 링크`}]},{id:`save`,kind:`choice`,text:`새로고침해도 내용이 남아 있어야 할까요?`,hint:`브라우저에 저장합니다. 서버가 없어도 되고, 내 기기에만 남습니다.`,when:e=>!!e.kind&&e.kind!==`landing`,options:[{value:`yes`,label:`네, 남겨주세요`,desc:`창을 닫았다 열어도 그대로입니다`},{value:`no`,label:`아니요`,desc:`새로고침하면 처음부터`}]},{id:`theme`,kind:`choice`,text:`마지막으로, 어떤 색이 좋으세요?`,hint:`밝은 화면과 어두운 화면 둘 다 알아서 맞춰 만듭니다.`,when:e=>!!e.kind,options:ue}];Object.fromEntries(E.map(e=>[e.id,e]));function de(e={}){return E.find(t=>!T(e,t.id)&&t.when(e))||null}var fe={id:`rules`,name:`규칙 기반`,async ask(e){return de(e)},async build(e){return se(e)}},pe=e((e=>{var t=Symbol.for(`react.transitional.element`);function n(e,n,r){var i=null;if(r!==void 0&&(i=``+r),n.key!==void 0&&(i=``+n.key),`key`in n)for(var a in r={},n)a!==`key`&&(r[a]=n[a]);else r=n;return n=r.ref,{$$typeof:t,type:e,key:i,ref:n===void 0?null:n,props:r}}e.jsx=n,e.jsxs=n})),D=e(((e,t)=>{t.exports=pe()}))();function O({question:e,onAnswer:t}){return e.kind===`text`?(0,D.jsx)(he,{q:e,onAnswer:t}):e.kind===`multi`?(0,D.jsx)(me,{q:e,onAnswer:t}):(0,D.jsx)(k,{q:e,onAnswer:t})}function k({q:e,onAnswer:t}){return(0,D.jsx)(`div`,{className:`grid gap-2 sm:grid-cols-2`,children:e.options.map(e=>(0,D.jsxs)(`button`,{onClick:()=>t(e.value),className:`group rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left
+.miss { color: #dc2626; font-weight: 700; }
+
+/* ---------- 단어 도감 ---------- */
+.entry { padding: 13px 15px; margin-bottom: 7px; }
+.entry .w {
+  font-size: 16px; font-weight: 700; letter-spacing: .01em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.entry .mean { color: var(--fg); font-size: 14px; margin-top: 2px; }
+/* 사용 예는 한 단계 물러나 보이게 — 뜻을 먼저 읽어야 한다 */
+.entry .ex {
+  color: var(--muted); font-size: 13px; margin-top: 7px;
+  padding-left: 10px; border-left: 2px solid var(--border); line-height: 1.55;
+}
+.entry .ex b { color: var(--accent); }
+.badge {
+  flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.badge.right { border-color: #16a34a; color: #16a34a; }
+.badge.wrong { border-color: #dc2626; color: #dc2626; }
+.more { width: 100%; margin-top: 8px; }`}),summary:`영어 단어장을 만들었어요. 단어 600개(초급·중급·상급 각 200개)가 들어 있고, 난이도를 고르면 그 등급에서 무작위로 뽑아 냅니다 (쉬움 10문제 · 보통 15문제 · 상급 30문제). 문제 유형은 ${i.map(e=>s[e]).join(`, `)}이고, 틀린 단어는 오답 노트에 모아 두었다가 모아서 다시 풀 수 있어요. [단어 도감]에서는 등급별로 뜻·스펠링·사용 예를 훑어볼 수 있고, 단어나 뜻으로 찾거나 아직 못 외운 것만 골라 볼 수 있습니다.`}}var ae=[{id:`todo`,name:`할 일 목록`,icon:`✅`,desc:`적고, 지우고, 다 한 것을 표시합니다`,make:y},{id:`quiz`,name:`퀴즈`,icon:`🧠`,desc:`문제를 내고 점수를 매깁니다`,make:b},{id:`timer`,name:`집중 타이머`,icon:`⏱`,desc:`집중과 휴식을 번갈아 재줍니다`,make:x},{id:`vocab`,name:`영어 단어장`,icon:`📖`,desc:`단어 600개로 뜻·스펠링·빈칸 문제를 냅니다`,make:ie},{id:`landing`,name:`소개 페이지`,icon:`🪧`,desc:`나 · 우리 가게 · 동아리를 소개합니다`,make:S}],oe=Object.fromEntries(ae.map(e=>[e.id,e]));function se(e={}){let t=oe[e.kind];if(!t)throw Error(`알 수 없는 종류: ${e.kind}`);let{html:n,summary:r}=t.make(e);return{files:[{path:`${ce(e.title||t.name)}.html`,code:n}],summary:r}}function ce(e){return String(e).replace(/[\\/:*?"<>|]/g,``).replace(/\s+/g,`-`).replace(/^[-.]+|[-.]+$/g,``).slice(0,40)||`my-app`}var le=ae.map(e=>({value:e.id,label:`${e.icon} ${e.name}`,desc:e.desc})),ue=[{value:`violet`,label:`보라`,desc:`차분하고 무난하다`},{value:`blue`,label:`파랑`,desc:`신뢰감 있는 기본색`},{value:`emerald`,label:`초록`,desc:`눈이 편하다`},{value:`amber`,label:`주황`,desc:`활기차다`},{value:`rose`,label:`분홍`,desc:`부드럽다`}],T=(e,t)=>Object.prototype.hasOwnProperty.call(e,t),E=[{id:`kind`,kind:`choice`,text:`안녕하세요! 무엇을 만들어 드릴까요?`,hint:`고르면 그에 맞춰 필요한 것만 더 여쭤볼게요.`,when:()=>!0,options:le},{id:`title`,kind:`text`,text:`이름을 뭐라고 할까요?`,hint:`화면 맨 위에 크게 들어갑니다. 비워두면 기본 이름을 씁니다.`,placeholder:`예: 나의 하루`,when:e=>!!e.kind},{id:`todoFields`,kind:`multi`,text:`할 일 하나에 무엇까지 적을 수 있게 할까요?`,hint:`여러 개 고를 수 있고, 아무것도 안 골라도 됩니다.`,when:e=>e.kind===`todo`,options:[{value:`due`,label:`📅 마감일`,desc:`지난 것은 빨갛게 표시합니다`},{value:`priority`,label:`🔥 중요도`,desc:`높음/보통/낮음 — 높은 것이 위로 옵니다`},{value:`tag`,label:`🏷 분류`,desc:`분류별로 걸러 볼 수 있습니다`},{value:`none`,label:`아니요, 제목만`,desc:`가장 단순한 형태`}]},{id:`quizTopic`,kind:`text`,text:`퀴즈 주제가 무엇인가요?`,hint:`문제는 직접 넣을 수 있게 만들어 드리고, 예시 문제 3개를 미리 채워둡니다.`,placeholder:`예: 한국사, 영어 단어`,when:e=>e.kind===`quiz`},{id:`quizTimer`,kind:`choice`,text:`문제마다 제한 시간을 둘까요?`,when:e=>e.kind===`quiz`,options:[{value:`none`,label:`없음`,desc:`천천히 풀게 합니다`},{value:`10`,label:`10초`,desc:`빠른 순발력 퀴즈`},{value:`30`,label:`30초`,desc:`생각할 틈은 주는 정도`}]},{id:`vocabTypes`,kind:`multi`,text:`어떤 방식으로 물어볼까요?`,hint:`여러 개 고르면 번갈아 나옵니다. 안 고르면 세 가지 다 넣어 드려요.`,when:e=>e.kind===`vocab`,options:[{value:`meaning`,label:`🔤 스펠링 보고 뜻 맞히기`,desc:`보기 네 개 중에서 고릅니다`},{value:`spelling`,label:`⌨️ 뜻 보고 스펠링 쓰기`,desc:`직접 타이핑합니다. 틀린 글자를 짚어줍니다`},{value:`blank`,label:`📝 문장 빈칸 채우기`,desc:`예문에 들어갈 낱말을 고릅니다`}]},{id:`timerFocus`,kind:`choice`,text:`한 번에 몇 분씩 집중할까요?`,when:e=>e.kind===`timer`,options:[{value:`25`,label:`25분`,desc:`뽀모도로 기본값`},{value:`45`,label:`45분`,desc:`한 과목 분량`},{value:`50`,label:`50분`,desc:`수업 한 교시`}]},{id:`timerBreak`,kind:`choice`,text:`쉬는 시간은요?`,when:e=>e.kind===`timer`,options:[{value:`5`,label:`5분`,desc:`짧게 끊고 바로 복귀`},{value:`10`,label:`10분`,desc:`가볍게 걷다 올 정도`},{value:`15`,label:`15분`,desc:`충분히 쉬기`}]},{id:`landingSections`,kind:`multi`,text:`어떤 내용을 넣을까요?`,hint:`고른 순서와 상관없이 읽기 좋은 순서로 배치합니다.`,when:e=>e.kind===`landing`,options:[{value:`about`,label:`소개`,desc:`무엇을 하는 곳인지`},{value:`features`,label:`특징 3가지`,desc:`카드 세 장으로 보여줍니다`},{value:`gallery`,label:`사진 갤러리`,desc:`자리를 잡아 두고 사진만 바꾸면 됩니다`},{value:`contact`,label:`연락처`,desc:`이메일과 링크`}]},{id:`save`,kind:`choice`,text:`새로고침해도 내용이 남아 있어야 할까요?`,hint:`브라우저에 저장합니다. 서버가 없어도 되고, 내 기기에만 남습니다.`,when:e=>!!e.kind&&e.kind!==`landing`,options:[{value:`yes`,label:`네, 남겨주세요`,desc:`창을 닫았다 열어도 그대로입니다`},{value:`no`,label:`아니요`,desc:`새로고침하면 처음부터`}]},{id:`theme`,kind:`choice`,text:`마지막으로, 어떤 색이 좋으세요?`,hint:`밝은 화면과 어두운 화면 둘 다 알아서 맞춰 만듭니다.`,when:e=>!!e.kind,options:ue}];Object.fromEntries(E.map(e=>[e.id,e]));function de(e={}){return E.find(t=>!T(e,t.id)&&t.when(e))||null}var fe={id:`rules`,name:`규칙 기반`,async ask(e){return de(e)},async build(e){return se(e)}},pe=e((e=>{var t=Symbol.for(`react.transitional.element`);function n(e,n,r){var i=null;if(r!==void 0&&(i=``+r),n.key!==void 0&&(i=``+n.key),`key`in n)for(var a in r={},n)a!==`key`&&(r[a]=n[a]);else r=n;return n=r.ref,{$$typeof:t,type:e,key:i,ref:n===void 0?null:n,props:r}}e.jsx=n,e.jsxs=n})),D=e(((e,t)=>{t.exports=pe()}))();function O({question:e,onAnswer:t}){return e.kind===`text`?(0,D.jsx)(he,{q:e,onAnswer:t}):e.kind===`multi`?(0,D.jsx)(me,{q:e,onAnswer:t}):(0,D.jsx)(k,{q:e,onAnswer:t})}function k({q:e,onAnswer:t}){return(0,D.jsx)(`div`,{className:`grid gap-2 sm:grid-cols-2`,children:e.options.map(e=>(0,D.jsxs)(`button`,{onClick:()=>t(e.value),className:`group rounded-2xl border border-white/10 bg-white/[.03] px-4 py-3 text-left
             transition hover:-translate-y-0.5 hover:border-violet-400/50 hover:bg-violet-500/10`,children:[(0,D.jsx)(`div`,{className:`text-[14px] font-bold text-white`,children:e.label}),e.desc&&(0,D.jsx)(`div`,{className:`mt-0.5 text-[12px] leading-snug text-zinc-400`,children:e.desc})]},e.value))})}function me({q:e,onAnswer:t}){let[n,r]=(0,l.useState)([]);(0,l.useEffect)(()=>{r([])},[e.id]);let i=e.options.filter(e=>/^(none|아니요)/.test(e.value)).map(e=>e.value),a=e=>r(t=>i.includes(e)?t.includes(e)?[]:[e]:(t.includes(e)?t.filter(t=>t!==e):[...t,e]).filter(e=>!i.includes(e)));return(0,D.jsxs)(`div`,{children:[(0,D.jsx)(`div`,{className:`grid gap-2 sm:grid-cols-2`,children:e.options.map(e=>{let t=n.includes(e.value);return(0,D.jsxs)(`button`,{onClick:()=>a(e.value),className:`flex items-start gap-2.5 rounded-2xl border px-4 py-3 text-left transition ${t?`border-violet-400/60 bg-violet-500/15`:`border-white/10 bg-white/[.03] hover:border-white/25 hover:bg-white/[.06]`}`,children:[(0,D.jsx)(`span`,{className:`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-md border text-[10px] ${t?`border-violet-300 bg-violet-400 text-black`:`border-white/25`}`,children:t?`✓`:``}),(0,D.jsxs)(`span`,{className:`min-w-0`,children:[(0,D.jsx)(`span`,{className:`block text-[14px] font-bold text-white`,children:e.label}),e.desc&&(0,D.jsx)(`span`,{className:`mt-0.5 block text-[12px] leading-snug text-zinc-400`,children:e.desc})]})]},e.value)})}),(0,D.jsx)(`button`,{onClick:()=>t(n.length?n:[`none`]),className:`mt-3 w-full rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 py-3
           text-[14px] font-black text-white transition hover:brightness-110`,children:n.length?`${n.length}개 고르고 넘어가기`:`고르지 않고 넘어가기`})]})}function he({q:e,onAnswer:t}){let[n,r]=(0,l.useState)(``),i=(0,l.useRef)(null);(0,l.useEffect)(()=>{r(``),i.current?.focus()},[e.id]);let a=()=>t(n.trim());return(0,D.jsxs)(`div`,{className:`flex flex-wrap gap-2`,children:[(0,D.jsx)(`input`,{ref:i,value:n,onChange:e=>r(e.target.value),onKeyDown:e=>e.key===`Enter`&&a(),placeholder:e.placeholder||`여기에 적어주세요`,className:`min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[.04] px-4 py-3
           text-[14px] text-white outline-none placeholder:text-zinc-600 focus:border-violet-400/60`}),(0,D.jsx)(`button`,{onClick:a,className:`rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-6 py-3
