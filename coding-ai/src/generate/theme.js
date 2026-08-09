@@ -38,7 +38,7 @@ export const jsString = (s = '') => JSON.stringify(String(s))
    CSS 변수로 색을 빼두면 어두운 화면 대응이 규칙 한 벌로 끝난다.
    색을 곳곳에 직접 적어두면 다크 모드를 붙일 때 전부 다시 찾아야 한다.
    ------------------------------------------------------------------ */
-export function baseCss(themeId) {
+export function baseCss(themeId, extra = '') {
   const t = themeOf(themeId)
   return `:root {
   --accent: ${t.accent};
@@ -64,41 +64,64 @@ export function baseCss(themeId) {
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  padding: 24px 16px 64px;
+  padding: 28px 16px 72px;
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
-  line-height: 1.6;
+  line-height: 1.65;
+  /* 글자가 또렷해진다 — 특히 어두운 배경에서 차이가 크다 */
+  -webkit-font-smoothing: antialiased;
 }
 .wrap { max-width: 680px; margin: 0 auto; }
-h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.02em; }
+h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.02em; line-height: 1.25; }
+h2, h3 { letter-spacing: -0.01em; }
 .sub { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+
 button {
   font: inherit; cursor: pointer; border-radius: 10px;
   border: 1px solid var(--border); background: var(--card); color: var(--fg);
-  padding: 9px 14px; transition: filter .15s, background .15s;
+  padding: 9px 14px;
+  transition: filter .15s, background .15s, border-color .15s, transform .06s;
 }
-button:hover { filter: brightness(1.08); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+button:hover:not([disabled]) { filter: brightness(1.06); border-color: var(--accent); }
+/* 눌리는 느낌 — 눌렸는지 아닌지 모르면 두 번 누르게 된다 */
+button:active:not([disabled]) { transform: translateY(1px); }
+button[disabled] { cursor: default; opacity: .65; }
+button.primary {
+  background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700;
+}
 /* 키보드로 넘길 때 지금 어디인지 보여야 한다 */
-button:focus-visible, input:focus-visible, select:focus-visible {
+button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 input, select {
   font: inherit; padding: 9px 11px; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--card); color: var(--fg);
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+  transition: border-color .15s;
 }
+input:focus, select:focus { border-color: var(--accent); }
+input::placeholder { color: var(--muted); opacity: .7; }
+
 .card {
   background: var(--card); border: 1px solid var(--border);
   border-radius: 14px; padding: 16px;
 }
 .row { display: flex; gap: 8px; align-items: center; }
-.empty { color: var(--muted); text-align: center; padding: 32px 0; }
+.empty {
+  color: var(--muted); text-align: center; padding: 36px 20px;
+  border: 1px dashed var(--border); border-radius: 14px;
+}
+
 /* 화면이 좁으면 한 줄에 밀어 넣지 않고 접는다 */
 @media (max-width: 520px) {
   .row { flex-wrap: wrap; }
   h1 { font-size: 23px; }
-}`
+  body { padding: 20px 13px 56px; }
+}
+/* 움직임을 줄이도록 설정한 사람에게는 걸지 않는다 — 취향이 아니라 필요다 */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}${extra ? '\n\n' + extra : ''}`
 }
 
 /* 브라우저에 남기는 저장소.
@@ -145,7 +168,7 @@ function beep() {
 }`
 
 /* 완성된 한 장짜리 HTML */
-export function htmlShell({ title, themeId, body, script }) {
+export function htmlShell({ title, themeId, body, script, extraCss = '' }) {
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -153,7 +176,7 @@ export function htmlShell({ title, themeId, body, script }) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <style>
-${baseCss(themeId)}
+${baseCss(themeId, extraCss)}
 </style>
 </head>
 <body>

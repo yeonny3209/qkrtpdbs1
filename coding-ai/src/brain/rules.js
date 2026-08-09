@@ -25,10 +25,12 @@ const THEMES = [
   { value: 'rose', label: '분홍', desc: '부드럽다' },
 ]
 
-/* 답이 채워졌는가. 다중 선택은 빈 배열도 "아직 안 골랐다"로 본다 —
-   빈 배열을 답으로 인정하면 질문을 건너뛴 것과 구분이 안 된다.
-   단, '없음'을 뜻하는 값을 명시적으로 고른 경우는 답한 것이다. */
-const answered = (v) => (Array.isArray(v) ? v.length > 0 : v != null && v !== '')
+/* 답했는가 — 값이 비었는지가 아니라 "물어봤고 답이 기록되었는지"로 본다.
+
+   예전에는 빈 문자열을 "아직 안 답함"으로 쳤다. 그래서 이름 질문에서
+   건너뛰기를 누르면 답이 '' 로 기록되는데도 안 답한 것으로 읽혀,
+   같은 질문을 영원히 다시 물었다. 건너뛰기도 엄연한 답이다. */
+const answered = (answers, id) => Object.prototype.hasOwnProperty.call(answers, id)
 
 /* ------------------------------------------------------------------
    질문 목록 — 위에서부터 훑어 "아직 답 없고 지금 물을 만한" 첫 질문
@@ -157,7 +159,7 @@ export const QUESTION_BY_ID = Object.fromEntries(QUESTIONS.map((q) => [q.id, q])
 
 /* 지금 물을 질문. 없으면 null (= 설계 끝) */
 export function nextQuestion(answers = {}) {
-  return QUESTIONS.find((q) => !answered(answers[q.id]) && q.when(answers)) || null
+  return QUESTIONS.find((q) => !answered(answers, q.id) && q.when(answers)) || null
 }
 
 /* 이미 답한 것 중 지금 조건에 안 맞는 답은 버린다.
@@ -168,7 +170,7 @@ export function nextQuestion(answers = {}) {
 export function pruneAnswers(answers = {}) {
   const out = {}
   for (const q of QUESTIONS) {
-    if (!answered(answers[q.id])) continue
+    if (!answered(answers, q.id)) continue
     /* 지금까지 살아남은 답만으로 조건을 따진다 — 버려질 답이 다른 답을
        살려두는 일이 없도록 순서대로 쌓아 올린다 */
     if (q.when(out)) out[q.id] = answers[q.id]
@@ -179,8 +181,8 @@ export function pruneAnswers(answers = {}) {
 /* 진행도 — 남은 질문 수는 답에 따라 변하므로 그때그때 다시 센다.
    미리 "총 7문항"이라고 못 박으면 갈래가 갈릴 때 숫자가 어긋난다. */
 export function progress(answers = {}) {
-  const done = QUESTIONS.filter((q) => q.when(answers) && answered(answers[q.id])).length
-  const left = QUESTIONS.filter((q) => q.when(answers) && !answered(answers[q.id])).length
+  const done = QUESTIONS.filter((q) => q.when(answers) && answered(answers, q.id)).length
+  const left = QUESTIONS.filter((q) => q.when(answers) && !answered(answers, q.id)).length
   return { done, total: done + left, left }
 }
 
