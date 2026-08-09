@@ -4,20 +4,62 @@
     {
       "name": "game3d",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "my-3d-game", "run", "dev", "--", "--port", "5199", "--strictPort"],
+      "runtimeArgs": [
+        "--prefix",
+        "my-3d-game",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5199",
+        "--strictPort"
+      ],
       "port": 5199
     },
     {
       "name": "game3d-prod",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "my-3d-game", "run", "preview", "--", "--port", "4173", "--strictPort"],
+      "runtimeArgs": [
+        "--prefix",
+        "my-3d-game",
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
       "port": 4173
     },
     {
       "name": "dragon-game",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "my-dragon-game", "run", "dev", "--", "--port", "5210", "--strictPort"],
+      "runtimeArgs": [
+        "--prefix",
+        "my-dragon-game",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5210",
+        "--strictPort"
+      ],
       "port": 5210
+    },
+    {
+      "name": "coding-ai",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "coding-ai",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5220",
+        "--strictPort"
+      ],
+      "port": 5220
     }
   ]
 }
