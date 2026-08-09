@@ -9,6 +9,7 @@ import { generateTodo } from './todo.js'
 import { generateQuiz } from './quiz.js'
 import { generateTimer } from './timer.js'
 import { generateLanding } from './landing.js'
+import { generateVocab } from './vocab.js'
 
 export const APP_KINDS = [
   {
@@ -25,6 +26,11 @@ export const APP_KINDS = [
     id: 'timer', name: '집중 타이머', icon: '⏱',
     desc: '집중과 휴식을 번갈아 재줍니다',
     make: generateTimer,
+  },
+  {
+    id: 'vocab', name: '영어 단어장', icon: '📖',
+    desc: '단어 600개로 뜻·스펠링·빈칸 문제를 냅니다',
+    make: generateVocab,
   },
   {
     id: 'landing', name: '소개 페이지', icon: '🪧',

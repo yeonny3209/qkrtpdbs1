@@ -89,6 +89,20 @@ export const QUESTIONS = [
     ],
   },
 
+  /* ---------- 영어 단어장 ---------- */
+  {
+    id: 'vocabTypes',
+    kind: 'multi',
+    text: '어떤 방식으로 물어볼까요?',
+    hint: '여러 개 고르면 번갈아 나옵니다. 안 고르면 세 가지 다 넣어 드려요.',
+    when: (a) => a.kind === 'vocab',
+    options: [
+      { value: 'meaning', label: '🔤 스펠링 보고 뜻 맞히기', desc: '보기 네 개 중에서 고릅니다' },
+      { value: 'spelling', label: '⌨️ 뜻 보고 스펠링 쓰기', desc: '직접 타이핑합니다. 틀린 글자를 짚어줍니다' },
+      { value: 'blank', label: '📝 문장 빈칸 채우기', desc: '예문에 들어갈 낱말을 고릅니다' },
+    ],
+  },
+
   /* ---------- 집중 타이머 ---------- */
   {
     id: 'timerFocus',
