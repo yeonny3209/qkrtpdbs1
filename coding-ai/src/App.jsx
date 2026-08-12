@@ -106,7 +106,7 @@ export default function App() {
             🤖
           </div>
           <div className="min-w-0">
-            <h1 className="text-[15px] font-black text-white">대화형 코딩 AI</h1>
+            <h1 className="text-[15px] font-black text-white">영어 단어장 만들기</h1>
             <p className="text-[11px] text-zinc-500">몇 가지만 물어보고 바로 만들어 드립니다</p>
           </div>
           {history.length > 0 && (

@@ -1,41 +1,17 @@
 /* ==================================================================
    생성기 모음
 
-   만들 수 있는 종류는 여기 한 곳에만 적는다. 질문 목록도 이 배열을
-   보고 선택지를 만들기 때문에, 새 종류를 붙이려면 여기 한 줄과
-   생성기 파일 하나면 된다.
+   예전에는 할 일 목록·퀴즈·타이머·소개 페이지까지 만드는 범용
+   도구였다. 지금은 영어 단어장 하나만 만든다. 여러 종류를 오가며
+   테스트·유지보수할 이유가 없어서, 쓰지 않는 나머지는 걷어냈다.
    ================================================================== */
-import { generateTodo } from './todo.js'
-import { generateQuiz } from './quiz.js'
-import { generateTimer } from './timer.js'
-import { generateLanding } from './landing.js'
 import { generateVocab } from './vocab.js'
 
 export const APP_KINDS = [
   {
-    id: 'todo', name: '할 일 목록', icon: '✅',
-    desc: '적고, 지우고, 다 한 것을 표시합니다',
-    make: generateTodo,
-  },
-  {
-    id: 'quiz', name: '퀴즈', icon: '🧠',
-    desc: '문제를 내고 점수를 매깁니다',
-    make: generateQuiz,
-  },
-  {
-    id: 'timer', name: '집중 타이머', icon: '⏱',
-    desc: '집중과 휴식을 번갈아 재줍니다',
-    make: generateTimer,
-  },
-  {
     id: 'vocab', name: '영어 단어장', icon: '📖',
-    desc: '단어 600개로 뜻·스펠링·빈칸 문제를 냅니다',
+    desc: '단어 1200개로 뜻·스펠링·빈칸 문제를 냅니다',
     make: generateVocab,
-  },
-  {
-    id: 'landing', name: '소개 페이지', icon: '🪧',
-    desc: '나 · 우리 가게 · 동아리를 소개합니다',
-    make: generateLanding,
   },
 ]
 

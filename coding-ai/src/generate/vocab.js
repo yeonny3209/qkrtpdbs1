@@ -1,7 +1,7 @@
 /* ==================================================================
    영어 단어장 생성기
 
-   사전 600개를 통째로 넣고, 난이도를 고르면 그 등급에서 무작위로
+   사전 1200개를 통째로 넣고, 난이도를 고르면 그 등급에서 무작위로
    뽑아 문제를 낸다. 문제 유형은 셋:
 
      1. 스펠링 → 뜻 고르기      (보기 4개)
@@ -14,11 +14,12 @@
 import { htmlShell, storageJs, beepJs, escapeHtml } from './theme.js'
 import { WORDS, LEVELS } from './words.js'
 
-/* 사전을 만들어 낼 코드에 심는다. 한 줄에 하나씩 적으면 600줄이라
+/* 사전을 만들어 낼 코드에 심는다. 한 줄에 하나씩 적으면 1200줄이라
    파일이 길어지므로, 사람이 읽을 일 없는 이 부분만 촘촘히 적는다. */
 function dictJs() {
   const tier = (list) => list
-    .map(([w, m, s]) => `[${JSON.stringify(w)},${JSON.stringify(m)},${JSON.stringify(s)}]`)
+    .map(([w, m, s, tr]) =>
+      `[${JSON.stringify(w)},${JSON.stringify(m)},${JSON.stringify(s)},${JSON.stringify(tr)}]`)
     .join(',\n')
   return `var DICT = {
 easy: [
@@ -44,7 +45,7 @@ export function generateVocab(a) {
   const body = `  <header style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:18px">
     <div style="margin-right:auto">
       <h1>${escapeHtml(title)}</h1>
-      <p class="sub" style="margin:0">단어 600개 · 초급 200 · 중급 200 · 상급 200</p>
+      <p class="sub" style="margin:0">단어 1200개 · 초급 400 · 중급 400 · 상급 400</p>
     </div>
     <nav class="row">
       <button id="navStudy" class="primary">학습</button>
@@ -150,6 +151,12 @@ export function generateVocab(a) {
   padding-left: 10px; border-left: 2px solid var(--border); line-height: 1.55;
 }
 .entry .ex b { color: var(--accent); }
+/* 번역은 예문보다 한 단계 더 물러난다 — 영어 문장을 먼저 읽고,
+   막히면 그다음에 확인하는 순서가 자연스럽다 */
+.entry .ex-tr {
+  color: var(--muted); font-size: 12px; margin: 3px 0 0 12px;
+  opacity: .8;
+}
 .badge {
   flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
   border: 1px solid var(--border); color: var(--muted);
@@ -377,12 +384,16 @@ function renderDict() {
     var ex = esc(r.e[2])
       .replace('___', '<b>' + esc(r.e[0]) + '</b>')
       .replace(/\\s+([.,!?;:])/g, '$1');
+    /* 문장 번역 — 영어 예문만 봐서는 전체 뜻까지 알기 어렵다.
+       r.e[3] 가 없는(옛 데이터) 경우에도 죽지 않도록 감싼다. */
+    var exTr = r.e[3] ? '<div class="ex-tr">' + esc(r.e[3]) + '</div>' : '';
     return '<div class="card entry">'
       + '<div class="row" style="justify-content:space-between;align-items:flex-start">'
       + '<span class="w">' + esc(r.e[0]) + '</span>'
       + '<span class="badge ' + st + '">' + STATUS_TEXT[st] + '</span></div>'
       + '<div class="mean">' + esc(r.e[1]) + '</div>'
       + '<div class="ex">' + ex + '</div>'
+      + exTr
       + '</div>';
   }).join('')
     /* 200개를 한꺼번에 그리면 느린 기기에서 눈에 띄게 버벅인다 */
@@ -630,7 +641,7 @@ go('home');`
   }
   return {
     html: htmlShell({ title, themeId: a.theme, body, script, extraCss }),
-    summary: `영어 단어장을 만들었어요. 단어 600개(초급·중급·상급 각 200개)가 들어 있고, `
+    summary: `영어 단어장을 만들었어요. 단어 1200개(초급·중급·상급 각 400개)가 들어 있고, `
       + `난이도를 고르면 그 등급에서 무작위로 뽑아 냅니다 `
       + `(쉬움 10문제 · 보통 15문제 · 상급 30문제). `
       + `문제 유형은 ${types.map((t) => typeNames[t]).join(', ')}이고, `
