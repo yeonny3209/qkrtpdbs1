@@ -21,14 +21,14 @@ function useFloorTexture() {
     c.width = c.height = S
     const g = c.getContext('2d')
 
-    g.fillStyle = '#12161d'
+    g.fillStyle = '#3a434f'
     g.fillRect(0, 0, S, S)
 
-    g.strokeStyle = '#1e2732'
+    g.strokeStyle = '#586474'
     g.lineWidth = 6
     g.strokeRect(0, 0, S, S)
 
-    g.strokeStyle = '#191f28'
+    g.strokeStyle = '#4a5563'
     g.lineWidth = 2
     for (let i = 1; i < 4; i++) {
       const p = (S / 4) * i
@@ -37,7 +37,7 @@ function useFloorTexture() {
     }
 
     // 군데군데 얼룩 — 완전히 균일하면 인쇄물처럼 보인다
-    g.fillStyle = 'rgba(255,255,255,0.015)'
+    g.fillStyle = 'rgba(255,255,255,0.045)'
     for (let i = 0; i < 40; i++) {
       const x = Math.random() * S
       const y = Math.random() * S
@@ -97,27 +97,31 @@ export default function Arena() {
       </mesh>
 
       {/* 천장 — 없으면 위가 뻥 뚫려 실내 느낌이 안 난다.
-          빛을 안 받는 어두운 판이면 충분하다. */}
+          벽보다 살짝 밝게 두어야 위아래가 구분된다. */}
       <mesh position={[0, ARENA.wallHeight, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[span, span]} />
-        <meshStandardMaterial color="#080b10" roughness={1} side={THREE.FrontSide} />
+        <meshStandardMaterial color="#39424f" roughness={1} side={THREE.FrontSide} />
       </mesh>
 
       {WALL_BOXES.map((b, i) => (
-        <Block key={`w${i}`} box={b} color="#1a212b" trim="#2f6f8f" />
+        <Block key={`w${i}`} box={b} color="#59657a" trim="#7fd4ff" />
       ))}
       {COVER_BOXES.map((b, i) => (
-        <Block key={`c${i}`} box={b} color="#232b36" trim="#c2452f" />
+        <Block key={`c${i}`} box={b} color="#6b7789" trim="#ff8a6b" />
       ))}
 
       {/* ── 조명 ──────────────────────────────────────────────────
           그림자를 만드는 빛은 하나만 둔다. 여러 개가 그림자를 그리면
-          적 20마리가 나올 때 프레임이 눈에 띄게 떨어진다. */}
-      <ambientLight intensity={0.35} color="#7f8fa6" />
-      <hemisphereLight args={['#4b6076', '#0a0d12', 0.6]} />
+          적 20마리가 나올 때 프레임이 눈에 띄게 떨어진다.
+
+          전체적으로 환하게 올렸다. 어두우면 분위기는 살지만 적이
+          어디 있는지 안 보이고, 안 보이는 것을 쏘는 건 어려운 게
+          아니라 답답한 것이다. */}
+      <ambientLight intensity={1.15} color="#c3d0e0" />
+      <hemisphereLight args={['#aebdd0', '#4a5361', 1.25]} />
       <directionalLight
         position={[8, 18, 6]}
-        intensity={1.15}
+        intensity={2.0}
         castShadow
         shadow-mapSize={[1024, 1024]}
         shadow-camera-left={-20}
@@ -126,9 +130,11 @@ export default function Arena() {
         shadow-camera-bottom={-20}
         shadow-camera-far={45}
       />
-      <pointLight position={[-11, 3.2, -11]} intensity={22} distance={20} color="#ff7043" />
-      <pointLight position={[11, 3.2, 11]} intensity={22} distance={20} color="#4fc3f7" />
-      <pointLight position={[0, 3.6, 0]} intensity={28} distance={18} color="#ffd54f" />
+      {/* 반대편에서 받쳐 주는 빛 — 그림자 쪽이 새까맣게 안 죽는다 */}
+      <directionalLight position={[-9, 12, -7]} intensity={0.8} color="#9fb4cc" />
+      <pointLight position={[-11, 3.4, -11]} intensity={40} distance={26} color="#ffa06b" />
+      <pointLight position={[11, 3.4, 11]} intensity={40} distance={26} color="#8fd4ff" />
+      <pointLight position={[0, 3.8, 0]} intensity={55} distance={26} color="#ffe6a0" />
     </group>
   )
 }

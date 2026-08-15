@@ -6,7 +6,7 @@
    여기에 건다. 두 곳이 다른 답을 내면 화면에 보이는 것과 점수판이
    어긋나므로, 실제 판정 호출은 항상 이쪽을 거치게 한다.
    ================================================================== */
-import { rayBox } from './collide.js'
+import { rayBox, hasLineOfSight } from './collide.js'
 import { ENEMY_TYPES } from './enemies.js'
 
 export const HEADSHOT_MULTIPLIER = 2.0
@@ -155,9 +155,66 @@ function normalize(v) {
   return { x: v.x / l, y: v.y / l, z: v.z / l }
 }
 
+/* ------------------------------------------------------------------
+   근접 공격
+
+   광선으로 재지 않는다. 크롤러(키 1.05)가 발밑까지 붙으면 조준선이
+   그 머리 위를 지나가서, 눈앞에 있는데도 계속 헛치게 된다. 코앞을
+   때리는 무기가 코앞에서 안 맞으면 쓸 이유가 없다.
+
+   대신 "사거리 안 + 부채꼴 안 + 벽에 안 가림"인 적을 전부 벤다.
+   여럿을 한 번에 베는 것은 의도한 성격이다 — 탄약을 쓰지 않는 대신
+   적 무리 한가운데로 들어가야 하는 무기라, 들어간 값은 해야 한다.
+
+   각도는 수평면에서만 잰다. 위아래로는 관대해야 발밑의 크롤러와
+   눈높이의 트루퍼를 같은 동작으로 벨 수 있다.
+   ------------------------------------------------------------------ */
+export function meleeSwing(weapon, origin, aimDir, enemies, boxes) {
+  const half = ((weapon.arc || 60) * Math.PI) / 180 / 2
+
+  /* 조준 방향의 수평 성분. 바로 위를 보고 있으면 길이가 0 이 되는데,
+     그때는 각도를 잴 기준이 없으므로 모두 정면으로 친다. */
+  const ax = aimDir.x
+  const az = aimDir.z
+  const aLen = Math.hypot(ax, az)
+
+  const damages = []
+  for (const e of enemies) {
+    if (e.state === 'dead') continue
+    const t = ENEMY_TYPES[e.type]
+
+    /* 거리는 몸통 표면까지로 잰다. 브루트(반지름 0.82)를 중심까지의
+       거리로 재면, 분명히 몸이 닿아 있는데도 사거리 밖이 된다. */
+    const dx = e.x - origin.x
+    const dz = e.z - origin.z
+    const dist = Math.hypot(dx, dz) - t.radius
+    if (dist > weapon.range) continue
+
+    if (aLen > 1e-6 && dist > 0.05) {
+      const d = Math.hypot(dx, dz) || 1
+      const cos = (ax / aLen) * (dx / d) + (az / aLen) * (dz / d)
+      if (Math.acos(Math.max(-1, Math.min(1, cos))) > half) continue
+    }
+
+    /* 벽 너머는 못 벤다. 얇은 엄폐물을 사이에 두고 칼이 통과하면
+       그 벽이 왜 있는지 알 수 없게 된다. */
+    const cy = t.height * 0.5
+    if (!hasLineOfSight(origin.x, origin.y, origin.z, e.x, cy, e.z, boxes)) continue
+
+    /* 근접은 헤드샷을 따지지 않는다. 부채꼴로 여럿을 동시에 베는데
+       그중 누구는 머리고 누구는 몸통이라고 하면, 같은 동작의 결과가
+       설명되지 않는다. */
+    damages.push({ enemy: e, damage: weapon.damage, isHeadshot: false })
+  }
+
+  return { hits: [], damages }
+}
+
 /* 한 번의 발사 — 산탄 무기는 알 개수만큼 광선을 쏜다.
    같은 적을 여러 알이 맞으면 피해가 합산되도록 적별로 모아 준다. */
 export function fireShot(weapon, origin, aimDir, enemies, boxes, rng) {
+  if (weapon.melee) return meleeSwing(weapon, origin, aimDir, enemies, boxes)
+
   const hits = []
   const damageByEnemy = new Map()
 

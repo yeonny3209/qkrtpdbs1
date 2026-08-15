@@ -4,8 +4,16 @@
    셋 다 3D 위에 덮이는 판이다. 캔버스는 계속 살아 있고 그 위를
    가릴 뿐이라, 일시정지를 풀면 있던 자리에서 그대로 이어진다.
    ================================================================== */
-import { WEAPONS, WEAPON_ORDER } from '../game/weapons.js'
+import { WEAPONS, WEAPONS_BY_SLOT, SLOTS, SLOT_LABEL } from '../game/weapons.js'
 import { ENEMY_TYPES } from '../game/enemies.js'
+
+/* 무기를 어떻게 얻는지 — 안내문에만 쓰는 설명이라 여기 둔다 */
+const HOW_TO_GET = {
+  rifle: '2웨이브에 떨어진다',
+  shotgun: '4웨이브에 떨어진다',
+  pistol: '처음부터 · 탄약 무한',
+  knife: '처음부터 · 탄약 없음',
+}
 
 function Shell({ children }) {
   return (
@@ -24,7 +32,7 @@ const KEYS = [
   ['R', '재장전'],
   ['Shift', '전력 질주'],
   ['Space', '점프'],
-  ['1 2 3 · 휠', '무기 바꾸기'],
+  ['1 2 3', '주무기 · 보조 · 근접'],
   ['Esc', '일시정지'],
 ]
 
@@ -91,17 +99,28 @@ export function MainMenu({ onStart, best }) {
             ))}
           </ul>
           <h2 className="mb-2 mt-5 text-xs tracking-[0.3em] text-white/50">무기</h2>
-          <ul className="space-y-1 text-sm text-white/70">
-            {WEAPON_ORDER.map((id) => {
-              const w = WEAPONS[id]
-              return (
-                <li key={id}>
-                  {w.icon} <b className="text-white">{w.name}</b>
-                  {id === 'pistol' ? ' — 처음부터' : id === 'rifle' ? ' — 2웨이브' : ' — 4웨이브'}
-                </li>
-              )
-            })}
+          <ul className="space-y-2 text-sm text-white/70">
+            {SLOTS.map((slot, i) => (
+              <li key={slot}>
+                <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px]">
+                  {i + 1}
+                </span>
+                <b className="ml-1.5 text-white">{SLOT_LABEL[slot]}</b>
+                <ul className="mt-0.5 ml-6 space-y-0.5 text-xs">
+                  {WEAPONS_BY_SLOT[slot].map((id) => (
+                    <li key={id}>
+                      {WEAPONS[id].icon} {WEAPONS[id].name}
+                      <span className="text-white/45"> — {HOW_TO_GET[id]}</span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
           </ul>
+          <p className="mt-2 text-xs text-white/45">
+            주무기 자리는 소총과 샷건이 나눠 씁니다. 둘 다 가지고 있으면
+            1 을 다시 눌러 번갈아 꺼냅니다.
+          </p>
         </div>
       </div>
     </Shell>

@@ -143,7 +143,7 @@ export default function App() {
   }, [])
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#080b10]">
+    <div className="relative h-full w-full overflow-hidden bg-[#4d5a6b]">
       <Canvas
         /* PCFSoft 는 three 에서 폐기 예고가 붙어 콘솔을 채운다.
            그림자 하나짜리 씬이라 부드러움 차이도 거의 없다. */
@@ -152,8 +152,11 @@ export default function App() {
         camera={{ fov: 76, near: 0.05, far: 130, position: [0, 1.62, 0] }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
       >
-        <color attach="background" args={['#080b10']} />
-        <fog attach="fog" args={['#080b10', 11, 45]} />
+        {/* 안개는 배경색과 같아야 먼 벽이 배경으로 자연스럽게 녹는다.
+            시작 거리를 멀리 밀어 아레나 반대편이 뿌옇지 않게 했다 —
+            30x30 짜리 방에서 11 부터 안개가 끼면 적이 흐릿해진다. */}
+        <color attach="background" args={['#4d5a6b']} />
+        <fog attach="fog" args={['#4d5a6b', 26, 68]} />
 
         <Arena />
         {enemyIds.map((id) => (

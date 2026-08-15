@@ -143,13 +143,22 @@ export default function Hud({ hud, banner, hitmarker, hurtKey, floaters }) {
         <div className="mb-1 flex items-center justify-end gap-2">
           <span className="text-lg">{hud.weaponIcon}</span>
           <span className="text-xs tracking-[0.25em] text-white/60">{hud.weaponName}</span>
-        </div>
-        <div className="flex items-baseline justify-end gap-2 tabular-nums">
-          <span className={`text-4xl font-bold ${hud.inMag === 0 ? 'text-red-400' : ''}`}>
-            {hud.inMag}
+          <span className="rounded bg-white/15 px-1.5 py-0.5 text-[10px] tracking-widest text-white/70">
+            {hud.slots.find((s) => s.slot === hud.slot)?.label}
           </span>
-          <span className="text-lg text-white/50">/ {fmt(hud.reserve)}</span>
         </div>
+        {/* 근접무기는 탄약 자리가 필요 없다. 0/0 이나 ∞ 를 띄우면
+            없는 자원을 관리해야 하는 것처럼 읽힌다. */}
+        {hud.noAmmo ? (
+          <div className="text-2xl font-bold tracking-widest text-white/70">탄약 불필요</div>
+        ) : (
+          <div className="flex items-baseline justify-end gap-2 tabular-nums">
+            <span className={`text-4xl font-bold ${hud.inMag === 0 ? 'text-red-400' : ''}`}>
+              {hud.inMag}
+            </span>
+            <span className="text-lg text-white/50">/ {fmt(hud.reserve)}</span>
+          </div>
+        )}
         {hud.reloading ? (
           <div className="mt-1 h-1.5 w-32 overflow-hidden rounded-full bg-black/60 ring-1 ring-white/15">
             <div className="h-full bg-sky-400" style={{ width: `${hud.reloadPct * 100}%` }} />
@@ -158,20 +167,23 @@ export default function Hud({ hud, banner, hitmarker, hurtKey, floaters }) {
           <div className="mt-1 h-1.5 w-32" />
         )}
 
-        {/* 가진 무기 — 1/2/3 으로 바꾼다 */}
+        {/* 슬롯 셋 — 1 주무기 · 2 보조 · 3 근접.
+            자리는 항상 셋 다 보인다. 아직 못 주운 주무기 자리가
+            비어 있는 것 자체가 "저걸 찾아야 한다"는 안내가 된다. */}
         <div className="mt-2 flex justify-end gap-1.5">
-          {[['pistol', '1'], ['rifle', '2'], ['shotgun', '3']].map(([id, key]) => (
+          {hud.slots.map((s, i) => (
             <span
-              key={id}
-              className={`rounded px-1.5 py-0.5 text-[10px] tracking-widest ring-1 ${
-                hud.weapon === id
+              key={s.slot}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] tracking-widest ring-1 ${
+                s.active
                   ? 'bg-white/90 text-black ring-white'
-                  : hud.owned[id]
+                  : s.owned
                     ? 'text-white/70 ring-white/25'
                     : 'text-white/20 ring-white/10'
               }`}
             >
-              {key}
+              <span>{i + 1}</span>
+              <span className="text-[11px]">{s.owned ? s.icon : '—'}</span>
             </span>
           ))}
         </div>

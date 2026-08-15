@@ -275,6 +275,51 @@ ok(Math.abs(session.player.y) < 1e-6, '이동 뒤에도 땅에 서 있다')
   ok(seen.some((e) => e.kind === 'kill'), 'kill 이벤트가 UI 로 전달됨')
 }
 
+/* ── 근접무기 — 슬롯 전환부터 처치까지 화면 쪽을 거쳐 확인 ────── */
+{
+  const killsBefore = session.score.kills
+  const pistolMagBefore = session.player.ammo.pistol.inMag
+
+  /* 3번 슬롯을 입력으로 요청한다. 세션이 이걸 받아 무기를 바꾸는지가
+     이 검사의 절반이다 — 규칙 테스트는 switchSlot 을 직접 부르지만,
+     여기서는 입력 → 세션 → 무기까지 실제 경로를 탄다. */
+  inputRef.current.switchSlot = 'melee'
+  await ReactThreeTestRenderer.act(async () => { await renderer.advanceFrames(4, 1 / 60) })
+  eq(session.player.weapon, 'knife', '입력으로 근접 슬롯 전환')
+
+  const victim2 = session.enemies.find((e) => e.state !== 'dead')
+  ok(victim2, '벨 적이 있다')
+  session.player.x = 0
+  session.player.z = 0
+  session.player.cooldown = 0
+  let cam2 = null
+  renderer.scene.instance.traverse((o) => { if (!cam2 && o.isCamera) cam2 = o })
+
+  for (let i = 0; i < 40 && victim2.state !== 'dead'; i++) {
+    session.player.hp = 100
+    session.player.x = 0
+    session.player.z = 0
+    /* 코앞에 붙여 둔다 — 근접무기가 닿는 거리 */
+    if (victim2.state !== 'dead') { victim2.x = 0; victim2.z = -1.3 }
+    if (cam2) { cam2.rotation.set(0, 0, 0, 'YXZ'); cam2.updateMatrixWorld() }
+    inputRef.current.fire = true
+    inputRef.current.firePressed = true
+    await ReactThreeTestRenderer.act(async () => { await renderer.advanceFrames(8, 1 / 60) })
+  }
+  inputRef.current.fire = false
+
+  ok(session.score.kills > killsBefore, '근접무기로 적을 잡았다')
+  eq(session.player.ammo.knife.inMag, 0, '근접무기는 탄창을 쓰지 않는다(0 유지)')
+  eq(session.player.ammo.pistol.inMag, pistolMagBefore,
+    '근접무기를 휘둘러도 권총 탄창은 그대로')
+
+  // 다시 보조무기로 — 슬롯이 서로 독립인지
+  inputRef.current.switchSlot = 'secondary'
+  session.player.cooldown = 0
+  await ReactThreeTestRenderer.act(async () => { await renderer.advanceFrames(4, 1 / 60) })
+  eq(session.player.weapon, 'pistol', '2번으로 보조무기 복귀')
+}
+
 /* ── 예광선·불꽃이 실제로 만들어졌는가 ─────────────────────────── */
 {
   effectsRef.current.addTracer({ x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: -5 })

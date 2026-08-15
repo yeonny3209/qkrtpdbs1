@@ -89,10 +89,30 @@ function Shotgun() {
   )
 }
 
-const MODELS = { pistol: Pistol, rifle: Rifle, shotgun: Shotgun }
+function Knife() {
+  return (
+    <group rotation={[0, 0, -0.3]}>
+      {/* 칼날 — 한쪽만 각지게 깎아 날처럼 보이게 한다 */}
+      <mesh position={[0, 0.02, -0.24]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <coneGeometry args={[0.045, 0.42, 4]} />
+        <meshStandardMaterial color="#cdd6e2" roughness={0.22} metalness={0.95} />
+      </mesh>
+      <mesh position={[0, 0.02, -0.03]}>
+        <boxGeometry args={[0.09, 0.022, 0.06]} />
+        <meshStandardMaterial color="#8b9099" roughness={0.4} metalness={0.8} />
+      </mesh>
+      <mesh position={[0, -0.02, 0.08]} rotation={[0.25, 0, 0]}>
+        <cylinderGeometry args={[0.028, 0.032, 0.19, 8]} />
+        <meshStandardMaterial color="#2a2118" roughness={0.9} metalness={0.05} />
+      </mesh>
+    </group>
+  )
+}
+
+const MODELS = { pistol: Pistol, rifle: Rifle, shotgun: Shotgun, knife: Knife }
 
 /* 총구 위치 — 화염과 예광선이 여기서 나간다 */
-const MUZZLE = { pistol: -0.26, rifle: -0.64, shotgun: -0.72 }
+const MUZZLE = { pistol: -0.26, rifle: -0.64, shotgun: -0.72, knife: -0.4 }
 
 export default function Weapon({ sessionRef, flashRef }) {
   const camera = useThree((s) => s.camera)
@@ -125,24 +145,38 @@ export default function Weapon({ sessionRef, flashRef }) {
     /* 재장전 — 아래로 내렸다가 올라온다 */
     let reloadDip = 0
     let reloadRoll = 0
-    if (p.reloading > 0) {
+    if (p.reloading > 0 && w.reload > 0) {
       const prog = 1 - p.reloading / w.reload
       const arc = Math.sin(prog * Math.PI)
       reloadDip = arc * 0.22
       reloadRoll = arc * 0.7
     }
 
-    rig.current.position.set(
-      REST.x + bobX,
-      REST.y + bobY - reloadDip,
-      REST.z + kick,
-    )
-    rig.current.rotation.set(-r * 0.28 * w.recoil + reloadRoll, 0, reloadRoll * 0.4)
+    if (w.melee) {
+      /* 근접무기는 뒤로 밀리는 게 아니라 가로로 베어 나간다.
+         총과 같은 반동 애니메이션을 쓰면 칼로 찌르는 것처럼 보여서,
+         부채꼴로 여럿을 벤다는 실제 판정과 어긋난다. */
+      const sw = r * r
+      rig.current.position.set(
+        REST.x + bobX + sw * 0.34,
+        REST.y + bobY + sw * 0.12,
+        REST.z + sw * 0.16,
+      )
+      rig.current.rotation.set(sw * 0.5, sw * 1.15, -sw * 1.5)
+    } else {
+      rig.current.position.set(
+        REST.x + bobX,
+        REST.y + bobY - reloadDip,
+        REST.z + kick,
+      )
+      rig.current.rotation.set(-r * 0.28 * w.recoil + reloadRoll, 0, reloadRoll * 0.4)
+    }
 
-    // 총구 화염 — flashRef 에 남은 시간이 있으면 보인다
+    // 총구 화염 — flashRef 에 남은 시간이 있으면 보인다.
+    // 칼에는 화염이 없다.
     const f = flashRef.current
     if (f.t > 0) f.t = Math.max(0, f.t - dt)
-    const on = f.t > 0
+    const on = f.t > 0 && !w.melee
     if (flash.current) {
       flash.current.visible = on
       if (on) {

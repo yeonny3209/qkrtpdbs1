@@ -7,7 +7,10 @@
    건드려야 한다.
    ================================================================== */
 import { resolveMove } from './collide.js'
-import { WEAPONS, WEAPON_ORDER, shotInterval, reloadAmount, initialAmmo } from './weapons.js'
+import {
+  WEAPONS, WEAPON_ORDER, WEAPONS_BY_SLOT, SLOTS,
+  shotInterval, reloadAmount, initialAmmo, initialSlots,
+} from './weapons.js'
 
 export const PLAYER = {
   radius: 0.36,
@@ -37,6 +40,9 @@ export function initialPlayer(x = 0, z = 0) {
     yaw: 0,               // 좌우 시점 — 렌더링 쪽 카메라와 동기화
     pitch: 0,
     weapon: 'pistol',
+    /* 슬롯마다 지금 어떤 무기가 들어 있는지. 주무기 자리는 비어
+       있다가 주우면 채워진다. */
+    slots: initialSlots(),
     ammo: initialAmmo(),
     cooldown: 0,          // 다음 발사까지
     reloading: 0,         // 남은 재장전 시간, 0 이면 안 하는 중
@@ -148,6 +154,8 @@ export function startReload(p) {
 export function canFire(p) {
   if (p.reloading > 0) return false
   if (p.cooldown > 0) return false
+  /* 근접무기는 탄창이 0 이다. 탄약으로 재면 영영 못 휘두른다. */
+  if (WEAPONS[p.weapon].noAmmo) return true
   return p.ammo[p.weapon].inMag > 0
 }
 
@@ -156,6 +164,12 @@ export function canFire(p) {
 export function consumeShot(p) {
   const w = WEAPONS[p.weapon]
   const ammo = p.ammo[p.weapon]
+
+  /* 근접무기는 쓸 탄이 없다. 이걸 빠뜨리면 탄창이 음수로 내려간다. */
+  if (w.noAmmo) {
+    return { ...p, cooldown: shotInterval(w), recoil: 1 }
+  }
+
   const next = {
     ...p,
     cooldown: shotInterval(w),
@@ -170,14 +184,41 @@ export function consumeShot(p) {
   return next
 }
 
-/* 무기 전환 — 가진 것만, 재장전 중이면 취소하고 바꾼다 */
+/* 무기 전환 — 가진 것만, 재장전 중이면 취소하고 바꾼다.
+   드는 데 잠깐 걸린다. 즉시 바꿔 쏠 수 있으면 재장전 대신 무기를
+   번갈아 꺼내는 것이 언제나 이득이 되어 재장전이 무의미해진다. */
 export function switchWeapon(p, id) {
   if (!WEAPONS[id]) return p
   if (!p.ammo[id]?.owned) return p
   if (p.weapon === id) return p
-  return { ...p, weapon: id, reloading: 0, cooldown: Math.max(p.cooldown, 0.25) }
+  const slot = WEAPONS[id].slot
+  return {
+    ...p,
+    weapon: id,
+    slots: { ...p.slots, [slot]: id },
+    reloading: 0,
+    cooldown: Math.max(p.cooldown, 0.25),
+  }
 }
 
+/* 숫자키로 슬롯을 꺼낸다.
+
+   이미 그 슬롯을 들고 있는데 또 누르면, 같은 슬롯 안의 다음 무기로
+   넘어간다 — 주무기 자리를 소총과 샷건이 나눠 쓰기 때문이다. 샷건을
+   주웠다고 소총을 잃는 것은 억울하고, 그렇다고 슬롯을 넷으로 늘리면
+   1·2·3 이 역할을 가리킨다는 규칙이 깨진다. */
+export function switchSlot(p, slot) {
+  if (!SLOTS.includes(slot)) return p
+  const owned = (WEAPONS_BY_SLOT[slot] || []).filter((id) => p.ammo[id]?.owned)
+  if (owned.length === 0) return p
+
+  const cur = WEAPONS[p.weapon]?.slot === slot ? p.weapon : null
+  if (!cur) return switchWeapon(p, p.slots[slot] || owned[0])
+  if (owned.length === 1) return p
+  return switchWeapon(p, owned[(owned.indexOf(cur) + 1) % owned.length])
+}
+
+/* 휠로 돌릴 때는 슬롯 순서대로 — 가진 무기만 거친다 */
 export function cycleWeapon(p, dir) {
   const owned = WEAPON_ORDER.filter((id) => p.ammo[id]?.owned)
   if (owned.length <= 1) return p
@@ -221,16 +262,22 @@ export function grantPickup(p, pickup) {
         reserve: Math.min(w.reserve, (prev.owned ? prev.reserve : 0) + w.mag * 2),
       },
     }
-    /* 처음 줍는 무기는 바로 손에 쥐여 준다 */
-    const weapon = prev.owned ? p.weapon : pickup.weapon
-    return { ...p, ammo, weapon }
+    /* 처음 줍는 무기는 그 슬롯에 넣고 바로 손에 쥐여 준다 */
+    const first = !prev.owned
+    return {
+      ...p,
+      ammo,
+      slots: first ? { ...p.slots, [w.slot]: pickup.weapon } : p.slots,
+      weapon: first ? pickup.weapon : p.weapon,
+    }
   }
 
   if (pickup.kind === 'ammo') {
     const ammo = { ...p.ammo }
     for (const id of WEAPON_ORDER) {
       const w = WEAPONS[id]
-      if (!ammo[id].owned || ammo[id].reserve === Infinity) continue
+      /* 근접무기와 권총은 채울 것이 없다 */
+      if (w.noAmmo || !ammo[id].owned || ammo[id].reserve === Infinity) continue
       ammo[id] = { ...ammo[id], reserve: Math.min(w.reserve, ammo[id].reserve + w.mag * 2) }
     }
     return { ...p, ammo }

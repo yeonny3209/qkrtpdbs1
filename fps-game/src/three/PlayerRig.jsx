@@ -84,9 +84,14 @@ export default function PlayerRig({
     for (const ev of events) {
       if (ev.type === 'shot') {
         sfx.shot(ev.weapon)
-        flashRef.current.t = 0.055
-        flashRef.current.seed = Math.random() * Math.PI
-        shake.current = Math.min(1, shake.current + (ev.weapon === 'shotgun' ? 0.5 : 0.22))
+        if (!ev.melee) {
+          flashRef.current.t = 0.055
+          flashRef.current.seed = Math.random() * Math.PI
+        }
+        shake.current = Math.min(
+          1,
+          shake.current + (ev.melee ? 0.12 : ev.weapon === 'shotgun' ? 0.5 : 0.22),
+        )
 
         /* 예광선은 총구에서 나가야 한다. 화면 한가운데(카메라)에서
            그으면 눈에서 빔이 나가는 것처럼 보인다. */
@@ -96,7 +101,8 @@ export default function PlayerRig({
           .addScaledVector(basis.current.up, -0.16)
         for (const end of ev.ends) fx.addTracer(muzzle.current, end)
       } else if (ev.type === 'hit') {
-        sfx.hit(ev.isHeadshot)
+        if (ev.melee) sfx.meleeHit()
+        else sfx.hit(ev.isHeadshot)
         fx.addSpark(ev.point, 'flesh')
         onEvent({ kind: 'hitmarker', headshot: ev.isHeadshot, lethal: ev.lethal })
       } else if (ev.type === 'impact') {

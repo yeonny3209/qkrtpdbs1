@@ -10,6 +10,7 @@
    무기가 꾹 누르는 것만으로 연사된다.
    ================================================================== */
 import { useEffect, useRef } from 'react'
+import { SLOT_KEY } from '../game/weapons.js'
 
 const KEY_MAP = {
   KeyW: 'forward', ArrowUp: 'forward',
@@ -23,7 +24,7 @@ export function createInput() {
     forward: false, back: false, left: false, right: false,
     jump: false, sprint: false,
     fire: false, firePressed: false,
-    reload: false, switchTo: null, cycle: 0,
+    reload: false, switchSlot: null, cycle: 0,
     yaw: 0, pitch: 0,
   }
 }
@@ -33,7 +34,7 @@ export function createInput() {
 export function consumeEdges(input) {
   input.firePressed = false
   input.reload = false
-  input.switchTo = null
+  input.switchSlot = null
   input.cycle = 0
 }
 
@@ -50,9 +51,10 @@ export function useInput(enabledRef) {
       if (e.code === 'Space') { input.current.jump = true; e.preventDefault() }
       else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.current.sprint = true
       else if (e.code === 'KeyR') input.current.reload = true
-      else if (e.code === 'Digit1') input.current.switchTo = 'pistol'
-      else if (e.code === 'Digit2') input.current.switchTo = 'rifle'
-      else if (e.code === 'Digit3') input.current.switchTo = 'shotgun'
+      /* 숫자키는 무기가 아니라 역할을 가리킨다 — 1 주무기 · 2 보조 ·
+         3 근접. 어떤 총을 주웠든 손이 찾는 자리가 바뀌지 않는다. */
+      else if (SLOT_KEY[e.code]) input.current.switchSlot = SLOT_KEY[e.code]
+      else if (e.code === 'KeyV') input.current.switchSlot = 'melee'
       else if (e.code === 'KeyQ') input.current.cycle = -1
       else if (e.code === 'KeyE') input.current.cycle = 1
     }

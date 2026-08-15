@@ -96,9 +96,20 @@ const SHOT = {
 
 export const sfx = {
   shot(weapon) {
+    /* 칼은 화약이 아니라 바람 소리다. 잡음을 높게 걸고 위에서
+       아래로 훑으면 "휙" 이 된다. */
+    if (weapon === 'knife') {
+      noise({ dur: 0.16, freq: 3400, gain: 0.3, q: 1.6, type: 'bandpass', sweep: 0.22 })
+      return
+    }
     const s = SHOT[weapon] || SHOT.pistol
     noise({ ...s, q: 0.8 })
     tone({ freq: weapon === 'shotgun' ? 90 : 150, to: 45, dur: 0.09, gain: 0.2, type: 'sine' })
+  },
+  /* 칼이 살에 닿는 소리 — 총 명중음보다 둔탁하게 */
+  meleeHit() {
+    noise({ dur: 0.13, freq: 620, gain: 0.4, q: 1.1, sweep: 0.3 })
+    tone({ freq: 190, to: 80, dur: 0.11, gain: 0.2, type: 'sawtooth' })
   },
   /* 명중은 짧고 마른 소리. 이게 있어야 맞혔는지 귀로 안다 */
   hit(isHeadshot) {

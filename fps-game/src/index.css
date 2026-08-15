@@ -5,7 +5,7 @@ html, body, #root {
   padding: 0;
   height: 100%;
   overflow: hidden;
-  background: #080b10;
+  background: #4d5a6b;
 }
 
 /* 3D 화면 위의 손가락 조작은 시점 회전이지 페이지 스크롤이 아니다. */

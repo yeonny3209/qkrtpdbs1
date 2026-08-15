@@ -14,9 +14,9 @@
 import { ALL_BOXES, PLAYER_START, PICKUP_SPOTS } from './arena.js'
 import {
   initialPlayer, movePlayer, tickReload, canFire, consumeShot, startReload,
-  switchWeapon, cycleWeapon, hurtPlayer, grantPickup, aimDir, eyeOf, PLAYER,
+  switchSlot, cycleWeapon, hurtPlayer, grantPickup, aimDir, eyeOf, PLAYER,
 } from './player.js'
-import { WEAPONS } from './weapons.js'
+import { WEAPONS, WEAPONS_BY_SLOT, SLOTS, SLOT_LABEL } from './weapons.js'
 import { fireShot } from './combat.js'
 import {
   makeEnemy, tickEnemy, damageEnemy, shouldRemove, ENEMY_TYPES, resetEnemyIds,
@@ -100,7 +100,7 @@ export function stepSession(s, input, dtRaw) {
   s.player = tickReload(s.player, dt)
 
   if (input.reload) s.player = startReload(s.player)
-  if (input.switchTo) s.player = switchWeapon(s.player, input.switchTo)
+  if (input.switchSlot) s.player = switchSlot(s.player, input.switchSlot)
   if (input.cycle) s.player = cycleWeapon(s.player, input.cycle)
 
   // ── 사격 ──────────────────────────────────────────────────────
@@ -124,6 +124,7 @@ export function stepSession(s, input, dtRaw) {
         type: 'hit',
         point: d.enemy,
         isHeadshot: d.isHeadshot,
+        melee: !!weapon.melee,
         damage: d.damage,
         lethal: s.enemies[i].hp <= 0,
       })
@@ -135,16 +136,24 @@ export function stepSession(s, input, dtRaw) {
 
     /* 예광선이 끝날 지점들. 아무것도 못 맞힌 알은 착탄점이 없으므로
        사거리 끝까지 그린다 — 허공에 쐈을 때 화면에 아무 일도 안
-       일어나면 방아쇠가 먹었는지조차 알 수 없다. */
-    const ends = res.hits.map((h) => h.point)
-    if (ends.length === 0) {
-      ends.push({
-        x: origin.x + dir.x * weapon.range,
-        y: origin.y + dir.y * weapon.range,
-        z: origin.z + dir.z * weapon.range,
-      })
+       일어나면 방아쇠가 먹었는지조차 알 수 없다.
+
+       근접무기는 예광선을 안 그린다. 총알이 나가지 않으니 그릴 것도
+       없고, 칼끝에서 빛줄기가 뻗으면 무기가 뭔지 헷갈린다. */
+    const ends = []
+    if (!weapon.melee) {
+      for (const h of res.hits) ends.push(h.point)
+      if (ends.length === 0) {
+        ends.push({
+          x: origin.x + dir.x * weapon.range,
+          y: origin.y + dir.y * weapon.range,
+          z: origin.z + dir.z * weapon.range,
+        })
+      }
     }
-    events.push({ type: 'shot', weapon: weapon.id, origin, dir, ends })
+    events.push({
+      type: 'shot', weapon: weapon.id, melee: !!weapon.melee, origin, dir, ends,
+    })
   }
 
   // ── 적 ────────────────────────────────────────────────────────
@@ -248,10 +257,27 @@ export function hudSnapshot(s) {
     weapon: w.id,
     weaponName: w.name,
     weaponIcon: w.icon,
+    slot: w.slot,
+    noAmmo: !!w.noAmmo,
     inMag: ammo.inMag,
     reserve: ammo.reserve,
     reloading: s.player.reloading > 0,
-    reloadPct: s.player.reloading > 0 ? 1 - s.player.reloading / w.reload : 1,
+    reloadPct: s.player.reloading > 0 && w.reload > 0
+      ? 1 - s.player.reloading / w.reload
+      : 1,
+    /* 슬롯마다 어떤 무기가 들어 있는지 — HUD 가 1·2·3 자리를 그린다 */
+    slots: SLOTS.map((slot) => {
+      const held = s.player.slots[slot]
+      const anyOwned = (WEAPONS_BY_SLOT[slot] || []).some((id) => s.player.ammo[id]?.owned)
+      return {
+        slot,
+        label: SLOT_LABEL[slot],
+        weapon: held,
+        icon: held ? WEAPONS[held].icon : null,
+        owned: anyOwned,
+        active: w.slot === slot,
+      }
+    }),
     owned: Object.fromEntries(Object.entries(s.player.ammo).map(([k, v]) => [k, v.owned])),
     wave: s.wave,
     phase: s.phase,

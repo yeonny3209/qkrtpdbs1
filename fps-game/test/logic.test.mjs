@@ -219,19 +219,54 @@ section('collide — 벽 충돌')
 // ══════════════════════════════════════════════════════ weapons
 section('weapons — 무기 수치')
 {
-  const { WEAPONS, WEAPON_ORDER, shotInterval, needsReload, reloadAmount, initialAmmo } = weaponsM
-  eq(WEAPON_ORDER.length, 3, '무기 3종')
+  const {
+    WEAPONS, WEAPON_ORDER, SLOTS, SLOT_LABEL, SLOT_KEY, WEAPONS_BY_SLOT,
+    shotInterval, needsReload, reloadAmount, initialAmmo, initialSlots,
+  } = weaponsM
+
+  eq(SLOTS.length, 3, '슬롯 셋 — 주무기 · 보조 · 근접')
+  for (const s of SLOTS) {
+    ok(SLOT_LABEL[s], `${s} 이름표가 있다`)
+    ok(WEAPONS_BY_SLOT[s].length > 0, `${s} 슬롯에 무기가 있다`)
+  }
+  /* 숫자키 1·2·3 이 슬롯 셋에 하나씩 대응해야 한다. 어긋나면
+     손가락이 기억한 자리에서 엉뚱한 무기가 나온다. */
+  eq(Object.keys(SLOT_KEY).length, 3, '숫자키 셋')
+  eq(new Set(Object.values(SLOT_KEY)).size, 3, '숫자키가 서로 다른 슬롯을 가리킨다')
+  for (const s of Object.values(SLOT_KEY)) ok(SLOTS.includes(s), `${s} 는 실제 슬롯`)
+
   for (const id of WEAPON_ORDER) {
     const w = WEAPONS[id]
     ok(w, `${id} 존재`)
     eq(w.id, id, `${id} id 일치`)
-    ok(w.damage > 0 && w.rpm > 0 && w.mag > 0, `${id} 수치 양수`)
-    ok(w.reload > 0, `${id} 재장전 시간`)
+    ok(SLOTS.includes(w.slot), `${id} 가 슬롯에 속한다`)
+    ok(w.damage > 0 && w.rpm > 0, `${id} 수치 양수`)
+    /* 근접무기는 탄약이라는 개념을 안 쓴다 — 탄창도 재장전도 0 */
+    if (w.noAmmo) {
+      eq(w.reload, 0, `${id} 는 재장전하지 않는다`)
+      eq(w.mag, 0, `${id} 는 탄창이 없다`)
+    } else {
+      ok(w.mag > 0, `${id} 탄창 크기`)
+      ok(w.reload > 0, `${id} 재장전 시간`)
+    }
     ok(w.pellets >= 1, `${id} 알 개수`)
     ok(w.falloffStart < w.falloffEnd, `${id} 감쇠 구간`)
     ok(w.falloffMin > 0 && w.falloffMin <= 1, `${id} 최소 배율`)
     ok(w.range > 0, `${id} 사거리`)
   }
+  eq(WEAPON_ORDER.length, Object.keys(WEAPONS).length, '표시 순서가 모든 무기를 담는다')
+
+  // 근접무기
+  const K = WEAPONS.knife
+  ok(K.melee && K.noAmmo, '나이프는 근접이고 탄약이 없다')
+  eq(K.slot, 'melee', '나이프는 근접 슬롯')
+  ok(K.range < 4, `나이프 사거리가 짧다 — ${K.range}`)
+  ok(K.arc > 0 && K.arc < 180, `나이프 부채꼴 각이 온당하다 — ${K.arc}`)
+  ok(K.damage >= enemiesM.ENEMY_TYPES.crawler.hp,
+    '나이프 한 방에 크롤러가 죽는다 — 붙는 위험을 감수한 값')
+  near(falloffOf(K, 0), 1, 1e-9, '나이프는 거리 감쇠가 없다')
+  near(falloffOf(K, K.range), 1, 1e-9, '사거리 끝에서도 온전한 피해')
+  function falloffOf(w, d) { return combatM.falloffAt(w, d) }
   near(shotInterval(WEAPONS.pistol), 1 / 3, 1e-9, '권총 초당 3발')
   near(shotInterval(WEAPONS.rifle), 1 / 8, 1e-9, '소총 초당 8발')
   near(shotInterval(WEAPONS.shotgun), 1 / 1.2, 1e-9, '샷건 초당 1.2발')
@@ -245,10 +280,18 @@ section('weapons — 무기 수치')
   eq(reloadAmount(WEAPONS.pistol, { inMag: 2, reserve: Infinity }), 10, '무한 예비탄')
   eq(reloadAmount(WEAPONS.rifle, { inMag: 10, reserve: 0 }), 0, '예비탄 없음')
 
+  eq(reloadAmount(WEAPONS.knife, { inMag: 0, reserve: 0 }), 0, '나이프는 재장전할 것이 없다')
+
   const a = initialAmmo()
   ok(a.pistol.owned, '권총 소지')
-  ok(!a.rifle.owned && !a.shotgun.owned, '나머지는 주워야')
+  ok(a.knife.owned, '나이프 소지')
+  ok(!a.rifle.owned && !a.shotgun.owned, '주무기는 주워야')
   eq(a.pistol.reserve, Infinity, '권총 무한')
+
+  const sl = initialSlots()
+  eq(sl.primary, null, '주무기 자리는 비어 있다')
+  eq(sl.secondary, 'pistol', '보조무기는 권총')
+  eq(sl.melee, 'knife', '근접무기는 나이프')
 }
 
 // ══════════════════════════════════════════════════════ combat
@@ -369,6 +412,94 @@ section('combat — 명중과 피해')
       const d = spreadDir({ x: 0, y: 1, z: 0 }, 5, rng)
       ok(Number.isFinite(d.x) && Number.isFinite(d.y) && Number.isFinite(d.z), '수직 조준에서도 유한')
       near(Math.hypot(d.x, d.y, d.z), 1, 1e-9, '수직 조준 단위벡터')
+    }
+  }
+
+  /* ── 근접 공격 ──────────────────────────────────────────────── */
+  {
+    const { meleeSwing } = combatM
+    const K = WEAPONS.knife
+    const eye = { x: 0, y: 1.62, z: 0 }
+    const fwd = { x: 0, y: 0, z: -1 }
+    const put = (type, x, z) => {
+      const e = makeEnemy(type, x, z); e.state = 'chasing'; return e
+    }
+
+    // 정면 코앞은 벤다
+    {
+      const e = put('crawler', 0, -1.5)
+      const r = meleeSwing(K, eye, fwd, [e], [])
+      eq(r.damages.length, 1, '정면의 적을 벤다')
+      eq(r.damages[0].damage, K.damage, '피해량은 무기 수치 그대로')
+      ok(!r.damages[0].isHeadshot, '근접에는 헤드샷이 없다')
+    }
+    /* ★ 발밑의 낮은 적도 벤다. 광선으로 재던 시절 눈높이(1.62)에서
+       수평으로 쏘면 키 1.05 인 크롤러 위로 넘어가 헛쳤다. */
+    {
+      const e = put('crawler', 0, -1.0)
+      ok(meleeSwing(K, eye, fwd, [e], []).damages.length === 1,
+        '눈높이에서 휘둘러도 발밑의 크롤러가 맞는다')
+    }
+    // 사거리 밖은 안 닿는다
+    {
+      const e = put('crawler', 0, -(K.range + 3))
+      eq(meleeSwing(K, eye, fwd, [e], []).damages.length, 0, '멀면 안 닿는다')
+    }
+    // 등 뒤는 안 닿는다
+    {
+      const e = put('crawler', 0, 1.5)
+      eq(meleeSwing(K, eye, fwd, [e], []).damages.length, 0, '등 뒤는 안 베인다')
+    }
+    // 부채꼴 경계 — 각 안은 맞고 밖은 안 맞는다
+    {
+      const half = (K.arc * Math.PI) / 180 / 2
+      const d = 1.6
+      const inside = put('crawler', -Math.sin(half * 0.5) * d, -Math.cos(half * 0.5) * d)
+      const outside = put('crawler', -Math.sin(half * 1.9) * d, -Math.cos(half * 1.9) * d)
+      eq(meleeSwing(K, eye, fwd, [inside], []).damages.length, 1, '부채꼴 안은 벤다')
+      eq(meleeSwing(K, eye, fwd, [outside], []).damages.length, 0, '부채꼴 밖은 못 벤다')
+    }
+    // 여럿을 한 번에 — 탄약을 안 쓰는 대신 몰려 있을 때 값을 한다
+    {
+      const a = put('crawler', -0.6, -1.4)
+      const b = put('crawler', 0, -1.5)
+      const c = put('crawler', 0.6, -1.4)
+      eq(meleeSwing(K, eye, fwd, [a, b, c], []).damages.length, 3, '부채꼴 안의 셋을 모두 벤다')
+    }
+    // 죽은 적은 안 벤다
+    {
+      const e = put('crawler', 0, -1.5); e.state = 'dead'
+      eq(meleeSwing(K, eye, fwd, [e], []).damages.length, 0, '시체는 안 벤다')
+    }
+    // ★ 벽 너머는 못 벤다
+    {
+      const e = put('crawler', 0, -2.2)
+      const wall = { minX: -3, maxX: 3, minY: 0, maxY: 3, minZ: -1.6, maxZ: -1.2 }
+      eq(meleeSwing(K, eye, fwd, [e], [wall]).damages.length, 0, '벽 뒤는 못 벤다')
+      eq(meleeSwing(K, eye, fwd, [e], []).damages.length, 1, '벽이 없으면 벤다')
+    }
+    /* 덩치 큰 적은 몸 표면까지로 재야 한다. 중심까지로 재면 브루트가
+       몸을 맞대고 있는데도 사거리 밖이 된다. */
+    {
+      const t = enemiesM.ENEMY_TYPES.brute
+      const e = put('brute', 0, -(K.range + t.radius - 0.15))
+      eq(meleeSwing(K, eye, fwd, [e], []).damages.length, 1,
+        '브루트는 반지름만큼 더 멀리서도 닿는다')
+    }
+    // fireShot 이 근접무기를 받으면 meleeSwing 으로 넘긴다
+    {
+      const e = put('crawler', 0, -1.5)
+      const r = combatM.fireShot(K, eye, fwd, [e], [], rngM.makeRng('m'))
+      eq(r.damages.length, 1, 'fireShot 도 근접을 처리한다')
+      eq(r.hits.length, 0, '근접은 예광선용 착탄점을 만들지 않는다')
+    }
+    /* 위를 보고 있어도 발밑을 벤다 — 수평 성분이 0 이면 각도를 잴
+       기준이 없으므로 모두 정면으로 친다 */
+    {
+      const e = put('crawler', 0, -1.2)
+      const up = { x: 0, y: 1, z: 0 }
+      const r = meleeSwing(K, eye, up, [e], [])
+      ok(r.damages.length === 1, '수직으로 조준해도 코앞은 벤다')
     }
   }
 
@@ -1163,12 +1294,91 @@ section('player — 이동·사격·재장전')
     eq(p.weapon, 'shotgun', '샷건도 바로')
     p = switchWeapon(p, 'pistol')
     eq(p.weapon, 'pistol', '권총으로 복귀')
-    // 순환
+    // 순환 — 가진 무기를 전부 한 번씩 거치고 제자리로
+    const ownedCount = weaponsM.WEAPON_ORDER.filter((id) => p.ammo[id]?.owned).length
     const seen = new Set()
     let q = p
-    for (let i = 0; i < 3; i++) { seen.add(q.weapon); q = cycleWeapon(q, 1) }
-    eq(seen.size, 3, '순환이 세 무기를 모두 거침')
+    for (let i = 0; i < ownedCount; i++) { seen.add(q.weapon); q = cycleWeapon(q, 1) }
+    eq(seen.size, ownedCount, `순환이 가진 무기 ${ownedCount}종을 모두 거침`)
     eq(q.weapon, p.weapon, '한 바퀴 돌면 제자리')
+  }
+
+  /* ── 슬롯 전환 — 1·2·3 이 역할을 가리킨다 ────────────────────── */
+  {
+    const { switchSlot } = playerM
+    let p = initialPlayer()
+
+    eq(switchSlot(p, 'secondary').weapon, 'pistol', '2 는 언제나 보조무기')
+    eq(switchSlot(p, 'melee').weapon, 'knife', '3 은 언제나 근접무기')
+    /* 아직 주무기가 없으면 1 은 아무 일도 하지 않아야 한다.
+       빈손으로 바뀌면 그 순간 죽는다. */
+    eq(switchSlot(p, 'primary').weapon, p.weapon, '주무기가 없으면 1 은 무시')
+    eq(switchSlot(p, 'nope').weapon, p.weapon, '없는 슬롯은 무시')
+
+    p = grantPickup(p, { kind: 'weapon', weapon: 'rifle' })
+    eq(p.weapon, 'rifle', '주운 주무기를 바로 든다')
+    eq(p.slots.primary, 'rifle', '주무기 자리에 들어간다')
+
+    p = switchSlot(p, 'melee')
+    eq(p.weapon, 'knife', '근접으로 전환')
+    p = switchSlot(p, 'primary')
+    eq(p.weapon, 'rifle', '1 을 누르면 아까 그 주무기로 돌아온다')
+
+    /* 주무기 자리를 소총과 샷건이 나눠 쓴다 — 1 을 다시 누르면 교대 */
+    p = grantPickup(p, { kind: 'weapon', weapon: 'shotgun' })
+    ok(p.ammo.rifle.owned && p.ammo.shotgun.owned, '샷건을 주워도 소총을 잃지 않는다')
+    const first = p.weapon
+    p = { ...p, cooldown: 0 }
+    p = switchSlot(p, 'primary')
+    ok(p.weapon !== first, `1 을 다시 누르면 다른 주무기 — ${first} → ${p.weapon}`)
+    eq(weaponsM.WEAPONS[p.weapon].slot, 'primary', '여전히 주무기 슬롯')
+    p = { ...p, cooldown: 0 }
+    p = switchSlot(p, 'primary')
+    eq(p.weapon, first, '한 번 더 누르면 원래 것으로')
+
+    /* 슬롯을 오간 뒤에도 각 자리가 마지막에 들던 무기를 기억해야 한다.
+
+       일부러 "그 슬롯의 첫 번째가 아닌" 무기를 들어 둔다. 첫 번째를
+       들고 확인하면, 기억을 안 하고 늘 첫 번째를 꺼내는 구현도
+       똑같이 통과해 버려서 시험이 아무것도 재지 못한다. */
+    const primaries = weaponsM.WEAPONS_BY_SLOT.primary
+    const notFirst = primaries[primaries.length - 1]
+    for (let i = 0; i < primaries.length && p.weapon !== notFirst; i++) {
+      p = switchSlot({ ...p, cooldown: 0 }, 'primary')
+    }
+    eq(p.weapon, notFirst, `주무기 자리에 ${notFirst} 를 들었다`)
+    ok(notFirst !== primaries[0], '그 무기는 목록의 첫 번째가 아니다')
+
+    p = switchSlot({ ...p, cooldown: 0 }, 'secondary')
+    eq(p.weapon, 'pistol', '보조무기로 옮겼다')
+    p = switchSlot({ ...p, cooldown: 0 }, 'primary')
+    eq(p.weapon, notFirst, '주무기 자리가 마지막에 들던 것을 기억한다')
+  }
+
+  /* ── 근접무기는 탄약을 쓰지 않는다 ───────────────────────────── */
+  {
+    const { switchSlot } = playerM
+    let p = switchSlot(initialPlayer(), 'melee')
+    eq(p.weapon, 'knife', '나이프를 들었다')
+    p = { ...p, cooldown: 0 }
+
+    const knifeMag0 = p.ammo.knife.inMag
+    for (let i = 0; i < 200; i++) {
+      ok(canFire(p), `${i}번째 휘두르기 가능 — 탄약이 떨어질 수 없다`)
+      p = consumeShot(p)
+      eq(p.reloading, 0, '나이프는 자동 재장전에 걸리지 않는다')
+      /* 탄창을 아예 안 건드려야 한다. 소비하게 두면 0 에서 음수로
+         내려가고, 그러면 탄약으로 재는 곳마다 조용히 어긋난다. */
+      eq(p.ammo.knife.inMag, knifeMag0, '나이프 탄창은 변하지 않는다')
+      ok(p.ammo.knife.inMag >= 0, '나이프 탄창이 음수가 되지 않는다')
+      p = { ...p, cooldown: 0 }
+    }
+    eq(startReload(p).reloading, 0, 'R 을 눌러도 재장전하지 않는다')
+    eq(p.ammo.pistol.inMag, WEAPONS.pistol.mag, '나이프를 휘둘러도 권총 탄창은 그대로')
+
+    // 탄약 보급을 먹어도 나이프 쪽은 건드리지 않는다
+    const after = grantPickup(p, { kind: 'ammo' })
+    eq(after.ammo.knife.reserve, p.ammo.knife.reserve, '나이프에 탄약을 넣지 않는다')
   }
   // 이미 가진 무기를 또 주우면 탄약 보급
   {
