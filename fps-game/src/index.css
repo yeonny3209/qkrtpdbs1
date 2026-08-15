@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #080b10;
+}
+
+/* 3D 화면 위의 손가락 조작은 시점 회전이지 페이지 스크롤이 아니다. */
+canvas {
+  touch-action: none;
+  display: block;
+}
+
+/* 조준 중 화면 어디를 클릭해도 글자가 잡히면 안 된다 */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* ==================================================================
+   HUD 연출
+
+   전부 transform 과 opacity 만 건드린다. width/top 을 애니메이션하면
+   프레임마다 레이아웃을 다시 계산하는데, 60fps 로 총알이 오가는
+   중에 그걸 하면 게임 쪽 프레임을 뺏는다.
+   ================================================================== */
+
+/* 피격 섬광 */
+@keyframes hurt {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 체력이 낮을 때 가장자리 맥동 */
+@keyframes pulse-vignette {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+/* 명중 표시 — 튀었다가 사라진다 */
+@keyframes hitmark {
+  0%   { transform: scale(0.5); opacity: 0; }
+  25%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* 웨이브 배너 */
+@keyframes banner {
+  0%   { transform: translate(-50%, 14px); opacity: 0; }
+  12%  { transform: translate(-50%, 0);    opacity: 1; }
+  72%  { transform: translate(-50%, 0);    opacity: 1; }
+  100% { transform: translate(-50%, -10px); opacity: 0; }
+}
+
+/* 처치 점수가 떠오른다 */
+@keyframes floatup {
+  0%   { transform: translate(-50%, 8px) scale(0.85); opacity: 0; }
+  18%  { transform: translate(-50%, 0) scale(1.1);    opacity: 1; }
+  100% { transform: translate(-50%, -42px) scale(1);  opacity: 0; }
+}
