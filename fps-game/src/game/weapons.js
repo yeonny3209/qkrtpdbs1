@@ -5,20 +5,30 @@
    역할이라, 숫자키 1·2·3 이 언제나 같은 성격의 무기를 꺼낸다.
    손이 기억하는 것은 무기 이름이 아니라 "지금 뭐가 필요한가"다.
 
-     · 주무기(1)   화력. 탄을 먹는다. 주워야 생긴다.
-                   돌격소총과 샷건이 이 자리를 나눠 쓴다 — 둘 다
-                   가지고 있으면 1 을 다시 눌러 번갈아 꺼낸다.
-     · 보조무기(2) 권총. 탄이 무한해서 최후의 보루가 된다.
-     · 근접무기(3) 나이프. 탄이 아예 없고 코앞에서만 닿는다.
+   한 슬롯에 여럿이 들어간다. 같은 숫자를 다시 누르면 그 슬롯 안에서
+   교대한다 — 새 무기를 주웠다고 쓰던 것을 잃지 않는다.
+
+   ── 아홉 자루가 각자 다른 질문에 답한다 ────────────────────────
+     주무기   돌격소총  두루 쓴다. 답이 애매할 때의 답.
+              샷건      코앞. 멀면 거의 무의미하다.
+              경기관총  탄창 100발. 무리를 눕히되 정밀함은 버린다.
+              저격총    한 발이 크고, 줄지어 선 적을 꿰뚫는다.
+     보조     권총      예비탄 무한. 모든 게 떨어졌을 때 남는 것.
+              기관단총  근거리 속사. 대신 조금만 멀어도 힘이 없다.
+              매그넘    여섯 발뿐이지만 한 발이 무겁다.
+     근접     나이프    빠르다. 크롤러는 한 방.
+              전투도끼  느리고 크게 벤다. 브루트도 두 방.
 
    총은 전부 히트스캔이다 — 방아쇠를 당긴 프레임에 광선을 쏴서 즉시
-   맞았는지 정한다. 투사체를 실제로 날리면 프레임 사이를 건너뛰어
-   얇은 적을 통과하는 문제(터널링)를 따로 풀어야 하는데, 이 정도
-   교전 거리에서 총알 비행시간은 어차피 체감되지 않는다.
+   맞았는지 정한다. 투사체를 날리면 프레임 사이를 건너뛰어 얇은 적을
+   통과하는 문제(터널링)를 따로 풀어야 하는데, 이 교전 거리에서 총알
+   비행시간은 어차피 체감되지 않는다.
 
-   근접무기만 다르다. 광선 하나로는 코앞의 적을 자꾸 놓친다 — 크롤러가
-   발밑까지 붙으면 조준선이 그 위를 지나간다. 그래서 부채꼴 안에 있는
-   것을 전부 벤다. 자세한 건 combat.meleeSwing 에 적어 두었다.
+   두 가지만 예외다.
+     · 근접무기 — 광선 하나로는 발밑의 크롤러를 자꾸 놓친다.
+       부채꼴 안을 통째로 벤다. (combat.meleeSwing)
+     · 관통 — 저격총은 첫 적에서 멈추지 않고 뒤까지 꿰뚫는다.
+       (combat.raycastAll)
    ================================================================== */
 
 export const SLOTS = ['primary', 'secondary', 'melee']
@@ -33,6 +43,7 @@ export const SLOT_LABEL = {
 export const SLOT_KEY = { Digit1: 'primary', Digit2: 'secondary', Digit3: 'melee' }
 
 export const WEAPONS = {
+  // ── 주무기 ────────────────────────────────────────────────────
   rifle: {
     id: 'rifle',
     slot: 'primary',
@@ -71,6 +82,50 @@ export const WEAPONS = {
     falloffMin: 0.2,
     recoil: 2.2,
   },
+  lmg: {
+    id: 'lmg',
+    slot: 'primary',
+    name: '경기관총',
+    icon: '⛓️',
+    damage: 13,
+    pellets: 1,
+    rpm: 700,
+    mag: 100,              // 재장전 없이 오래 버틴다
+    reserve: 300,
+    reload: 4.2,           // 그 대가로 한 번 비면 아주 오래 무방비다
+    spread: 5.5,           // 정밀함은 버렸다
+    range: 60,
+    auto: true,
+    falloffStart: 22,
+    falloffEnd: 60,
+    falloffMin: 0.5,
+    recoil: 0.75,
+  },
+  sniper: {
+    id: 'sniper',
+    slot: 'primary',
+    name: '대물 저격총',
+    icon: '🎯',
+    damage: 120,           // 트루퍼는 한 방, 브루트는 두 방
+    pellets: 1,
+    rpm: 50,               // 볼트액션 — 한 발 쏘고 한참 기다린다
+    mag: 5,
+    reserve: 40,
+    reload: 3.2,
+    spread: 0,             // 조준선 그대로 나간다
+    range: 100,
+    auto: false,
+    /* 줄지어 오는 적을 한 발로 꿰뚫는다. 뒤로 갈수록 위력이 줄어
+       "무리를 정렬시켜 쏘는" 판단이 값을 하되 무한정 세지지는 않는다. */
+    pierce: 2,
+    pierceFalloff: 0.72,
+    falloffStart: 100,     // 거리로 약해지지 않는다 — 원거리 무기다
+    falloffEnd: 101,
+    falloffMin: 1,
+    recoil: 3.0,
+  },
+
+  // ── 보조무기 ──────────────────────────────────────────────────
   pistol: {
     id: 'pistol',
     slot: 'secondary',
@@ -90,6 +145,46 @@ export const WEAPONS = {
     falloffMin: 0.55,
     recoil: 0.9,           // 화면이 튀는 정도(무기 반동 애니메이션용)
   },
+  smg: {
+    id: 'smg',
+    slot: 'secondary',
+    name: '기관단총',
+    icon: '🧨',
+    damage: 10,
+    pellets: 1,
+    rpm: 780,              // 눈 깜짝할 새 탄창이 빈다
+    mag: 25,
+    reserve: 200,
+    reload: 1.6,
+    spread: 4.5,
+    range: 34,
+    auto: true,
+    falloffStart: 12,      // 조금만 멀어져도 힘이 빠진다
+    falloffEnd: 34,
+    falloffMin: 0.35,
+    recoil: 0.5,
+  },
+  magnum: {
+    id: 'magnum',
+    slot: 'secondary',
+    name: '매그넘',
+    icon: '🎰',
+    damage: 58,            // 크롤러 한 방, 트루퍼 두 방
+    pellets: 1,
+    rpm: 96,
+    mag: 6,
+    reserve: 48,
+    reload: 2.2,           // 탄알을 하나씩 밀어 넣는 리볼버다
+    spread: 1.2,
+    range: 75,
+    auto: false,
+    falloffStart: 45,
+    falloffEnd: 75,
+    falloffMin: 0.6,
+    recoil: 2.6,
+  },
+
+  // ── 근접무기 ──────────────────────────────────────────────────
   knife: {
     id: 'knife',
     slot: 'melee',
@@ -117,16 +212,38 @@ export const WEAPONS = {
     falloffMin: 1,
     recoil: 1.4,
   },
+  axe: {
+    id: 'axe',
+    slot: 'melee',
+    name: '전투 도끼',
+    icon: '🪓',
+    melee: true,
+    noAmmo: true,
+    damage: 95,            // 브루트(150)도 두 번이면 눕는다
+    pellets: 1,
+    rpm: 48,               // 나이프의 절반 속도
+    mag: 0,
+    reserve: 0,
+    reload: 0,
+    spread: 0,
+    range: 2.9,            // 더 길게 닿는다
+    arc: 100,              // 더 넓게 훑는다
+    auto: true,
+    falloffStart: 2.9,
+    falloffEnd: 3.0,
+    falloffMin: 1,
+    recoil: 2.4,
+  },
 }
 
-/* 슬롯별 무기 목록 — 주무기처럼 한 슬롯에 여럿인 경우가 있다 */
+/* 슬롯별 무기 목록 — 한 슬롯에 여럿이 들어간다 */
 export const WEAPONS_BY_SLOT = SLOTS.reduce((acc, s) => {
   acc[s] = Object.values(WEAPONS).filter((w) => w.slot === s).map((w) => w.id)
   return acc
 }, {})
 
 /* 표시 순서 — HUD 와 안내문이 같은 순서를 쓴다 */
-export const WEAPON_ORDER = ['rifle', 'shotgun', 'pistol', 'knife']
+export const WEAPON_ORDER = SLOTS.flatMap((s) => WEAPONS_BY_SLOT[s])
 
 /* 발 사이 최소 간격(초). rpm 을 그대로 두면 연사 판정을 매번
    나눗셈해야 해서, 여기서 한 번만 바꾼다. */
@@ -150,15 +267,15 @@ export function reloadAmount(weapon, ammo) {
   return Math.min(room, ammo.reserve)
 }
 
-/* 무기별 시작 탄약 상태.
-
-   권총과 나이프만 들고 시작한다. 주무기는 아레나에서 주워야 하고,
+/* 처음부터 들고 시작하는 것들. 나머지는 아레나에서 주워야 하고,
    주우러 나가는 그 순간이 이 게임의 위험 부담이다. */
+export const STARTING_WEAPONS = ['pistol', 'knife']
+
 export function initialAmmo() {
   const out = {}
   for (const id of WEAPON_ORDER) {
     const w = WEAPONS[id]
-    const start = id === 'pistol' || id === 'knife'
+    const start = STARTING_WEAPONS.includes(id)
     out[id] = {
       inMag: w.mag,
       reserve: start ? w.reserve : 0,
@@ -170,5 +287,9 @@ export function initialAmmo() {
 
 /* 시작 슬롯 구성 — 주무기 자리는 비어 있다 */
 export function initialSlots() {
-  return { primary: null, secondary: 'pistol', melee: 'knife' }
+  const out = {}
+  for (const s of SLOTS) {
+    out[s] = STARTING_WEAPONS.find((id) => WEAPONS[id].slot === s) || null
+  }
+  return out
 }

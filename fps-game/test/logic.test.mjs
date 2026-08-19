@@ -256,6 +256,47 @@ section('weapons — 무기 수치')
   }
   eq(WEAPON_ORDER.length, Object.keys(WEAPONS).length, '표시 순서가 모든 무기를 담는다')
 
+  /* 무기가 아홉이면 그중 몇은 서로 베끼기 쉽다. 슬롯마다 성격이
+     실제로 갈리는지 수치로 확인한다 — 같은 자리의 두 무기가 모든
+     면에서 같으면 하나는 있으나 마나다. */
+  ok(WEAPON_ORDER.length >= 9, `무기가 넉넉하다 — ${WEAPON_ORDER.length}자루`)
+  for (const slot of SLOTS) {
+    ok(WEAPONS_BY_SLOT[slot].length >= 2, `${slot} 슬롯에 고를 여지가 있다`)
+    const ids = WEAPONS_BY_SLOT[slot]
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = WEAPONS[ids[i]], b = WEAPONS[ids[j]]
+        const differs = a.damage !== b.damage || a.rpm !== b.rpm ||
+          a.mag !== b.mag || a.range !== b.range || a.pellets !== b.pellets ||
+          a.spread !== b.spread || !!a.pierce !== !!b.pierce
+        ok(differs, `${ids[i]} 와 ${ids[j]} 는 서로 다른 무기다`)
+      }
+    }
+  }
+  /* 초당 피해가 슬롯 성격을 지켜야 한다. 보조무기가 주무기보다
+     꾸준히 세면 주무기를 주울 이유가 없다. */
+  const dps = (w) => (w.damage * w.pellets * w.rpm) / 60
+  const bestPrimary = Math.max(...WEAPONS_BY_SLOT.primary.map((id) => dps(WEAPONS[id])))
+  const bestSecondary = Math.max(...WEAPONS_BY_SLOT.secondary.map((id) => dps(WEAPONS[id])))
+  ok(bestSecondary < bestPrimary,
+    `최고 보조무기 DPS(${bestSecondary.toFixed(0)})가 최고 주무기(${bestPrimary.toFixed(0)})보다 낮다`)
+  eq(WEAPONS.pistol.reserve, Infinity, '권총만 예비탄이 무한하다')
+  for (const id of WEAPON_ORDER) {
+    if (id === 'pistol') continue
+    ok(WEAPONS[id].reserve !== Infinity, `${id} 는 예비탄이 유한하다`)
+  }
+
+  // 관통 무기
+  const S = WEAPONS.sniper
+  ok(S.pierce > 0, '저격총은 관통한다')
+  ok(S.pierceFalloff > 0 && S.pierceFalloff < 1, '관통할수록 약해진다')
+  ok(S.damage >= enemiesM.ENEMY_TYPES.trooper.hp, '저격총 한 발에 트루퍼가 죽는다')
+  eq(S.spread, 0, '저격총은 탄퍼짐이 없다')
+  for (const id of WEAPON_ORDER) {
+    if (id === 'sniper') continue
+    ok(!WEAPONS[id].pierce, `${id} 는 관통하지 않는다`)
+  }
+
   // 근접무기
   const K = WEAPONS.knife
   ok(K.melee && K.noAmmo, '나이프는 근접이고 탄약이 없다')
@@ -267,6 +308,15 @@ section('weapons — 무기 수치')
   near(falloffOf(K, 0), 1, 1e-9, '나이프는 거리 감쇠가 없다')
   near(falloffOf(K, K.range), 1, 1e-9, '사거리 끝에서도 온전한 피해')
   function falloffOf(w, d) { return combatM.falloffAt(w, d) }
+
+  // 도끼 — 나이프보다 느리고 무겁고 넓다
+  const A = WEAPONS.axe
+  ok(A.melee && A.noAmmo, '도끼도 근접이고 탄약이 없다')
+  ok(A.damage > K.damage, '도끼가 더 세다')
+  ok(A.rpm < K.rpm, '도끼가 더 느리다')
+  ok(A.arc > K.arc && A.range > K.range, '도끼가 더 넓고 길게 닿는다')
+  ok(A.damage * 2 >= enemiesM.ENEMY_TYPES.brute.hp, '도끼 두 방이면 브루트가 눕는다')
+  ok(K.damage * 2 < enemiesM.ENEMY_TYPES.brute.hp, '나이프로는 브루트를 두 방에 못 잡는다')
   near(shotInterval(WEAPONS.pistol), 1 / 3, 1e-9, '권총 초당 3발')
   near(shotInterval(WEAPONS.rifle), 1 / 8, 1e-9, '소총 초당 8발')
   near(shotInterval(WEAPONS.shotgun), 1 / 1.2, 1e-9, '샷건 초당 1.2발')
@@ -412,6 +462,102 @@ section('combat — 명중과 피해')
       const d = spreadDir({ x: 0, y: 1, z: 0 }, 5, rng)
       ok(Number.isFinite(d.x) && Number.isFinite(d.y) && Number.isFinite(d.z), '수직 조준에서도 유한')
       near(Math.hypot(d.x, d.y, d.z), 1, 1e-9, '수직 조준 단위벡터')
+    }
+  }
+
+  /* ── 관통 ───────────────────────────────────────────────────── */
+  {
+    const { raycastAll, fireShot } = combatM
+    const S = WEAPONS.sniper
+    const eye = { x: 0, y: 0.5, z: 0 }
+    const fwd = { x: 0, y: 0, z: -1 }
+    /* 가까운 순으로 만들되, 넘길 때는 섞는다.
+
+       실제 세션의 적 배열은 스폰 순서지 거리 순이 아니다. 정렬된
+       배열만 넣어 시험하면 "가까운 순으로 정렬한다"는 코드가 있으나
+       마나 해도 통과해 버린다 — 관통이 엉뚱한 적을 뚫어도 모른다. */
+    const line = (n) => Array.from({ length: n }, (_, i) => {
+      const e = makeEnemy('crawler', 0, -4 - i * 3); e.state = 'chasing'; return e
+    })
+    const shuffled = (arr, seed) => {
+      const r = rngM.makeRng(seed)
+      const a = [...arr]
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = rngM.intOf(r, i + 1)
+        ;[a[i], a[j]] = [a[j], a[i]]
+      }
+      return a
+    }
+
+    // 줄지어 선 적을 가까운 순으로 전부 찾는다 — 넣는 순서와 무관하게
+    for (const seed of ['s1', 's2', 's3', 's4']) {
+      const es = line(5)
+      const r = raycastAll(eye, fwd, shuffled(es, seed), [], S.range)
+      eq(r.enemies.length, 5, '광선 위의 적을 전부 찾는다')
+      for (let i = 1; i < r.enemies.length; i++) {
+        ok(r.enemies[i].t > r.enemies[i - 1].t, '가까운 순으로 정렬')
+      }
+      eq(r.enemies[0].enemy.id, es[0].id, '섞어 넣어도 맨 앞은 가장 가까운 적')
+      eq(r.enemies[4].enemy.id, es[4].id, '섞어 넣어도 맨 뒤는 가장 먼 적')
+    }
+    // 벽 뒤는 못 찾는다
+    {
+      const es = line(3)
+      const wall = { minX: -3, maxX: 3, minY: 0, maxY: 3, minZ: -6, maxZ: -5.5 }
+      const r = raycastAll(eye, fwd, es, [wall], S.range)
+      eq(r.enemies.length, 1, '벽 앞의 적만 찾는다')
+    }
+    /* ★ 한 발이 pierce+1 명까지만, 그리고 반드시 "앞에서부터" 뚫는다.
+
+       배열 순서가 아니라 거리 순으로 골라야 한다. 섞어 넣고도 맨
+       앞 세 명이 맞아야 관통이 제대로 도는 것이다. */
+    for (const seed of ['a', 'b', 'c', 'd']) {
+      const es = line(6)
+      const r = fireShot(S, eye, fwd, shuffled(es, seed), [], rngM.makeRng('p'))
+      eq(r.damages.length, S.pierce + 1, `한 발이 ${S.pierce + 1}명을 맞힌다`)
+      const hitIds = new Set(r.damages.map((d) => d.enemy.id))
+      for (let i = 0; i <= S.pierce; i++) {
+        ok(hitIds.has(es[i].id), `${i + 1}번째로 가까운 적이 맞는다`)
+      }
+      for (let i = S.pierce + 1; i < es.length; i++) {
+        ok(!hitIds.has(es[i].id), `${i + 1}번째로 먼 적은 안 맞는다`)
+      }
+    }
+    // 뒤로 갈수록 약해진다 — 이것도 넣는 순서와 무관해야 한다
+    for (const seed of ['x', 'y', 'z']) {
+      const es = line(3)
+      const r = fireShot(S, eye, fwd, shuffled(es, seed), [], rngM.makeRng('p'))
+      const byId = new Map(r.damages.map((d) => [d.enemy.id, d.damage]))
+      const d0 = byId.get(es[0].id)
+      const d1 = byId.get(es[1].id)
+      const d2 = byId.get(es[2].id)
+      ok(d0 > d1 && d1 > d2, `관통할수록 피해가 준다 — ${d0?.toFixed(0)} > ${d1?.toFixed(0)} > ${d2?.toFixed(0)}`)
+      near(d1 / d0, S.pierceFalloff, 1e-6, '감쇠 비율이 규격대로')
+    }
+    // 관통 무기가 아닌 총은 첫 적에서 멈춘다
+    {
+      const es = line(4)
+      const r = fireShot(WEAPONS.rifle, eye, fwd, es, [], rngM.makeRng('p'))
+      eq(r.damages.length, 1, '소총은 하나만 맞힌다')
+      eq(r.damages[0].enemy.id, es[0].id, '맨 앞의 적만')
+    }
+    // 적이 하나뿐이면 관통 무기도 하나만 맞힌다
+    {
+      const es = line(1)
+      const r = fireShot(S, eye, fwd, es, [], rngM.makeRng('p'))
+      eq(r.damages.length, 1, '있는 만큼만 맞힌다')
+    }
+    // 허공에 쏴도 터지지 않는다
+    {
+      const r = fireShot(S, eye, fwd, [], [], rngM.makeRng('p'))
+      eq(r.damages.length, 0, '아무도 없으면 피해 없음')
+    }
+    // 죽은 적은 세지 않는다
+    {
+      const es = line(3)
+      es[0].state = 'dead'
+      const r = fireShot(S, eye, fwd, es, [], rngM.makeRng('p'))
+      ok(!r.damages.some((d) => d.enemy.id === es[0].id), '시체는 관통 대상이 아니다')
     }
   }
 
@@ -930,14 +1076,46 @@ section('waves — 난이도 곡선')
     ok(ammoWaves >= 10, `탄약 보급이 꾸준히 나옴 — 30웨이브 중 ${ammoWaves}회`)
   }
   {
-    // 무기는 한 번씩만
-    let rifle = 0, shotgun = 0
-    for (let n = 1; n <= 100; n++) for (const p of pickupsForWave(n)) {
-      if (p.weapon === 'rifle') rifle++
-      if (p.weapon === 'shotgun') shotgun++
+    /* ★ 모든 무기가 정확히 한 번씩 풀려야 한다.
+
+       무기를 하나 더 넣고 해제 표에 적는 걸 잊으면, 코드 어디에도
+       오류가 없는 채로 영영 못 쥐는 무기가 생긴다. 만든 사람만
+       있는 줄 아는 무기가 되는 것이다. */
+    const seen = new Map()
+    for (let n = 1; n <= 200; n++) {
+      for (const p of pickupsForWave(n)) {
+        if (p.kind !== 'weapon') continue
+        seen.set(p.weapon, (seen.get(p.weapon) || 0) + 1)
+      }
     }
-    eq(rifle, 1, '소총은 한 번만')
-    eq(shotgun, 1, '샷건은 한 번만')
+    const starting = weaponsM.STARTING_WEAPONS
+    for (const id of weaponsM.WEAPON_ORDER) {
+      if (starting.includes(id)) {
+        ok(!seen.has(id), `${id} 는 처음부터 있으므로 안 떨어진다`)
+      } else {
+        eq(seen.get(id), 1, `${id} 는 정확히 한 번 떨어진다`)
+      }
+    }
+    eq(seen.size, weaponsM.WEAPON_ORDER.length - starting.length,
+      '떨어지는 무기 수 = 전체 - 처음부터 가진 것')
+
+    /* 해제 표에 없는 이름이 적혀 있으면 그 웨이브는 아무것도 안 준다 */
+    for (const id of Object.values(waveM.WEAPON_UNLOCKS)) {
+      ok(weaponsM.WEAPONS[id], `해제 표의 ${id} 가 실제 무기다`)
+    }
+    /* 한 웨이브에 무기 하나씩 — 몰아 주면 무엇이 달라졌는지 모른다 */
+    for (let n = 1; n <= 200; n++) {
+      const guns = pickupsForWave(n).filter((p) => p.kind === 'weapon')
+      ok(guns.length <= 1, `${n}웨이브에 무기는 많아야 하나`)
+    }
+    /* 슬롯이 한쪽으로 쏠리지 않게 — 처음 다섯 자루 안에 세 슬롯이
+       모두 한 번씩은 나와야 한다 */
+    const order = []
+    for (let n = 1; n <= 200; n++) {
+      for (const p of pickupsForWave(n)) if (p.kind === 'weapon') order.push(p.weapon)
+    }
+    const firstFive = new Set(order.slice(0, 5).map((id) => weaponsM.WEAPONS[id].slot))
+    ok(firstFive.size >= 2, `초반 해제가 한 슬롯에 몰리지 않는다 — ${[...firstFive].join(',')}`)
   }
 }
 
@@ -1342,12 +1520,14 @@ section('player — 이동·사격·재장전')
        들고 확인하면, 기억을 안 하고 늘 첫 번째를 꺼내는 구현도
        똑같이 통과해 버려서 시험이 아무것도 재지 못한다. */
     const primaries = weaponsM.WEAPONS_BY_SLOT.primary
-    const notFirst = primaries[primaries.length - 1]
+    const ownedPrimaries = primaries.filter((id) => p.ammo[id]?.owned)
+    ok(ownedPrimaries.length >= 2, '주무기를 둘 이상 가지고 있다')
+    const notFirst = ownedPrimaries[ownedPrimaries.length - 1]
     for (let i = 0; i < primaries.length && p.weapon !== notFirst; i++) {
       p = switchSlot({ ...p, cooldown: 0 }, 'primary')
     }
     eq(p.weapon, notFirst, `주무기 자리에 ${notFirst} 를 들었다`)
-    ok(notFirst !== primaries[0], '그 무기는 목록의 첫 번째가 아니다')
+    ok(notFirst !== ownedPrimaries[0], '그 무기는 가진 것 중 첫 번째가 아니다')
 
     p = switchSlot({ ...p, cooldown: 0 }, 'secondary')
     eq(p.weapon, 'pistol', '보조무기로 옮겼다')

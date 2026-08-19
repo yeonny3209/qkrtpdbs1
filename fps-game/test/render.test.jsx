@@ -320,6 +320,57 @@ ok(Math.abs(session.player.y) < 1e-6, '이동 뒤에도 땅에 서 있다')
   eq(session.player.weapon, 'pistol', '2번으로 보조무기 복귀')
 }
 
+/* ── 무기 아홉 자루가 전부 실제로 그려지는가 ───────────────────
+   모델은 손으로 조립한 부품 스무 개 안팎이라, 오타 하나로 특정
+   무기만 조용히 비거나 터질 수 있다. 전부 손에 쥐여 보고 부품이
+   실제로 씬에 생기는지 센다. */
+{
+  const { WEAPONS, WEAPON_ORDER } = await import('../src/game/weapons.js')
+
+  /* 무기는 카메라의 자식으로 붙는다(createPortal). 씬 전체를 세면
+     그 사이 스폰되고 죽는 적 때문에 숫자가 흔들려서, 카메라 아래만
+     센다 — 거기 있는 것은 무기와 총구 화염뿐이다. */
+  let weaponCam = null
+  renderer.scene.instance.traverse((o) => { if (!weaponCam && o.isCamera) weaponCam = o })
+  ok(weaponCam, '무기가 붙은 카메라를 찾았다')
+  const countMeshes = () => {
+    let n = 0
+    weaponCam.traverse((o) => { if (o.isMesh) n++ })
+    return n
+  }
+
+  for (const id of WEAPON_ORDER) {
+    /* 소지하지 않은 무기도 들 수 있게 직접 넣어 준다 */
+    session.player.ammo[id] = { ...session.player.ammo[id], owned: true }
+    session.player.weapon = id
+    session.player.slots[WEAPONS[id].slot] = id
+    session.player.cooldown = 0
+    session.player.reloading = 0
+
+    let threw = null
+    try {
+      await ReactThreeTestRenderer.act(async () => {
+        renderer.update(<Scene />)
+        await renderer.advanceFrames(3, 1 / 60)
+      })
+    } catch (e) { threw = String((e && e.stack) || e) }
+
+    ok(!threw, `${id} 모델이 예외 없이 그려진다${threw ? ` — ${threw.slice(0, 200)}` : ''}`)
+
+    /* 부품이 여럿이어야 한다. 상자 두어 개짜리면 조립이 안 된 것.
+       총구 화염 메시 하나가 늘 끼어 있으므로 빼고 센다. */
+    const parts = countMeshes() - 1
+    ok(parts >= 10, `${id} 가 부품 여러 개로 조립된다 — 부품 ${parts}개`)
+  }
+
+  // 원래 무기로 되돌린다
+  session.player.weapon = 'pistol'
+  await ReactThreeTestRenderer.act(async () => {
+    renderer.update(<Scene />)
+    await renderer.advanceFrames(2, 1 / 60)
+  })
+}
+
 /* ── 예광선·불꽃이 실제로 만들어졌는가 ─────────────────────────── */
 {
   effectsRef.current.addTracer({ x: 0, y: 1, z: 0 }, { x: 0, y: 1, z: -5 })

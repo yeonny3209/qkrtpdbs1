@@ -113,6 +113,44 @@ function pointAt(o, d, t) {
   return { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t }
 }
 
+/* 광선이 지나는 길에 있는 적을 전부, 가까운 순으로.
+
+   raycast 가 가장 가까운 하나만 돌려주는 것과 대비된다. 관통 무기는
+   첫 적에서 멈추지 않으므로 뒤에 선 것들도 알아야 한다. 벽 판정은
+   똑같다 — 벽보다 먼 적은 애초에 광선이 닿지 않는다. */
+export function raycastAll(origin, dir, enemies, boxes, maxDist) {
+  const { x: ox, y: oy, z: oz } = origin
+  const { x: dx, y: dy, z: dz } = dir
+
+  let wallT = maxDist
+  for (const b of boxes) {
+    const t = rayBox(ox, oy, oz, dx, dy, dz, b)
+    if (t !== null && t < wallT) wallT = t
+  }
+
+  const found = []
+  for (const e of enemies) {
+    if (e.state === 'dead') continue
+    const { body, head } = hitboxesOf(e)
+    const tHead = rayBox(ox, oy, oz, dx, dy, dz, head)
+    const tBody = rayBox(ox, oy, oz, dx, dy, dz, body)
+
+    let t = null
+    let isHeadshot = false
+    if (tHead !== null && (tBody === null || tHead <= tBody)) {
+      t = tHead
+      isHeadshot = true
+    } else if (tBody !== null) {
+      t = tBody
+    }
+    if (t === null || t >= wallT) continue
+    found.push({ kind: 'enemy', enemy: e, isHeadshot, t, point: pointAt(origin, dir, t) })
+  }
+
+  found.sort((a, b) => a.t - b.t)
+  return { enemies: found, wallT, wallPoint: wallT < maxDist ? pointAt(origin, dir, wallT) : null }
+}
+
 /* 조준선을 탄퍼짐만큼 흔든다.
 
    원 안에서 균등하게 뽑으려면 반지름에 제곱근을 씌워야 한다. 안
@@ -218,23 +256,45 @@ export function fireShot(weapon, origin, aimDir, enemies, boxes, rng) {
   const hits = []
   const damageByEnemy = new Map()
 
+  const add = (hit, dmg) => {
+    const prev = damageByEnemy.get(hit.enemy.id)
+    if (prev) {
+      prev.damage += dmg
+      prev.isHeadshot = prev.isHeadshot || hit.isHeadshot
+    } else {
+      damageByEnemy.set(hit.enemy.id, {
+        enemy: hit.enemy, damage: dmg, isHeadshot: hit.isHeadshot,
+      })
+    }
+  }
+
   for (let i = 0; i < weapon.pellets; i++) {
     const dir = spreadDir(aimDir, weapon.spread, rng)
+
+    if (weapon.pierce > 0) {
+      /* 관통 — 앞에서부터 (1 + pierce) 명까지 꿰뚫는다. 뒤로 갈수록
+         약해져서, 줄을 세워 쏘는 판단이 값을 하되 무한정 세지지는
+         않는다. 아무도 못 맞히면 벽에 자국만 남긴다. */
+      const { enemies: line, wallPoint } = raycastAll(origin, dir, enemies, boxes, weapon.range)
+      const limit = Math.min(line.length, weapon.pierce + 1)
+      for (let k = 0; k < limit; k++) {
+        const hit = line[k]
+        const mul = Math.pow(weapon.pierceFalloff ?? 1, k)
+        add(hit, applyDamage(weapon, hit.isHeadshot, hit.t) * mul)
+        hits.push(hit)
+      }
+      /* 예광선은 끝까지 그어져야 한다 — 첫 적에서 끊기면 관통한
+         것처럼 안 보인다. 다 뚫고 나갔으면 벽까지, 벽도 없으면
+         사거리 끝까지. */
+      if (limit <= line.length) {
+        if (wallPoint) hits.push({ kind: 'wall', t: weapon.range, point: wallPoint })
+      }
+      continue
+    }
+
     const hit = raycast(origin, dir, enemies, boxes, weapon.range)
     if (!hit) continue
-
-    if (hit.kind === 'enemy') {
-      const dmg = applyDamage(weapon, hit.isHeadshot, hit.t)
-      const prev = damageByEnemy.get(hit.enemy.id)
-      if (prev) {
-        prev.damage += dmg
-        prev.isHeadshot = prev.isHeadshot || hit.isHeadshot
-      } else {
-        damageByEnemy.set(hit.enemy.id, {
-          enemy: hit.enemy, damage: dmg, isHeadshot: hit.isHeadshot,
-        })
-      }
-    }
+    if (hit.kind === 'enemy') add(hit, applyDamage(weapon, hit.isHeadshot, hit.t))
     hits.push(hit)
   }
 

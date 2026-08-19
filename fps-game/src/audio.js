@@ -87,24 +87,53 @@ function tone({ freq = 440, dur = 0.1, gain = 0.22, type = 'square', to = null, 
   o.stop(t0 + dur + 0.02)
 }
 
-/* 무기마다 다른 "탕". 샷건이 제일 낮고 길다. */
+/* 무기마다 다른 "탕".
+
+   총이 아홉 자루라 소리로도 갈려야 한다. 눈은 화면 한가운데를 보고
+   있어서 손에 든 것이 뭔지 총소리로 먼저 안다. 큰 총일수록 낮고
+   길게, 빠른 총일수록 짧고 높게 잡았다. */
 const SHOT = {
   pistol: { dur: 0.13, freq: 1500, gain: 0.42, sweep: 0.25 },
   rifle: { dur: 0.085, freq: 2100, gain: 0.3, sweep: 0.3 },
   shotgun: { dur: 0.3, freq: 750, gain: 0.6, sweep: 0.15 },
+  lmg: { dur: 0.075, freq: 1700, gain: 0.34, sweep: 0.28 },
+  sniper: { dur: 0.42, freq: 900, gain: 0.72, sweep: 0.1 },
+  smg: { dur: 0.055, freq: 2600, gain: 0.24, sweep: 0.35 },
+  magnum: { dur: 0.24, freq: 1100, gain: 0.62, sweep: 0.18 },
+}
+
+/* 총소리에 얹는 저음. 무거운 총일수록 낮고 길게 울린다 */
+const THUMP = {
+  pistol: { f: 150, dur: 0.09, gain: 0.2 },
+  rifle: { f: 140, dur: 0.09, gain: 0.2 },
+  shotgun: { f: 90, dur: 0.14, gain: 0.28 },
+  lmg: { f: 110, dur: 0.1, gain: 0.24 },
+  sniper: { f: 62, dur: 0.32, gain: 0.4 },
+  smg: { f: 190, dur: 0.05, gain: 0.14 },
+  magnum: { f: 78, dur: 0.2, gain: 0.34 },
 }
 
 export const sfx = {
   shot(weapon) {
-    /* 칼은 화약이 아니라 바람 소리다. 잡음을 높게 걸고 위에서
-       아래로 훑으면 "휙" 이 된다. */
+    /* 근접무기는 화약이 아니라 바람 소리다. 잡음을 높게 걸고 위에서
+       아래로 훑으면 "휙" 이 된다. 도끼는 더 무겁고 느리게. */
     if (weapon === 'knife') {
       noise({ dur: 0.16, freq: 3400, gain: 0.3, q: 1.6, type: 'bandpass', sweep: 0.22 })
       return
     }
+    if (weapon === 'axe') {
+      noise({ dur: 0.3, freq: 1500, gain: 0.36, q: 1.1, type: 'bandpass', sweep: 0.16 })
+      tone({ freq: 120, to: 55, dur: 0.18, gain: 0.16, type: 'sine' })
+      return
+    }
     const s = SHOT[weapon] || SHOT.pistol
+    const th = THUMP[weapon] || THUMP.pistol
     noise({ ...s, q: 0.8 })
-    tone({ freq: weapon === 'shotgun' ? 90 : 150, to: 45, dur: 0.09, gain: 0.2, type: 'sine' })
+    tone({ freq: th.f, to: th.f * 0.32, dur: th.dur, gain: th.gain, type: 'sine' })
+    /* 저격총은 여운이 남는다 — 큰 총이라는 걸 소리 길이로 알린다 */
+    if (weapon === 'sniper') {
+      noise({ dur: 0.5, freq: 420, gain: 0.16, q: 0.6, sweep: 0.35 })
+    }
   },
   /* 칼이 살에 닿는 소리 — 총 명중음보다 둔탁하게 */
   meleeHit() {

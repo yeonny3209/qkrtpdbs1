@@ -5,14 +5,35 @@
    가릴 뿐이라, 일시정지를 풀면 있던 자리에서 그대로 이어진다.
    ================================================================== */
 import { WEAPONS, WEAPONS_BY_SLOT, SLOTS, SLOT_LABEL } from '../game/weapons.js'
+import { WEAPON_UNLOCKS } from '../game/waveSpawner.js'
 import { ENEMY_TYPES } from '../game/enemies.js'
 
-/* 무기를 어떻게 얻는지 — 안내문에만 쓰는 설명이라 여기 둔다 */
-const HOW_TO_GET = {
-  rifle: '2웨이브에 떨어진다',
-  shotgun: '4웨이브에 떨어진다',
-  pistol: '처음부터 · 탄약 무한',
+/* 무기를 어떻게 얻는지. 해제 웨이브는 waveSpawner 가 정하므로
+   거기서 가져온다 — 두 곳에 적어 두면 언젠가 어긋난다. */
+const START_NOTE = {
+  pistol: '처음부터 · 예비탄 무한',
   knife: '처음부터 · 탄약 없음',
+}
+const UNLOCK_WAVE = Object.fromEntries(
+  Object.entries(WEAPON_UNLOCKS).map(([wave, id]) => [id, Number(wave)]),
+)
+function howToGet(id) {
+  if (START_NOTE[id]) return START_NOTE[id]
+  const w = UNLOCK_WAVE[id]
+  return w ? `${w}웨이브에 떨어진다` : '아레나에서 줍는다'
+}
+
+/* 한 줄 성격 — 수치는 옆에 붙고, 이건 "왜 이걸 드는가"를 말한다 */
+const CHARACTER = {
+  rifle: '두루 쓴다',
+  shotgun: '코앞에서 압도적',
+  lmg: '탄창 100발, 무리 제압',
+  sniper: '한 발이 크고 꿰뚫는다',
+  pistol: '최후의 보루',
+  smg: '근거리 속사',
+  magnum: '여섯 발, 한 발이 무겁다',
+  knife: '빠르다',
+  axe: '느리고 크게 벤다',
 }
 
 function Shell({ children }) {
@@ -109,8 +130,9 @@ export function MainMenu({ onStart, best }) {
                 <ul className="mt-0.5 ml-6 space-y-0.5 text-xs">
                   {WEAPONS_BY_SLOT[slot].map((id) => (
                     <li key={id}>
-                      {WEAPONS[id].icon} {WEAPONS[id].name}
-                      <span className="text-white/45"> — {HOW_TO_GET[id]}</span>
+                      {WEAPONS[id].icon} <span className="text-white/90">{WEAPONS[id].name}</span>
+                      <span className="text-white/45"> — {CHARACTER[id]}</span>
+                      <span className="text-white/30"> · {howToGet(id)}</span>
                     </li>
                   ))}
                 </ul>
@@ -118,8 +140,8 @@ export function MainMenu({ onStart, best }) {
             ))}
           </ul>
           <p className="mt-2 text-xs text-white/45">
-            주무기 자리는 소총과 샷건이 나눠 씁니다. 둘 다 가지고 있으면
-            1 을 다시 눌러 번갈아 꺼냅니다.
+            한 자리를 여럿이 나눠 씁니다. 같은 숫자를 다시 누르면 그 자리
+            안에서 번갈아 꺼냅니다 — 새로 주웠다고 쓰던 것을 잃지 않습니다.
           </p>
         </div>
       </div>
