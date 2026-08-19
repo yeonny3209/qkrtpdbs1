@@ -8,7 +8,7 @@
 
    상태: spawning → chasing ⇄ attacking → dead
    ================================================================== */
-import { resolveMove, hasLineOfSight } from './collide.js'
+import { resolveMove, hasLineOfSight, groundHeightAt } from './collide.js'
 import { hash32 } from './rng.js'
 
 export const ENEMY_TYPES = {
@@ -19,9 +19,11 @@ export const ENEMY_TYPES = {
     speed: 4.3,           // 플레이어 기본 이동(5.2)보다 느리다. 뒷걸음질로
     radius: 0.45,          // 떼어낼 수는 있지만 여유는 없다.
     height: 1.05,
-    damage: 7,
-    attackRange: 1.9,
-    attackCooldown: 0.75,
+    damage: 6,
+    /* 팔이 닿는 거리. 짧아야 뒷걸음질로 떼어낼 수 있다 — 이게 길면
+       한번 붙잡힌 순간부터 벗어날 방법이 없다. */
+    attackRange: 1.7,
+    attackCooldown: 0.85,
     ranged: false,
     score: 10,
     color: '#e0533f',
@@ -34,28 +36,39 @@ export const ENEMY_TYPES = {
     speed: 2.7,
     radius: 0.42,
     height: 1.85,
-    damage: 9,
-    attackRange: 22,
-    attackCooldown: 1.9,
+    damage: 7,
+    /* 사거리를 22 → 14 로 줄였다.
+
+       22 는 아레나(30x30)의 대각선 절반을 넘는 거리라, 사실상 맵
+       어디서든 쏠 수 있었다. 트루퍼 여덟이 각자 다른 구석에서
+       동시에 쏘면 어디로 피해도 누군가의 사거리 안이고, 그건
+       엄폐물을 쓰는 게임이 아니라 맞으면서 버티는 게임이 된다.
+
+       14 면 광장 하나를 가로지르는 정도다. 물러나면 사거리 밖으로
+       벗어날 수 있고, 그래서 "지금 물러날까"가 판단이 된다. */
+    attackRange: 14,
+    attackCooldown: 2.2,
     ranged: true,
-    accuracy: 0.42,        // 이 확률로만 맞는다. 원거리 적이 백발백중이면
+    accuracy: 0.34,        // 이 확률로만 맞는다. 원거리 적이 백발백중이면
     score: 20,             // 엄폐물 뒤에서 나올 이유가 없어진다.
     color: '#d9a441',
     spawnTime: 0.6,
-    /* 사거리에 들어와도 조금 더 붙는다. 22유닛 밖에서 멈춰 서면
+    /* 사거리에 들어와도 조금 더 붙는다. 사거리 끝에서 멈춰 서면
        맵 반대편 점처럼 보여서 쏘는 재미가 없다. */
-    preferredRange: 13,
+    preferredRange: 10,
   },
   brute: {
     id: 'brute',
     name: '브루트',
     hp: 150,
-    speed: 1.75,
+    speed: 1.6,
     radius: 0.82,
     height: 2.45,
-    damage: 24,
-    attackRange: 2.8,
-    attackCooldown: 1.7,
+    damage: 18,
+    /* 덩치가 커서 팔도 길다. 다만 반지름(0.82)을 빼면 실제로
+       몸에서 뻗는 거리는 1.8 로, 크롤러와 비슷하다. */
+    attackRange: 2.6,
+    attackCooldown: 1.9,
     ranged: false,
     knockback: 7,
     score: 40,
@@ -73,6 +86,7 @@ export function makeEnemy(type, x, z) {
     id: `e${nextId++}`,
     type,
     x, z,
+    y: 0,               // 발 높이 — 계단과 통로를 오르내린다
     hp: t.hp,
     maxHp: t.hp,
     state: 'spawning',
@@ -97,6 +111,10 @@ function sidePreference(id) {
    한두 프레임 트였다 다시 막히는 구간에서 방향이 뒤집히지 않게
    붙잡아 둔다. 이 시간이 지나도록 트여 있으면 그때 잊는다. */
 const AVOID_MEMORY = 0.4
+
+/* 통로에서 내려올 때의 낙하 속도(초당). 중력을 굴리는 대신 이 속도로
+   미끄러뜨린다 — 순간이동처럼 보이지 않을 만큼만 빠르면 된다. */
+const FALL_SPEED = 9
 
 const ATTACK_EXIT_SLACK = 1.18   // 사거리 경계에서 상태가 깜빡이지 않게
 
@@ -134,6 +152,19 @@ export function tickEnemy(enemy, ctx, dt) {
   const dist = Math.hypot(dx, dz)
   if (dist > 1e-4) e.facing = Math.atan2(dx, dz)
 
+  /* 발밑 높이를 따라간다. 계단을 밟으면 올라가고, 통로 끝에서
+     내려서면 떨어진다.
+
+     플레이어처럼 중력을 굴리지는 않는다. 적은 점프하지 않으므로
+     공중에 있을 이유가 없다. 다만 내려올 때는 한 프레임에 뚝
+     떨어뜨리지 않고 미끄러뜨린다 — 2미터를 순간이동하면 통로에서
+     내려온 게 아니라 사라졌다 나타난 것처럼 보인다. */
+  {
+    const g = groundHeightAt(e.x, e.z, t.radius, ctx.boxes, e.y)
+    e.y = g >= e.y ? g : Math.max(g, e.y - FALL_SPEED * dt)
+  }
+  const vert = { feetY: e.y, headY: e.y + t.height }
+
   if (e.state === 'spawning') {
     if (e.stateT >= t.spawnTime) {
       e.state = 'chasing'
@@ -153,12 +184,20 @@ export function tickEnemy(enemy, ctx, dt) {
 
      같은 두 점을 잇는 같은 선분을 양쪽이 쓰게 하면 그런 자리가
      아예 안 생긴다. */
-  const centerY = t.height * 0.5
+  const centerY = e.y + t.height * 0.5
   const canSee = t.ranged
     ? hasLineOfSight(e.x, centerY, e.z, ctx.player.x, ctx.player.eyeY, ctx.player.z, ctx.boxes)
     : true
 
-  const inRange = dist <= t.attackRange && canSee
+  /* 사거리는 높이까지 넣어 잰다.
+
+     수평 거리로만 재면, 통로 바로 아래 선 크롤러가 2미터 위의
+     플레이어를 문다. 그러면 높은 자리에 올라간 것이 아무 소용이
+     없어서 구조물을 만든 이유가 사라진다. */
+  const dy = (ctx.player.y || 0) - e.y
+  const dist3 = Math.hypot(dist, dy)
+
+  const inRange = dist3 <= t.attackRange && canSee
 
   if (e.state === 'chasing') {
     if (inRange) {
@@ -166,7 +205,7 @@ export function tickEnemy(enemy, ctx, dt) {
       e.stateT = 0
     }
   } else if (e.state === 'attacking') {
-    if (dist > t.attackRange * ATTACK_EXIT_SLACK || !canSee) {
+    if (dist3 > t.attackRange * ATTACK_EXIT_SLACK || !canSee) {
       e.state = 'chasing'
       e.stateT = 0
     }
@@ -194,7 +233,7 @@ export function tickEnemy(enemy, ctx, dt) {
     let mx = (dx / dist) * step * sign
     let mz = (dz / dist) * step * sign
 
-    const moved = resolveMove(e.x, e.z, mx, mz, t.radius, ctx.boxes)
+    const moved = resolveMove(e.x, e.z, mx, mz, t.radius, ctx.boxes, 8, vert)
 
     /* "얼마나 갔나"는 간 거리가 아니라 가려던 방향으로 간 거리다.
 
@@ -251,7 +290,7 @@ export function tickEnemy(enemy, ctx, dt) {
         for (const s of [side, -side]) {
           const a = baseAng + 1.15 * s
           const cand = resolveMove(
-            e.x, e.z, Math.cos(a) * step, Math.sin(a) * step, t.radius, ctx.boxes,
+            e.x, e.z, Math.cos(a) * step, Math.sin(a) * step, t.radius, ctx.boxes, 8, vert,
           )
           const gain = (cand.x - e.x) * Math.cos(a) + (cand.z - e.z) * Math.sin(a)
           if (gain > bestGain + 1e-6) { bestGain = gain; bestSide = s }
@@ -265,7 +304,7 @@ export function tickEnemy(enemy, ctx, dt) {
       for (const off of [1.15, 1.6, 2.1, 2.6]) {
         const a = baseAng + off * e.avoidSide
         const cand = resolveMove(
-          e.x, e.z, Math.cos(a) * step, Math.sin(a) * step, t.radius, ctx.boxes,
+          e.x, e.z, Math.cos(a) * step, Math.sin(a) * step, t.radius, ctx.boxes, 8, vert,
         )
         const got = (cand.x - e.x) * Math.cos(a) + (cand.z - e.z) * Math.sin(a)
         if (got >= step * 0.4) {

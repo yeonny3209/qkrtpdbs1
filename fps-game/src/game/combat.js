@@ -24,16 +24,19 @@ export function hitboxesOf(enemy) {
   const headH = h * 0.26
   const bodyTop = h - headH
   const headR = r * 0.62
+  /* 발밑 높이 위에 세운다. 통로에 올라선 적을 0 기준으로 잡으면
+     히트박스가 발밑 바닥에 남아, 눈에 보이는 몸을 쏴도 안 맞는다. */
+  const base = enemy.y || 0
 
   return {
     body: {
       minX: enemy.x - r, maxX: enemy.x + r,
-      minY: 0, maxY: bodyTop,
+      minY: base, maxY: base + bodyTop,
       minZ: enemy.z - r, maxZ: enemy.z + r,
     },
     head: {
       minX: enemy.x - headR, maxX: enemy.x + headR,
-      minY: bodyTop, maxY: h,
+      minY: base + bodyTop, maxY: base + h,
       minZ: enemy.z - headR, maxZ: enemy.z + headR,
     },
   }
@@ -234,9 +237,13 @@ export function meleeSwing(weapon, origin, aimDir, enemies, boxes) {
       if (Math.acos(Math.max(-1, Math.min(1, cos))) > half) continue
     }
 
+    /* 통로 위아래로는 안 닿는다. 아래에서 휘두르는 칼이 2미터 위에
+       선 것을 베면 높은 자리가 아무 의미가 없다. */
+    const cy = (e.y || 0) + t.height * 0.5
+    if (Math.abs(cy - origin.y) > weapon.range) continue
+
     /* 벽 너머는 못 벤다. 얇은 엄폐물을 사이에 두고 칼이 통과하면
        그 벽이 왜 있는지 알 수 없게 된다. */
-    const cy = t.height * 0.5
     if (!hasLineOfSight(origin.x, origin.y, origin.z, e.x, cy, e.z, boxes)) continue
 
     /* 근접은 헤드샷을 따지지 않는다. 부채꼴로 여럿을 동시에 베는데

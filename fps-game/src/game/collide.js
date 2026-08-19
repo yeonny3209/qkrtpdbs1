@@ -12,11 +12,77 @@
    3. 정적 배포에 WASM 을 얹으면 번들이 1MB 넘게 늘고 로딩 실패
       경로가 하나 더 생긴다. 얻는 게 벽 충돌뿐이면 남는 장사가 아니다.
 
-   엄폐물이 전부 점프보다 높아 "위에 올라서기"가 없으므로, 수직 충돌은
-   바닥 평면 y=0 하나로 충분하다. 그래서 이 파일은 XZ 만 다룬다.
+   ── 높이가 생겼다 ──────────────────────────────────────────────
+   처음에는 엄폐물이 전부 점프보다 높아 "위에 올라서기"가 없었고,
+   그래서 바닥 평면 y=0 하나로 충분했다. 이제 계단과 통로가 생겨
+   수직도 다룬다. 규칙은 둘뿐이다.
+
+     · 발밑보다 STEP 이하로 솟은 것은 막지 않는다 — 걸어 올라간다.
+       계단이 이걸로 굴러간다. 턱마다 따로 처리할 필요가 없다.
+     · 그보다 높은 것만 벽이다.
+
+   덕분에 "경사로"를 따로 만들 필요가 없다. 낮은 턱을 여러 개 쌓으면
+   그게 곧 계단이고, 축에 나란한 상자만 쓴다는 원칙도 지켜진다.
    ================================================================== */
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v)
+
+/* 걸어서 올라갈 수 있는 턱 높이. 계단 한 칸은 반드시 이보다 낮아야
+   한다 — 아니면 점프해야 올라가는 계단이 된다. */
+export const STEP_HEIGHT = 0.45
+
+/* 이 상자가 지금 높이에서 벽인가.
+
+   vert 가 없으면 전부 벽이다(높이를 안 따지던 시절의 동작). 발밑
+   가까이 솟은 턱은 통과시키고, 머리 위로 지나가는 것도 통과시킨다 —
+   높은 통로 밑을 지날 수 있어야 한다. */
+function blocks(b, vert) {
+  if (!vert) return true
+  if (b.maxY <= vert.feetY + STEP_HEIGHT) return false   // 걸어 올라갈 턱
+  if (b.minY >= vert.headY) return false                  // 머리 위
+  return true
+}
+
+/* XZ 에서 원이 상자와 겹치는가 */
+function overlapsXZ(cx, cz, r, b) {
+  const nx = clamp(cx, b.minX, b.maxX)
+  const nz = clamp(cz, b.minZ, b.maxZ)
+  const dx = cx - nx
+  const dz = cz - nz
+  return dx * dx + dz * dz < r * r
+}
+
+/* 지금 (x,z) 에서 발이 닿을 높이.
+
+   발밑보다 STEP 이상 높은 것은 밟을 수 없다 — 그건 벽이지 바닥이
+   아니다. 아무것도 없으면 아레나 바닥 0.
+
+   반지름만큼 여유를 두고 보기 때문에 발끝이 조금 걸쳐도 서 있을 수
+   있다. 가장자리에서 칼같이 떨어지면 통로 위에서 싸우는 게 아니라
+   가장자리를 피해 다니는 게임이 된다. */
+export function groundHeightAt(x, z, radius, boxes, feetY) {
+  let best = 0
+  const reach = feetY + STEP_HEIGHT
+  for (const b of boxes) {
+    if (b.maxY > reach || b.maxY <= best) continue
+    if (!overlapsXZ(x, z, radius, b)) continue
+    best = b.maxY
+  }
+  return best
+}
+
+/* 머리가 부딪히는 천장 높이. 없으면 Infinity.
+   통로 밑에서 뛰었을 때 통로를 뚫고 올라가지 않게 한다. */
+export function ceilingAt(x, z, radius, boxes, feetY) {
+  let best = Infinity
+  for (const b of boxes) {
+    if (b.minY < feetY + 0.05) continue     // 발밑 것은 천장이 아니다
+    if (b.minY >= best) continue
+    if (!overlapsXZ(x, z, radius, b)) continue
+    best = b.minY
+  }
+  return best
+}
 
 /* 원이 상자를 파고든 만큼의 밀어내기 벡터. 안 겹치면 null.
 
@@ -60,7 +126,7 @@ export function pushOut(cx, cz, r, box) {
    생긴다. 반복 밀어내기는 그 구석에서 자연스럽게 수렴한다.
 
    4회면 실제 배치(최대 3면이 동시에 닿는 구석)에서 충분하다. */
-export function resolveMove(fromX, fromZ, dx, dz, radius, boxes, iterations = 8) {
+export function resolveMove(fromX, fromZ, dx, dz, radius, boxes, iterations = 8, vert = null) {
   /* 한 번에 반지름보다 많이 움직이면 벽을 건너뛴다. 밀어내기는
      "지금 겹쳤나"만 보기 때문에, 벽 이쪽에서 저쪽으로 한 프레임에
      넘어가 버리면 겹친 순간이 없어서 아무 일도 일어나지 않는다.
@@ -83,6 +149,7 @@ export function resolveMove(fromX, fromZ, dx, dz, radius, boxes, iterations = 8)
     for (let i = 0; i < iterations; i++) {
       let touched = false
       for (const b of boxes) {
+        if (!blocks(b, vert)) continue
         const p = pushOut(x, z, radius, b)
         if (p) {
           x += p.x

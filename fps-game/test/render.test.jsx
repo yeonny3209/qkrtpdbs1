@@ -196,6 +196,28 @@ ok(enemyMeshes > meshCount, `적 메시가 씬에 추가됨 — ${meshCount} →
         closest ? closest.position.z.toFixed(2) : '?')
     }
     ok(found, `적의 렌더 위치가 세션 좌표(${e.x.toFixed(1)}, ${e.z.toFixed(1)})와 일치`)
+
+    /* 높이도 따라가야 한다. 계단과 통로가 생긴 뒤로 적의 y 가 0 이
+       아닐 수 있는데, 그리는 쪽이 0 으로 고정해 두면 통로 위의 적이
+       바닥에 파묻힌 채로 보인다. 걸음 흔들림만큼 여유를 둔다. */
+    if (found) {
+      ok(Math.abs(found.position.y - (e.y || 0)) < 0.2,
+        `적의 렌더 높이가 세션 높이를 따른다 — 화면 ${found.position.y.toFixed(2)} vs 세션 ${(e.y || 0).toFixed(2)}`)
+    }
+
+    /* 통로 위로 올려 두면 그린 것도 같이 올라가는가 */
+    {
+      const before = found ? found.position.y : 0
+      e.y = 2
+      await ReactThreeTestRenderer.act(async () => { await renderer.advanceFrames(2, 1 / 60) })
+      let raised = null
+      renderer.scene.instance.traverse((o) => {
+        if (!raised && o.isGroup && Math.abs(o.position.x - e.x) < 0.4 &&
+            Math.abs(o.position.z - e.z) < 0.4 && o.position.y > 1.5) raised = o
+      })
+      ok(raised, `통로 높이로 올린 적이 그 높이에 그려진다 (이전 ${before.toFixed(2)})`)
+      e.y = 0
+    }
   }
 }
 

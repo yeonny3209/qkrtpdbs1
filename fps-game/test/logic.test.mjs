@@ -58,7 +58,10 @@ section('arena — 맵 구조')
   const { ARENA, ALL_BOXES, COVER_BOXES, WALL_BOXES, SPAWN_POINTS, PLAYER_START, insideArena } = arenaM
   eq(WALL_BOXES.length, 4, '담장 네 짝')
   ok(COVER_BOXES.length >= 8, '엄폐물 충분')
-  eq(ALL_BOXES.length, WALL_BOXES.length + COVER_BOXES.length, '전체 = 담장 + 엄폐물')
+  eq(ALL_BOXES.length,
+    WALL_BOXES.length + COVER_BOXES.length + arenaM.STAIR_BOXES.length,
+    '전체 = 담장 + 엄폐물 + 계단')
+  ok(arenaM.STAIR_BOXES.length >= 8, `계단이 놓여 있다 — ${arenaM.STAIR_BOXES.length}칸`)
 
   for (const b of ALL_BOXES) {
     ok(b.minX < b.maxX && b.minZ < b.maxZ && b.minY < b.maxY, '상자 min<max')
@@ -106,9 +109,10 @@ section('arena — 맵 구조')
   {
     const { MIN_GAP } = arenaM
     const overlap = (aMin, aMax, bMin, bMax) => aMin < bMax - 1e-9 && bMin < aMax - 1e-9
-    for (let i = 0; i < ALL_BOXES.length; i++) {
-      for (let j = i + 1; j < ALL_BOXES.length; j++) {
-        const a = ALL_BOXES[i], b = ALL_BOXES[j]
+    const GAP = arenaM.GAP_CHECKED_BOXES
+    for (let i = 0; i < GAP.length; i++) {
+      for (let j = i + 1; j < GAP.length; j++) {
+        const a = GAP[i], b = GAP[j]
         if (overlap(a.minX, a.maxX, b.minX, b.maxX)) {
           const gap = Math.max(b.minZ - a.maxZ, a.minZ - b.maxZ)
           ok(gap <= 0 || gap >= MIN_GAP, `z 방향 틈이 ${gap.toFixed(2)} (0 이거나 ${MIN_GAP} 이상이어야)`)
@@ -191,6 +195,69 @@ section('collide — 벽 충돌')
       x = res.x; z = res.z
     }
     ok(x <= arenaM.ARENA.half, `벽에 막힘 — x=${x.toFixed(2)}`)
+  }
+
+  /* ── 높이 · 계단 · 통로 ─────────────────────────────────────── */
+  {
+    const { groundHeightAt, ceilingAt, STEP_HEIGHT } = collideM
+    const r = 0.36
+    const boxes = arenaM.ALL_BOXES
+
+    ok(STEP_HEIGHT > 0 && STEP_HEIGHT < 1, `걸어 오를 턱 높이가 온당하다 — ${STEP_HEIGHT}`)
+
+    // 아무것도 없는 곳은 바닥
+    eq(groundHeightAt(0, 0, r, boxes, 0), 0, '광장 한가운데는 바닥')
+
+    /* ★ 계단 한 칸은 반드시 걸어 오를 수 있어야 한다.
+       한 칸이라도 STEP_HEIGHT 를 넘으면 거기서 길이 끊긴다. */
+    {
+      const stairs = [...arenaM.STAIR_BOXES].sort((a, b) => a.maxY - b.maxY)
+      let prev = 0
+      for (const s of stairs) {
+        const rise = s.maxY - prev
+        if (rise <= 0) continue
+        ok(rise <= STEP_HEIGHT + 1e-9,
+          `계단 한 칸이 걸어 오를 높이 — ${rise.toFixed(2)} ≤ ${STEP_HEIGHT}`)
+        prev = s.maxY
+      }
+      /* 마지막 칸에서 통로까지도 한 걸음이어야 한다 */
+      const top = Math.max(...arenaM.STAIR_BOXES.map((s) => s.maxY))
+      ok(arenaM.CATWALK_H - top <= STEP_HEIGHT + 1e-9,
+        `마지막 계단에서 통로까지 한 걸음 — ${(arenaM.CATWALK_H - top).toFixed(2)}`)
+    }
+
+    /* ★ 통로는 바닥에서 점프해도 못 올라가야 한다.
+       올라가지면 계단이 장식이 되고, 길목이라는 설계가 사라진다. */
+    {
+      const jumpApex = (playerM.PLAYER.jumpSpeed ** 2) / (2 * playerM.PLAYER.gravity)
+      const reach = jumpApex + STEP_HEIGHT
+      ok(arenaM.CATWALK_H > reach,
+        `통로(${arenaM.CATWALK_H})가 바닥 점프 도달(${reach.toFixed(2)})보다 높다`)
+      /* 반대로 통로 위에서 점프해도 엄폐물 위로는 못 올라가야 한다 —
+         적이 못 닿는 자리에 올라서면 그 판은 거기서 끝난다 */
+      const fromCatwalk = arenaM.CATWALK_H + reach
+      for (const b of arenaM.COVER_BOXES) {
+        if (Math.abs(b.maxY - arenaM.CATWALK_H) < 1e-6) continue   // 통로 자신
+        ok(b.maxY > fromCatwalk,
+          `엄폐물(${b.maxY})이 통로에서 점프해도 못 닿는 높이(${fromCatwalk.toFixed(2)})`)
+      }
+    }
+
+    // 통로 위에 서면 발밑이 통로 높이
+    {
+      const cw = arenaM.COVER_BOXES.find((b) => Math.abs(b.maxY - arenaM.CATWALK_H) < 1e-6)
+      ok(cw, '통로를 찾았다')
+      const cx = (cw.minX + cw.maxX) / 2
+      const cz = (cw.minZ + cw.maxZ) / 2
+      eq(groundHeightAt(cx, cz, r, boxes, arenaM.CATWALK_H), arenaM.CATWALK_H,
+        '통로 위에 서면 발밑이 통로')
+      /* 통로 밖으로 나가면 떨어질 곳이 바닥이다 */
+      eq(groundHeightAt(0, cz, r, boxes, arenaM.CATWALK_H), 0,
+        '통로 밖은 발밑이 바닥 — 떨어진다')
+    }
+
+    // 천장이 없으면 무한대
+    eq(ceilingAt(0, 0, r, boxes, 0), Infinity, '머리 위가 트여 있다')
   }
 
   // rayBox
@@ -388,6 +455,29 @@ section('combat — 명중과 피해')
     ok(hit && hit.kind === 'enemy', '정면 적 명중')
     eq(hit.enemy.id, e.id, '맞은 적이 그 적')
   }
+  /* ★ 높은 곳에 선 적은 그 높이에서 맞아야 한다.
+
+     히트박스를 바닥(0)에 고정해 두면, 통로 위의 적은 눈에 보이는
+     몸을 정확히 쏴도 안 맞고, 대신 아무것도 없는 발밑 허공을 쏘면
+     맞는다. 높이가 생긴 뒤로 가장 티 안 나게 어긋나기 쉬운 곳이다. */
+  {
+    const e = makeEnemy('trooper', 0, -8)
+    e.state = 'chasing'
+    e.y = 2
+    const t = enemiesM.ENEMY_TYPES.trooper
+    // 올라간 몸통 한가운데를 겨눈다
+    const bodyY = e.y + t.height * 0.4
+    const hit = raycast({ x: 0, y: bodyY, z: 0 }, { x: 0, y: 0, z: -1 }, [e], [], 80)
+    ok(hit && hit.kind === 'enemy', `높이 ${e.y} 에 선 적의 몸통이 맞는다`)
+    // 예전 자리(바닥)를 쏘면 이제 아무것도 없어야 한다
+    const ghost = raycast({ x: 0, y: 0.6, z: 0 }, { x: 0, y: 0, z: -1 }, [e], [], 80)
+    ok(!ghost, '적이 떠난 바닥 높이에는 아무것도 없다')
+    // 머리도 같이 올라간다
+    const headY = e.y + t.height * 0.9
+    const hs = raycast({ x: 0, y: headY, z: 0 }, { x: 0, y: 0, z: -1 }, [e], [], 80)
+    ok(hs && hs.isHeadshot, '올라간 적의 머리도 그 높이에 있다')
+  }
+
   // 죽은 적은 안 맞는다
   {
     const e = makeEnemy('crawler', 0, -10); e.state = 'dead'
@@ -676,6 +766,26 @@ section('enemies — AI 상태 기계')
     ok(t.spawnTime > 0, `${id} 등장 시간`)
   }
   ok(ENEMY_TYPES.crawler.speed < playerM.PLAYER.speed, '가장 빠른 적도 플레이어보다 느림')
+
+  /* ★ 원거리 적의 사거리는 아레나보다 한참 짧아야 한다.
+
+     맵을 거의 덮는 사거리면 어디로 물러나도 누군가의 사거리 안이라,
+     엄폐물을 쓰는 게임이 아니라 맞으면서 버티는 게임이 된다. 물러나서
+     벗어날 수 있어야 "지금 물러날까"가 판단이 된다. */
+  {
+    const span = arenaM.ARENA.half * 2
+    const t = ENEMY_TYPES.trooper
+    ok(t.attackRange < span * 0.55,
+      `트루퍼 사거리(${t.attackRange})가 아레나(${span})의 절반을 넘지 않는다`)
+    ok(t.attackRange > 6, '그래도 원거리 적이라 부를 만큼은 된다')
+    ok(t.preferredRange < t.attackRange, '선호 거리는 사거리 안쪽')
+    /* 근접 적의 사거리는 몸에서 뻗는 길이로 봐야 공평하다 */
+    for (const id of ['crawler', 'brute']) {
+      const e = ENEMY_TYPES[id]
+      ok(e.attackRange - e.radius < 2.2,
+        `${id} 가 몸에서 뻗는 거리가 짧다 — ${(e.attackRange - e.radius).toFixed(2)}`)
+    }
+  }
   ok(ENEMY_TYPES.brute.hp > ENEMY_TYPES.trooper.hp, '브루트가 더 단단')
   ok(ENEMY_TYPES.brute.score > ENEMY_TYPES.crawler.score, '센 놈이 점수 높음')
 
@@ -922,6 +1032,98 @@ section('enemies — AI 상태 기계')
     }
   }
 
+  /* ── 높은 자리는 유리하되 안전하지는 않다 ────────────────────
+     통로에 올라간 것이 이득이어야 만든 보람이 있고, 동시에 적이
+     끝내 못 오는 자리면 그 판은 거기서 끝난다. 둘 다 확인한다. */
+  {
+    const { CATWALK_H } = arenaM
+    /* 동쪽 통로 한가운데에 선 플레이어 */
+    const onCatwalk = { x: 13, y: CATWALK_H, z: 0, eyeY: CATWALK_H + 1.62 }
+
+    /* ★ 높이 차이만으로 사거리 밖이 되는지 — 딱 그 경계에서 본다.
+
+       아레나 배치에 기대면 우연히 멀어서 통과할 수 있다. 수평으로는
+       충분히 가깝고 높이로만 벗어나는 상황을 직접 만들어 확인한다. */
+    {
+      const slab = [{
+        minX: 0, maxX: 4, minY: 0, maxY: 2,
+        minZ: -2, maxZ: 2, cx: 2, cz: 0, w: 4, d: 4, h: 2,
+      }]
+      const above = { x: 0.5, y: 2, z: 0, eyeY: 3.62 }   // 단 위, 가장자리 근처
+      let e = makeEnemy('crawler', -1.2, 0)               // 단 아래 바닥, 코앞
+      e.state = 'chasing'; e.stateT = 1
+      let hits = 0
+      for (let i = 0; i < 240; i++) {
+        const r = tickEnemy(e, { player: above, boxes: slab, rng: rngM.makeRng('h') }, 1 / 60)
+        e = r.enemy
+        hits += r.events.filter((v) => v.type === 'melee').length
+      }
+      const flat = Math.hypot(above.x - e.x, above.z - e.z)
+      ok(flat < ENEMY_TYPES.crawler.attackRange,
+        `수평으로는 사거리 안이다 — ${flat.toFixed(2)} < ${ENEMY_TYPES.crawler.attackRange}`)
+      eq(hits, 0, '수평으로 가까워도 높이가 다르면 못 때린다')
+      eq(e.y, 0, '아래 적은 아래에 있다')
+    }
+
+    /* ★ 바닥에 선 적은 통로 위의 플레이어를 못 때린다.
+
+       출발 자리는 반드시 진짜 바닥이어야 한다. 계단 한가운데에
+       "y=0 인 채로" 놓으면 지형 속에 파묻힌 상태라, 밀어내기가
+       엉뚱한 곳으로 밀어내며 있을 수 없는 자리에서 때리게 된다.
+       그건 게임의 결함이 아니라 시험이 만들어 낸 상황이다. */
+    for (const type of ['crawler', 'brute']) {
+      for (const [sx, sz] of [[13, 5.6], [13, -5.6], [7.5, 0]]) {
+        let e = makeEnemy(type, sx, sz)
+        e.state = 'chasing'; e.stateT = 1
+        let hits = 0
+        for (let i = 0; i < 420; i++) {
+          const r = tickEnemy(e, { player: onCatwalk, boxes, rng: rngM.makeRng('v') }, 1 / 60)
+          e = r.enemy
+          /* 계단을 밟고 올라와 때리는 건 괜찮다 — 거리를 좁힌 것이다.
+             막으려는 건 "바닥에 선 채로" 2미터 위를 때리는 것이다. */
+          if (e.y < 0.5) hits += r.events.filter((v) => v.type === 'melee').length
+        }
+        eq(hits, 0, `${type} 가 (${sx},${sz}) 바닥에서 통로 위를 때리지 못한다`)
+      }
+    }
+
+    /* ★ 그래도 적은 계단으로 올라온다 — 안전지대가 아니다 */
+    {
+      let e = makeEnemy('crawler', 7.5, 0)
+      e.state = 'chasing'; e.stateT = 1
+      let reached = false
+      for (let i = 0; i < 900 && !reached; i++) {
+        e = tickEnemy(e, { player: onCatwalk, boxes, rng: rngM.makeRng('u') }, 1 / 60).enemy
+        if (e.y >= CATWALK_H - 1e-6) reached = true
+      }
+      ok(reached, `크롤러가 계단을 타고 통로까지 올라온다 — y=${e.y.toFixed(2)}`)
+    }
+
+    /* 적도 통로 밖으로 나가면 내려온다 — 공중에 서 있지 않는다 */
+    {
+      let e = makeEnemy('crawler', 13, 0)
+      e.y = CATWALK_H
+      e.state = 'chasing'; e.stateT = 1
+      const ground = { x: 0, y: 0, z: 0, eyeY: 1.62 }
+      for (let i = 0; i < 600; i++) {
+        e = tickEnemy(e, { player: ground, boxes, rng: rngM.makeRng('d') }, 1 / 60).enemy
+      }
+      ok(e.y < CATWALK_H, `통로를 벗어난 적은 내려온다 — y=${e.y.toFixed(2)}`)
+    }
+
+    /* 적의 발밑 높이는 언제나 밟을 수 있는 곳이다 */
+    {
+      const rng = rngM.makeRng('ey')
+      let e = makeEnemy('trooper', 13.5, 8)
+      e.state = 'chasing'; e.stateT = 1
+      for (let i = 0; i < 1200; i++) {
+        e = tickEnemy(e, { player: { x: 0, y: 0, z: 0, eyeY: 1.62 }, boxes, rng }, 1 / 60).enemy
+        ok(e.y >= -1e-6 && e.y <= arenaM.CATWALK_H + 1e-6, `적 높이가 범위 안 — ${e.y}`)
+        ok(Number.isFinite(e.y), '적 높이가 유한')
+      }
+    }
+  }
+
   // 적도 벽을 통과하지 않는다
   {
     let e = makeEnemy('brute', 13, 13)
@@ -967,12 +1169,19 @@ section('waves — 난이도 곡선')
   const { waveComposition, waveTotal, waveScaling, spawnSchedule, pickupsForWave,
           MAX_CRAWLERS, MAX_TROOPERS, MAX_BRUTES, WAVE_BREAK } = waveM
 
-  eq(waveComposition(1).crawler, 6, '1웨이브 크롤러 6')
+  /* 첫 웨이브는 조작을 익히는 시간이다. 종류도 하나여야 한다. */
+  ok(waveComposition(1).crawler > 0 && waveComposition(1).crawler <= 6,
+    `1웨이브는 크롤러 소수 — ${waveComposition(1).crawler}마리`)
   eq(waveComposition(1).trooper, 0, '1웨이브 트루퍼 없음')
   eq(waveComposition(1).brute, 0, '1웨이브 브루트 없음')
-  ok(waveComposition(2).trooper > 0, '2웨이브부터 트루퍼')
-  eq(waveComposition(2).brute, 0, '2웨이브 브루트 아직')
-  ok(waveComposition(3).brute > 0, '3웨이브부터 브루트')
+  eq(waveComposition(2).trooper, 0, '2웨이브도 크롤러만 — 익힐 틈을 준다')
+  ok(waveComposition(3).trooper > 0, '3웨이브부터 트루퍼')
+  eq(waveComposition(3).brute, 0, '3웨이브 브루트 아직')
+  ok(waveComposition(4).brute > 0, '4웨이브부터 브루트')
+  /* 새 종류는 한 번에 하나씩 — 두 종류가 같은 웨이브에 처음 나오면
+     무엇에 당했는지 모른 채 죽는다 */
+  ok(waveTotal(1) <= 6, '1웨이브가 감당할 만하다')
+  ok(waveTotal(3) <= 12, `3웨이브가 감당할 만하다 — ${waveTotal(3)}마리`)
 
   // ★ 단조증가
   {
@@ -1381,6 +1590,123 @@ section('player — 이동·사격·재장전')
     }
     eq(out, 0, '1.8만 프레임 무작위 조작에도 맵 밖으로 못 나감')
   }
+  /* ── 계단을 오르내린다 ──────────────────────────────────────── */
+  {
+    const { CATWALK_H } = arenaM
+    /* 계단 앞(광장 쪽)에 서서 통로 쪽으로 걸어 올라간다.
+       계단은 x 8.6→11 에서 오르고 통로는 x 11~15 이다. */
+    const walkTo = (startX, startZ, yaw, seconds) => {
+      let p = { ...initialPlayer(startX, startZ), yaw }
+      const steps = Math.round(seconds * 60)
+      for (let i = 0; i < steps; i++) p = movePlayer(p, IN({ forward: 1 }), 1 / 60, boxes)
+      return p
+    }
+
+    // 동쪽: +x 를 보고 걸어 올라간다 (yaw 는 -sin/-cos 기준이라 +x 는 -π/2)
+    {
+      const p = walkTo(7.5, 0, -Math.PI / 2, 3)
+      near(p.y, CATWALK_H, 1e-6, `계단을 걸어 올라 통로에 선다 — y=${p.y.toFixed(2)}`)
+      ok(p.x > 11, `통로 위까지 올라갔다 — x=${p.x.toFixed(1)}`)
+      ok(p.onGround, '통로 위에 발이 닿아 있다')
+    }
+    // 서쪽도 대칭으로 올라간다
+    {
+      const p = walkTo(-7.5, 0, Math.PI / 2, 3)
+      near(p.y, CATWALK_H, 1e-6, `서쪽 계단도 올라간다 — y=${p.y.toFixed(2)}`)
+      ok(p.x < -11, `서쪽 통로 위 — x=${p.x.toFixed(1)}`)
+    }
+
+    /* ★ 통로 밖으로 걸어 나가면 떨어진다. 안 떨어지면 공중을 걷는다 */
+    {
+      let p = { ...initialPlayer(13, 0), y: CATWALK_H, yaw: Math.PI / 2 }
+      for (let i = 0; i < 180; i++) p = movePlayer(p, IN({ forward: 1 }), 1 / 60, boxes)
+      near(p.y, 0, 1e-6, `통로를 벗어나면 바닥으로 떨어진다 — y=${p.y.toFixed(2)}`)
+      ok(p.onGround, '떨어진 뒤 착지한다')
+    }
+
+    /* ★ 턱을 밟고 올라서는 순간에 점프해도 점프가 죽지 않는다.
+
+       착지 판정에 "내려오는 중일 때만"이라는 조건이 없으면, 발밑이
+       올라가는 그 프레임에 곧바로 땅에 붙여 버려서 점프가 시작하자마자
+       취소된다. 계단 앞에서 뛰려 할 때마다 안 뛰어지는 증상이 된다. */
+    {
+      const stepEdge = Math.min(...arenaM.STAIR_BOXES.map((s) => s.minX).filter((v) => v > 0))
+      const p0 = { ...initialPlayer(stepEdge - 0.4, 0), yaw: -Math.PI / 2 }
+      const p1 = movePlayer(p0, IN({ forward: 1, jump: 1 }), 1 / 60, boxes)
+      ok(p1.vy > 0, `턱에 올라서는 순간의 점프가 살아 있다 — vy=${p1.vy.toFixed(2)}`)
+      ok(!p1.onGround, '그 프레임에는 공중이다')
+    }
+
+    /* ★ 계단이 아닌 곳에서는 점프해도 통로에 못 올라간다.
+
+       계단 옆(통로 북쪽, z=6)에서 통로를 향해 뛰어 본다. 계단 위에서
+       뛰면 당연히 올라가지므로 계단을 피해 서야 시험이 성립한다. */
+    {
+      let p = { ...initialPlayer(13, 6.5), yaw: 0 }   // -z 를 보고 통로 쪽
+      let landedMax = 0
+      for (let i = 0; i < 300; i++) {
+        p = movePlayer(p, IN({ jump: 1, forward: 1 }), 1 / 60, boxes)
+        if (p.onGround) landedMax = Math.max(landedMax, p.y)
+      }
+      ok(landedMax < CATWALK_H,
+        `계단 밖에서는 점프로 통로에 못 올라선다 — 최고 착지 ${landedMax.toFixed(2)}`)
+    }
+
+    /* 아무 데서나 마구 뛰어다녀도 통로보다 높은 곳에 서지지 않는다.
+
+       공중에 뜬 높이가 아니라 "발이 닿은 높이"로 재야 한다. 통로
+       위에서 뛰면 잠깐은 2.87 까지 오르지만 그건 서 있는 게 아니다.
+       엄폐물 위에 올라설 수 있는지가 확인하려는 것이다. */
+    {
+      const rng = rngM.makeRng('climb')
+      let p = initialPlayer()
+      let standMax = 0
+      for (let i = 0; i < 20000; i++) {
+        p = { ...p, yaw: p.yaw + (rng() - 0.5) * 0.7 }
+        p = movePlayer(p, IN({
+          forward: rng() < 0.7 ? 1 : 0,
+          left: rng() < 0.3 ? 1 : 0, right: rng() < 0.3 ? 1 : 0,
+          jump: rng() < 0.25 ? 1 : 0, sprint: rng() < 0.4 ? 1 : 0,
+        }), 1 / 60, boxes)
+        if (p.onGround) standMax = Math.max(standMax, p.y)
+        ok(Number.isFinite(p.y), '높이가 유한하다')
+      }
+      ok(standMax <= CATWALK_H + 1e-6,
+        `2만 프레임 마구 뛰어도 통로보다 높은 곳엔 못 선다 — 최고 ${standMax.toFixed(2)}`)
+    }
+  }
+
+  /* ── 체력 회복 ──────────────────────────────────────────────── */
+  {
+    let p = { ...initialPlayer(), hp: 40 }
+    p = hurtPlayer(p, 0, null, 0).player      // 회복 시계를 0 으로
+    p = movePlayer(p, NONE, 1, boxes)
+    eq(p.hp, 40, '맞은 직후에는 안 찬다')
+
+    // 대기 시간이 지나면 찬다
+    let q = { ...initialPlayer(), hp: 40, sinceHit: 0 }
+    for (let i = 0; i < 60 * (PLAYER.regenDelay + 3); i++) {
+      q = movePlayer(q, NONE, 1 / 60, boxes)
+    }
+    ok(q.hp > 40, `한동안 안 맞으면 회복한다 — ${q.hp.toFixed(0)}`)
+    ok(q.hp <= PLAYER.maxHp, '최대 체력을 넘지 않는다')
+
+    // 계속 맞으면 안 찬다
+    let r2 = { ...initialPlayer(), hp: 40 }
+    for (let i = 0; i < 600; i++) {
+      r2 = movePlayer(r2, NONE, 1 / 60, boxes)
+      if (i % 10 === 0) r2 = { ...r2, sinceHit: 0 }   // 계속 맞는 중
+    }
+    ok(r2.hp <= 41, `교전 중에는 회복이 안 된다 — ${r2.hp.toFixed(0)}`)
+
+    // 죽은 뒤에는 되살아나지 않는다
+    let d = { ...initialPlayer(), hp: 0, sinceHit: 0 }
+    for (let i = 0; i < 60 * (PLAYER.regenDelay + 5); i++) {
+      d = movePlayer(d, NONE, 1 / 60, boxes)
+    }
+    eq(d.hp, 0, '죽은 뒤에는 회복하지 않는다')
+  }
+
   // aimDir 은 언제나 단위벡터
   {
     const rng = rngM.makeRng('aim')

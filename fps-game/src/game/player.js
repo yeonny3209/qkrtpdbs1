@@ -6,7 +6,7 @@
    키 코드를 여기까지 들이면, 키 배치를 바꾸는 순간 게임 규칙을
    건드려야 한다.
    ================================================================== */
-import { resolveMove } from './collide.js'
+import { resolveMove, groundHeightAt, ceilingAt } from './collide.js'
 import {
   WEAPONS, WEAPON_ORDER, WEAPONS_BY_SLOT, SLOTS,
   shotInterval, reloadAmount, initialAmmo, initialSlots,
@@ -15,6 +15,7 @@ import {
 export const PLAYER = {
   radius: 0.36,
   eyeHeight: 1.62,
+  height: 1.78,          // 머리끝 — 통로 밑을 지날 때 천장 판정에 쓴다
   speed: 5.2,
   sprintMul: 1.55,
   jumpSpeed: 5.6,
@@ -27,6 +28,18 @@ export const PLAYER = {
      세 번 맞아서 체력이 순식간에 녹는데, 그건 어려운 게 아니라
      억울한 것이다. */
   invulnAfterHit: 0.28,
+
+  /* ── 체력 회복 ──────────────────────────────────────────────
+     한동안 안 맞으면 서서히 찬다.
+
+     이게 없으면 앞 웨이브에서 깎인 체력이 그대로 쌓여, 열 번째
+     웨이브의 난이도가 열 번째 웨이브의 실력이 아니라 첫 웨이브에서
+     실수했는지로 정해진다. 회복이 있으면 한 번의 실수가 판 전체를
+     망치지 않고, "지금 물러나서 숨을 돌릴까"라는 판단이 생긴다.
+
+     교전 중에는 안 찬다 — 맞으면서 버티는 게 통하면 안 된다. */
+  regenDelay: 6.0,       // 마지막 피격 후 이만큼 지나야 시작
+  regenRate: 9,          // 초당 회복량
 }
 
 export function initialPlayer(x = 0, z = 0) {
@@ -37,6 +50,7 @@ export function initialPlayer(x = 0, z = 0) {
     onGround: true,
     hp: PLAYER.maxHp,
     invuln: 0,
+    sinceHit: PLAYER.regenDelay,   // 시작하자마자 회복 대기 없이 만피
     yaw: 0,               // 좌우 시점 — 렌더링 쪽 카메라와 동기화
     pitch: 0,
     weapon: 'pistol',
@@ -90,7 +104,10 @@ export function movePlayer(p, input, dt, boxes) {
   const decay = Math.exp(-6 * dt)
   s.knock = { x: s.knock.x * decay, z: s.knock.z * decay }
 
-  const moved = resolveMove(s.x, s.z, dx, dz, PLAYER.radius, boxes)
+  /* 발밑 높이를 기준으로 무엇이 벽인지 정한다. 낮은 턱은 통과시켜
+     걸어 올라가게 하고, 머리 위 구조물도 통과시킨다. */
+  const vert = { feetY: s.y, headY: s.y + PLAYER.height }
+  const moved = resolveMove(s.x, s.z, dx, dz, PLAYER.radius, boxes, 8, vert)
   s.x = moved.x
   s.z = moved.z
 
@@ -101,11 +118,28 @@ export function movePlayer(p, input, dt, boxes) {
   }
   s.vy -= PLAYER.gravity * dt
   s.y += s.vy * dt
-  if (s.y <= 0) {
-    s.y = 0
+
+  /* 밟을 곳 — 계단 한 칸이든 통로든 아레나 바닥이든.
+     떨어지는 중일 때만 착지시킨다. 올라가는 중에 붙잡으면 점프가
+     시작하자마자 취소된다. */
+  const ground = groundHeightAt(s.x, s.z, PLAYER.radius, boxes, s.y)
+  if (s.vy <= 0 && s.y <= ground) {
+    s.y = ground
     s.vy = 0
     s.onGround = true
+  } else if (s.y > ground + 1e-6) {
+    s.onGround = false
   }
+
+  /* 머리를 찧으면 거기서 멈춘다 — 통로를 뚫고 올라가지 않게 */
+  if (s.vy > 0) {
+    const ceil = ceilingAt(s.x, s.z, PLAYER.radius, boxes, s.y)
+    if (s.y + PLAYER.height > ceil) {
+      s.y = Math.max(ground, ceil - PLAYER.height)
+      s.vy = 0
+    }
+  }
+
 
   // ── 연출용 위상 ──────────────────────────────────────────────
   const movedDist = Math.hypot(moved.x - p.x, moved.z - p.z)
@@ -115,6 +149,12 @@ export function movePlayer(p, input, dt, boxes) {
   s.invuln = Math.max(0, s.invuln - dt)
   s.cooldown = Math.max(0, s.cooldown - dt)
   s.recoil = Math.max(0, s.recoil - dt * 6)
+
+  // ── 체력 회복 ────────────────────────────────────────────────
+  s.sinceHit += dt
+  if (s.sinceHit >= PLAYER.regenDelay && s.hp > 0 && s.hp < PLAYER.maxHp) {
+    s.hp = Math.min(PLAYER.maxHp, s.hp + PLAYER.regenRate * dt)
+  }
 
   return s
 }
@@ -234,6 +274,7 @@ export function hurtPlayer(p, amount, knockDir, knockPower = 0) {
     ...p,
     hp: Math.max(0, p.hp - amount),
     invuln: PLAYER.invulnAfterHit,
+    sinceHit: 0,                   // 맞았으니 회복 시계를 처음부터
   }
   if (knockPower > 0 && knockDir) {
     s.knock = {

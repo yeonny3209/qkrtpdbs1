@@ -200,7 +200,7 @@ export default function Enemy({ id, sessionRef }) {
     const e = s.enemies.find((v) => v.id === id)
     if (!e) return
 
-    group.current.position.set(e.x, 0, e.z)
+    group.current.position.set(e.x, e.y || 0, e.z)
     group.current.rotation.y = e.facing
 
     const t = ENEMY_TYPES[e.type]
@@ -209,22 +209,22 @@ export default function Enemy({ id, sessionRef }) {
       /* 바닥에서 솟아오른다. 갑자기 나타나는 것보다 어디서 나오는지
          알려 주는 편이 낫다 — 반응할 시간이 생긴다. */
       const p = Math.min(1, e.stateT / t.spawnTime)
-      group.current.position.y = -t.height * (1 - p)
+      group.current.position.y = (e.y || 0) - t.height * (1 - p)
       inner.current.scale.setScalar(look.scale)
     } else if (e.state === 'dead') {
       /* 앞으로 고꾸라지며 가라앉는다 */
       const p = Math.min(1, e.stateT / CORPSE_LINGER)
       inner.current.rotation.x = p * 1.35
-      group.current.position.y = -p * t.height * 0.75
+      group.current.position.y = (e.y || 0) - p * t.height * 0.75
       inner.current.scale.setScalar(look.scale * (1 - p * 0.25))
     } else {
-      group.current.position.y = 0
+      group.current.position.y = e.y || 0
       inner.current.rotation.x = 0
       /* 걸을 때 위아래로 조금 흔들린다. 종류마다 주기를 달리해
          무리가 한 몸처럼 움직이지 않게 한다. */
       const bobF = e.type === 'brute' ? 3.1 : e.type === 'trooper' ? 6 : 11
       const bobA = e.type === 'brute' ? 0.05 : 0.035
-      group.current.position.y = Math.abs(Math.sin(e.age * bobF)) * bobA
+      group.current.position.y = (e.y || 0) + Math.abs(Math.sin(e.age * bobF)) * bobA
       inner.current.scale.setScalar(look.scale)
     }
 

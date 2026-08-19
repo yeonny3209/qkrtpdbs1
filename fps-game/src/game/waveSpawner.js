@@ -13,17 +13,24 @@
 import { SPAWN_POINTS } from './arena.js'
 import { intOf } from './rng.js'
 
-export const MAX_CRAWLERS = 20
-export const MAX_TROOPERS = 12
-export const MAX_BRUTES = 6
+export const MAX_CRAWLERS = 18
+export const MAX_TROOPERS = 10
+export const MAX_BRUTES = 5
 
-/* n 번째 웨이브의 구성 */
+/* n 번째 웨이브의 구성.
+
+   처음보다 완만하게 낮췄다. 예전 곡선은 3웨이브에 이미 15마리,
+   5웨이브에 24마리였는데, 무기가 소총 하나뿐인 시점에 감당할 수
+   있는 양이 아니었다. 지금은 같은 자리에서 8마리, 16마리다.
+
+   종류가 나오는 시점도 한 칸씩 미뤘다. 트루퍼는 3웨이브, 브루트는
+   4웨이브 — 새 적을 하나씩 익힐 틈을 준다. */
 export function waveComposition(n) {
   const w = Math.max(1, Math.floor(n))
   return {
-    crawler: Math.min(4 + w * 2, MAX_CRAWLERS),
-    trooper: w >= 2 ? Math.min((w - 1) * 2, MAX_TROOPERS) : 0,
-    brute: w >= 3 ? Math.min(Math.floor((w - 2) / 2) + 1, MAX_BRUTES) : 0,
+    crawler: Math.min(3 + Math.floor(w * 1.5), MAX_CRAWLERS),
+    trooper: w >= 3 ? Math.min(Math.floor((w - 2) * 1.5), MAX_TROOPERS) : 0,
+    brute: w >= 4 ? Math.min(Math.floor((w - 3) / 2) + 1, MAX_BRUTES) : 0,
   }
 }
 
@@ -33,8 +40,9 @@ export function waveTotal(n) {
 }
 
 /* 개체수 상한에 걸린 뒤로도 난이도가 오르게 하는 배율.
-   10 웨이브부터 서서히 붙어서, 초반에는 순수하게 수로만 는다. */
-/* 속도 배율 상한.
+   초반에는 순수하게 수로만 늘고, 수가 상한에 닿은 뒤에 붙는다.
+
+   속도 배율 상한.
 
    가장 빠른 적(크롤러 4.3)이 이 배율을 받아도 플레이어 이동(5.2)보다
    느려야 한다. 4.3 × 1.18 = 5.07. 적이 더 빨라지는 순간 "물러나며
@@ -43,10 +51,13 @@ export function waveTotal(n) {
 export const MAX_SPEED_SCALE = 1.18
 
 export function waveScaling(n) {
-  const over = Math.max(0, n - 9)
+  /* 배율이 붙기 시작하는 웨이브를 9 → 12 로 미뤘고 증가폭도 줄였다.
+     개체수 상한에 닿기도 전에 체력까지 붇던 것이, 중반부터 갑자기
+     안 죽는 느낌의 원인이었다. */
+  const over = Math.max(0, n - 12)
   return {
-    hp: 1 + over * 0.12,
-    speed: Math.min(MAX_SPEED_SCALE, 1 + over * 0.02),
+    hp: 1 + over * 0.09,
+    speed: Math.min(MAX_SPEED_SCALE, 1 + over * 0.015),
   }
 }
 
@@ -75,7 +86,7 @@ export function spawnSchedule(n, rng) {
 
   /* 웨이브가 커질수록 간격을 좁힌다. 안 그러면 후반 웨이브가
      길어지기만 하고 밀도는 그대로다. */
-  const gap = Math.max(0.28, 1.15 - n * 0.045)
+  const gap = Math.max(0.38, 1.25 - n * 0.04)
 
   let last = -1
   return queue.map((type, i) => {
@@ -89,7 +100,7 @@ export function spawnSchedule(n, rng) {
 }
 
 /* 웨이브 사이 쉬는 시간 */
-export const WAVE_BREAK = 5.0
+export const WAVE_BREAK = 7.0
 
 /* 무기가 풀리는 순서.
 
