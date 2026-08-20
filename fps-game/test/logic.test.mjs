@@ -11,6 +11,8 @@ const [rngM, arenaM, collideM, weaponsM, combatM, enemiesM, waveM, scoreM, playe
     load('combat.js'), load('enemies.js'), load('waveSpawner.js'),
     load('score.js'), load('player.js'),
   ])
+const diffM = await load('difficulty.js')
+const sessionM = await load('session.js')
 
 let pass = 0, fail = 0
 const fails = []
@@ -289,6 +291,7 @@ section('weapons — 무기 수치')
   const {
     WEAPONS, WEAPON_ORDER, SLOTS, SLOT_LABEL, SLOT_KEY, WEAPONS_BY_SLOT,
     shotInterval, needsReload, reloadAmount, initialAmmo, initialSlots,
+    DEFAULT_LOADOUT,
   } = weaponsM
 
   eq(SLOTS.length, 3, '슬롯 셋 — 주무기 · 보조 · 근접')
@@ -359,9 +362,14 @@ section('weapons — 무기 수치')
   ok(S.pierceFalloff > 0 && S.pierceFalloff < 1, '관통할수록 약해진다')
   ok(S.damage >= enemiesM.ENEMY_TYPES.trooper.hp, '저격총 한 발에 트루퍼가 죽는다')
   eq(S.spread, 0, '저격총은 탄퍼짐이 없다')
-  for (const id of WEAPON_ORDER) {
-    if (id === 'sniper') continue
-    ok(!WEAPONS[id].pierce, `${id} 는 관통하지 않는다`)
+  /* 관통은 특별해야 한다. 절반이 관통하면 그건 축이 아니라 기본값이다. */
+  const piercers = WEAPON_ORDER.filter((id) => WEAPONS[id].pierce)
+  ok(piercers.length >= 1, '관통 무기가 있다')
+  ok(piercers.length <= 3, `관통은 소수에게만 — ${piercers.join(', ')}`)
+  for (const id of piercers) {
+    ok(WEAPONS[id].slot === 'primary', `${id} 관통은 주무기 자리에만`)
+    ok(WEAPONS[id].pierceFalloff > 0 && WEAPONS[id].pierceFalloff < 1,
+      `${id} 는 관통할수록 약해진다`)
   }
 
   // 근접무기
@@ -398,17 +406,41 @@ section('weapons — 무기 수치')
   eq(reloadAmount(WEAPONS.rifle, { inMag: 10, reserve: 0 }), 0, '예비탄 없음')
 
   eq(reloadAmount(WEAPONS.knife, { inMag: 0, reserve: 0 }), 0, '나이프는 재장전할 것이 없다')
+  /* 탄창 수치가 어떻든 근접무기는 재장전하지 않는다. 지금은 mag 가
+     0 이라 저절로 0 이 나오지만, 그건 우연이지 규칙이 아니다 —
+     규칙 쪽을 직접 시험해야 나중에 수치를 바꿔도 안 깨진다. */
+  eq(reloadAmount({ noAmmo: true, mag: 30 }, { inMag: 0, reserve: 999 }), 0,
+    '탄창이 있어도 근접무기는 재장전하지 않는다')
 
   const a = initialAmmo()
-  ok(a.pistol.owned, '권총 소지')
-  ok(a.knife.owned, '나이프 소지')
-  ok(!a.rifle.owned && !a.shotgun.owned, '주무기는 주워야')
+  /* 기본 구성으로 만들면 그 셋만 소지한다 */
+  const owned0 = WEAPON_ORDER.filter((id) => a[id].owned)
+  eq(owned0.length, 3, '고른 셋만 가진다')
+  for (const slot of SLOTS) ok(a[DEFAULT_LOADOUT[slot]].owned, `${slot} 은 소지`)
   eq(a.pistol.reserve, Infinity, '권총 무한')
+  /* 안 고른 것은 예비탄도 0 이라, 주워도 바로 쏠 수 없다 */
+  for (const id of WEAPON_ORDER) {
+    if (a[id].owned) continue
+    eq(a[id].reserve, 0, `${id} 는 안 골랐으니 예비탄 0`)
+  }
 
+  /* 슬롯 셋이 로비에서 고른 것으로 채워진다. 빈 자리가 없어야
+     한다 — 안 고른 자리가 있으면 그 숫자키가 먹통이 된다. */
   const sl = initialSlots()
-  eq(sl.primary, null, '주무기 자리는 비어 있다')
-  eq(sl.secondary, 'pistol', '보조무기는 권총')
-  eq(sl.melee, 'knife', '근접무기는 나이프')
+  for (const slot of SLOTS) {
+    ok(sl[slot], `${slot} 자리가 채워져 있다`)
+    eq(WEAPONS[sl[slot]].slot, slot, `${slot} 자리에 그 슬롯 무기가 들어간다`)
+  }
+  /* 고른 것을 그대로 쓴다 */
+  const custom = initialSlots({ primary: 'minigun', secondary: 'magnum', melee: 'hammer' })
+  eq(custom.primary, 'minigun', '고른 주무기가 들어간다')
+  eq(custom.secondary, 'magnum', '고른 보조무기가 들어간다')
+  eq(custom.melee, 'hammer', '고른 근접무기가 들어간다')
+  /* 엉뚱한 자리에 넣으면 기본값으로 돌린다 */
+  const bad = initialSlots({ primary: 'knife', secondary: 'zzz', melee: 'sniper' })
+  for (const slot of SLOTS) {
+    eq(WEAPONS[bad[slot]].slot, slot, `${slot} 에 잘못 넣어도 그 슬롯 무기로 고쳐진다`)
+  }
 }
 
 // ══════════════════════════════════════════════════════ combat
@@ -1276,8 +1308,6 @@ section('waves — 난이도 곡선')
   ok(WAVE_BREAK > 0, '웨이브 사이 휴식 있음')
 
   // 픽업
-  ok(pickupsForWave(2).some((p) => p.weapon === 'rifle'), '2웨이브 소총')
-  ok(pickupsForWave(4).some((p) => p.weapon === 'shotgun'), '4웨이브 샷건')
   eq(pickupsForWave(1).length, 0, '1웨이브는 보급 없음')
   {
     let ammoWaves = 0
@@ -1285,46 +1315,26 @@ section('waves — 난이도 곡선')
     ok(ammoWaves >= 10, `탄약 보급이 꾸준히 나옴 — 30웨이브 중 ${ammoWaves}회`)
   }
   {
-    /* ★ 모든 무기가 정확히 한 번씩 풀려야 한다.
+    /* ★ 웨이브 보급에는 무기가 없어야 한다.
 
-       무기를 하나 더 넣고 해제 표에 적는 걸 잊으면, 코드 어디에도
-       오류가 없는 채로 영영 못 쥐는 무기가 생긴다. 만든 사람만
-       있는 줄 아는 무기가 되는 것이다. */
-    const seen = new Map()
+       무기는 로비에서 고른다. 웨이브 도중에 다른 총이 굴러다니면
+       "고른다"는 행위가 두 군데로 쪼개져서 로비의 선택이 가벼워진다.
+       그래서 보급은 탄약과 체력뿐이다. */
+    const kinds = new Set()
     for (let n = 1; n <= 200; n++) {
-      for (const p of pickupsForWave(n)) {
-        if (p.kind !== 'weapon') continue
-        seen.set(p.weapon, (seen.get(p.weapon) || 0) + 1)
-      }
+      for (const p of pickupsForWave(n)) kinds.add(p.kind)
     }
-    const starting = weaponsM.STARTING_WEAPONS
-    for (const id of weaponsM.WEAPON_ORDER) {
-      if (starting.includes(id)) {
-        ok(!seen.has(id), `${id} 는 처음부터 있으므로 안 떨어진다`)
-      } else {
-        eq(seen.get(id), 1, `${id} 는 정확히 한 번 떨어진다`)
-      }
-    }
-    eq(seen.size, weaponsM.WEAPON_ORDER.length - starting.length,
-      '떨어지는 무기 수 = 전체 - 처음부터 가진 것')
+    ok(!kinds.has('weapon'), '보급으로 무기가 떨어지지 않는다')
+    ok(kinds.has('ammo'), '탄약은 떨어진다')
+    ok(kinds.has('health'), '체력도 떨어진다')
 
-    /* 해제 표에 없는 이름이 적혀 있으면 그 웨이브는 아무것도 안 준다 */
-    for (const id of Object.values(waveM.WEAPON_UNLOCKS)) {
-      ok(weaponsM.WEAPONS[id], `해제 표의 ${id} 가 실제 무기다`)
+    /* 탄약이 꾸준히 나와야 한다. 고른 무기로 끝까지 가야 하니
+       탄이 마르는 것이 실력이 아니라 운이 되면 안 된다. */
+    let ammoWaves2 = 0
+    for (let n = 2; n <= 30; n++) {
+      if (pickupsForWave(n).some((p) => p.kind === 'ammo')) ammoWaves2++
     }
-    /* 한 웨이브에 무기 하나씩 — 몰아 주면 무엇이 달라졌는지 모른다 */
-    for (let n = 1; n <= 200; n++) {
-      const guns = pickupsForWave(n).filter((p) => p.kind === 'weapon')
-      ok(guns.length <= 1, `${n}웨이브에 무기는 많아야 하나`)
-    }
-    /* 슬롯이 한쪽으로 쏠리지 않게 — 처음 다섯 자루 안에 세 슬롯이
-       모두 한 번씩은 나와야 한다 */
-    const order = []
-    for (let n = 1; n <= 200; n++) {
-      for (const p of pickupsForWave(n)) if (p.kind === 'weapon') order.push(p.weapon)
-    }
-    const firstFive = new Set(order.slice(0, 5).map((id) => weaponsM.WEAPONS[id].slot))
-    ok(firstFive.size >= 2, `초반 해제가 한 슬롯에 몰리지 않는다 — ${[...firstFive].join(',')}`)
+    ok(ammoWaves2 >= 25, `2웨이브부터는 거의 매번 탄약이 나온다 — ${ammoWaves2}/29`)
   }
 }
 
@@ -1465,7 +1475,15 @@ section('player — 이동·사격·재장전')
 
   const p0 = initialPlayer()
   eq(p0.hp, PLAYER.maxHp, '시작 체력 최대')
-  eq(p0.weapon, 'pistol', '권총으로 시작')
+  eq(p0.weapon, weaponsM.DEFAULT_LOADOUT.primary, '고른 주무기를 들고 시작한다')
+  eq(p0.slots.secondary, weaponsM.DEFAULT_LOADOUT.secondary, '보조 자리도 채워져 있다')
+  eq(p0.slots.melee, weaponsM.DEFAULT_LOADOUT.melee, '근접 자리도 채워져 있다')
+  /* 고른 셋만 가진다 — 나머지는 이 판에 없다 */
+  {
+    const owned = weaponsM.WEAPON_ORDER.filter((id) => p0.ammo[id].owned)
+    eq(owned.length, 3, '가진 무기는 셋뿐')
+    for (const id of owned) ok(Object.values(p0.slots).includes(id), `${id} 는 고른 것`)
+  }
   ok(p0.onGround, '땅에 서서 시작')
   near(eyeOf(p0), PLAYER.eyeHeight, 1e-9, '눈높이')
 
@@ -1721,7 +1739,11 @@ section('player — 이동·사격·재장전')
 
   // ── 사격 ──
   {
-    let p = initialPlayer()
+    /* 권총 수치를 보려면 보조무기를 꺼내야 한다. 시작 무기는
+       로비에서 고른 주무기다. */
+    let p = playerM.switchSlot(initialPlayer(), 'secondary')
+    p = { ...p, cooldown: 0 }
+    eq(p.weapon, 'pistol', '보조무기는 권총')
     ok(canFire(p), '처음엔 쏠 수 있음')
     const before = p.ammo.pistol.inMag
     p = consumeShot(p)
@@ -1733,7 +1755,8 @@ section('player — 이동·사격·재장전')
   }
   // 탄창을 비우면 자동 재장전
   {
-    let p = initialPlayer()
+    let p = playerM.switchSlot(initialPlayer(), 'secondary')
+    p = { ...p, cooldown: 0 }
     for (let i = 0; i < WEAPONS.pistol.mag; i++) {
       p = consumeShot(p)
       p = { ...p, cooldown: 0 }
@@ -1778,8 +1801,8 @@ section('player — 이동·사격·재장전')
   }
   // 재장전 중 R 을 또 눌러도 늘어나지 않는다
   {
-    let p = initialPlayer()
-    p = { ...p, ammo: { ...p.ammo, pistol: { ...p.ammo.pistol, inMag: 1 } } }
+    let p = playerM.switchSlot(initialPlayer(), 'secondary')
+    p = { ...p, cooldown: 0, ammo: { ...p.ammo, pistol: { ...p.ammo.pistol, inMag: 1 } } }
     p = startReload(p)
     const t = p.reloading
     p = tickReload(p, 0.3)
@@ -1789,13 +1812,18 @@ section('player — 이동·사격·재장전')
   // 무기 전환
   {
     let p = initialPlayer()
-    eq(switchWeapon(p, 'rifle').weapon, 'pistol', '없는 무기로는 못 바꿈')
-    eq(switchWeapon(p, 'nope').weapon, 'pistol', '없는 아이디는 무시')
-    p = grantPickup(p, { kind: 'weapon', weapon: 'rifle' })
-    eq(p.weapon, 'rifle', '처음 주운 무기는 바로 손에')
-    ok(p.ammo.rifle.owned, '소지 표시')
-    p = grantPickup(p, { kind: 'weapon', weapon: 'shotgun' })
-    eq(p.weapon, 'shotgun', '샷건도 바로')
+    const start = p.weapon
+    /* 로비에서 안 고른 무기로는 못 바꾼다 */
+    const notPicked = weaponsM.WEAPON_ORDER.find((id) => !p.ammo[id].owned)
+    ok(notPicked, '안 고른 무기가 있다')
+    eq(switchWeapon(p, notPicked).weapon, start, '안 고른 무기로는 못 바꿈')
+    eq(switchWeapon(p, 'nope').weapon, start, '없는 아이디는 무시')
+
+    /* 주우면 그때부터 들 수 있다 (지금 규칙에서는 안 쓰이지만
+       grantPickup 자체는 살아 있어야 한다) */
+    p = grantPickup(p, { kind: 'weapon', weapon: notPicked })
+    ok(p.ammo[notPicked].owned, '주우면 소지 표시')
+    eq(p.weapon, notPicked, '처음 주운 무기는 바로 손에')
     p = switchWeapon(p, 'pistol')
     eq(p.weapon, 'pistol', '권총으로 복귀')
     // 순환 — 가진 무기를 전부 한 번씩 거치고 제자리로
@@ -1861,6 +1889,32 @@ section('player — 이동·사격·재장전')
     eq(p.weapon, notFirst, '주무기 자리가 마지막에 들던 것을 기억한다')
   }
 
+  /* ★ 어떤 구성을 골라도 결국 쓸 것이 남는다.
+
+     무기를 로비에서 고르게 된 뒤로, 예비탄이 무한한 것은 권총뿐이다.
+     권총을 안 고르면 언젠가 모든 탄이 마르는데, 그때 손이 비면
+     게임이 끝난 것도 아니면서 아무것도 못 하는 상태가 된다.
+     근접무기가 그 바닥을 받쳐 준다. */
+  {
+    const { switchSlot } = playerM
+    for (const melee of weaponsM.WEAPONS_BY_SLOT.melee) {
+      let p = initialPlayer(0, 0, {
+        loadout: { primary: 'sniper', secondary: 'magnum', melee },
+      })
+      // 모든 탄약을 말린다
+      const dried = { ...p.ammo }
+      for (const id of weaponsM.WEAPON_ORDER) {
+        dried[id] = { ...dried[id], inMag: 0, reserve: 0 }
+      }
+      p = { ...p, ammo: dried, cooldown: 0, reloading: 0 }
+
+      p = switchSlot(p, 'melee')
+      p = { ...p, cooldown: 0 }
+      eq(p.weapon, melee, `${melee} 로 바꿀 수 있다`)
+      ok(canFire(p), `탄이 다 말라도 ${melee} 는 휘두를 수 있다`)
+    }
+  }
+
   /* ── 근접무기는 탄약을 쓰지 않는다 ───────────────────────────── */
   {
     const { switchSlot } = playerM
@@ -1888,12 +1942,15 @@ section('player — 이동·사격·재장전')
   }
   // 이미 가진 무기를 또 주우면 탄약 보급
   {
+    /* 안 고른 무기로 해야 한다. 고른 무기는 예비탄이 이미 꽉 차
+       있어서 더 넣어도 안 늘고, 그러면 시험이 아무것도 안 잰다. */
     let p = initialPlayer()
-    p = grantPickup(p, { kind: 'weapon', weapon: 'rifle' })
-    const r1 = p.ammo.rifle.reserve
-    p = grantPickup(p, { kind: 'weapon', weapon: 'rifle' })
-    ok(p.ammo.rifle.reserve > r1, '중복 획득은 탄약으로')
-    ok(p.ammo.rifle.reserve <= WEAPONS.rifle.reserve, '예비탄 상한')
+    const id = weaponsM.WEAPON_ORDER.find((w) => !p.ammo[w].owned && !WEAPONS[w].noAmmo)
+    p = grantPickup(p, { kind: 'weapon', weapon: id })
+    const r1 = p.ammo[id].reserve
+    p = grantPickup(p, { kind: 'weapon', weapon: id })
+    ok(p.ammo[id].reserve > r1, `중복 획득은 탄약으로 — ${id} ${r1} → ${p.ammo[id].reserve}`)
+    ok(p.ammo[id].reserve <= WEAPONS[id].reserve, '예비탄 상한')
   }
   // 탄약 픽업
   {
@@ -1961,6 +2018,313 @@ section('player — 이동·사격·재장전')
     hurtPlayer(p, 10, { x: 1, z: 0 }, 5)
     grantPickup(p, { kind: 'weapon', weapon: 'rifle' })
     eq(JSON.stringify(p), snap, 'player 함수들이 입력을 변형하지 않음')
+  }
+}
+
+
+// ══════════════════════════════════════════════════════ 난이도
+section('난이도 — 다섯 단계')
+{
+  const { DIFFICULTIES, getDifficulty, clampSpeedScale, combinedScaling, SPEED_CEILING } = diffM
+  const { PLAYER } = playerM
+
+  eq(DIFFICULTIES.length, 5, '다섯 단계')
+  const names = DIFFICULTIES.map((d) => d.name)
+  eq(new Set(names).size, 5, '이름이 서로 다르다')
+  eq(new Set(DIFFICULTIES.map((d) => d.id)).size, 5, '아이디가 서로 다르다')
+  for (const d of DIFFICULTIES) {
+    ok(d.name && d.desc && d.color, `${d.id} 에 이름·설명·색이 있다`)
+    ok(d.hp > 0 && d.damage > 0 && d.count > 0, `${d.id} 배율이 양수`)
+    ok(d.regen >= 0, `${d.id} 회복은 음수가 아니다`)
+  }
+
+  /* ★ 단계는 실제로 순서대로 어려워져야 한다. 이름만 다르고 숫자가
+     뒤섞여 있으면 "고급"이 "중급"보다 쉬울 수 있다. */
+  for (let i = 1; i < DIFFICULTIES.length; i++) {
+    const a = DIFFICULTIES[i - 1], b = DIFFICULTIES[i]
+    ok(b.hp > a.hp, `${b.name} 이 ${a.name} 보다 단단하다`)
+    ok(b.damage > a.damage, `${b.name} 이 ${a.name} 보다 아프다`)
+    ok(b.count > a.count, `${b.name} 이 ${a.name} 보다 많이 온다`)
+    ok(b.accuracy > a.accuracy, `${b.name} 이 ${a.name} 보다 잘 맞힌다`)
+    ok(b.speed >= a.speed, `${b.name} 이 ${a.name} 보다 느리지 않다`)
+    ok(b.regen <= a.regen, `${b.name} 이 ${a.name} 보다 회복이 안 된다`)
+  }
+
+  /* 기준은 중급 — 전부 1배여야 다른 단계를 여기서 잰다는 말이 산다 */
+  const normal = getDifficulty('normal')
+  for (const k of ['hp', 'damage', 'speed', 'accuracy', 'count', 'regen']) {
+    eq(normal[k], 1, `중급의 ${k} 는 1배`)
+  }
+  eq(getDifficulty('없는단계').id, 'normal', '모르는 이름은 기준으로')
+  eq(getDifficulty(undefined).id, 'normal', '안 고르면 기준으로')
+
+  /* 신화는 회복이 없다 — 그게 그 단계의 정체다 */
+  eq(getDifficulty('mythic').regen, 0, '신화는 회복 없음')
+  ok(getDifficulty('novice').regen > 1, '초급은 회복이 빠르다')
+
+  /* ★ 어떤 단계에서도 적이 플레이어보다 빠를 수 없다.
+
+     여기가 무너지면 "물러나며 쏘기"가 통하지 않게 되는데, 그건
+     어려워지는 게 아니라 대응할 방법이 사라지는 것이다. 웨이브
+     배율과 난이도 배율이 곱해지므로 각각은 얌전해도 합치면 넘긴다. */
+  const fastest = Math.max(...Object.values(enemiesM.ENEMY_TYPES).map((t) => t.speed))
+  for (const d of DIFFICULTIES) {
+    for (let n = 1; n <= 400; n++) {
+      const sc = combinedScaling(waveM.waveScaling(n), d)
+      ok(fastest * sc.speed < PLAYER.speed,
+        `${d.name} ${n}웨이브에서도 적(${(fastest * sc.speed).toFixed(2)})이 플레이어(${PLAYER.speed})보다 느리다`)
+      ok(sc.hp > 0 && Number.isFinite(sc.hp), '체력 배율이 온당하다')
+    }
+  }
+  ok(clampSpeedScale(999) <= SPEED_CEILING, '천장 위로는 안 올라간다')
+  eq(clampSpeedScale(0.5), 0.5, '천장 아래는 그대로')
+
+  /* 난이도가 실제로 세션에 먹히는가 — 같은 씨앗으로 두 판을 만들어
+     첫 적의 체력을 비교한다 */
+  {
+    const mk = (id) => {
+      const ss = sessionM.createSession(42, { difficulty: id })
+      const input = { forward: false, back: false, left: false, right: false,
+        jump: false, sprint: false, fire: false, firePressed: false,
+        reload: false, switchSlot: null, cycle: 0, yaw: 0, pitch: 0 }
+      for (let i = 0; i < 400; i++) sessionM.stepSession(ss, input, 1 / 60)
+      return ss
+    }
+    const easy = mk('novice')
+    const hard = mk('mythic')
+    ok(easy.enemies.length > 0 && hard.enemies.length > 0, '두 판 다 적이 나왔다')
+    ok(hard.enemies[0].hp > easy.enemies[0].hp,
+      `신화의 적이 초급보다 단단하다 — ${easy.enemies[0].hp} vs ${hard.enemies[0].hp}`)
+    ok(hard.enemies[0].dmgScale > easy.enemies[0].dmgScale, '신화의 적이 더 아프다')
+    eq(easy.player.regenMul, diffM.getDifficulty('novice').regen, '초급 회복 배율이 전달된다')
+    eq(hard.player.regenMul, 0, '신화는 회복이 꺼져 있다')
+  }
+}
+
+// ══════════════════════════════════════════════════════ 방아쇠
+section('방아쇠 — 점사 · 예열 · 차지')
+{
+  const { WEAPONS, fireMode, FIRE_MODE_LABEL, shotInterval, chargeMultiplier } = weaponsM
+  const { initialPlayer, tickTrigger, resetTrigger, switchSlot } = playerM
+
+  /* 발사 방식이 골고루 있어야 "다양하다"는 말이 산다 */
+  const modes = new Set(Object.values(WEAPONS).map(fireMode))
+  ok(modes.size >= 5, `발사 방식이 다섯 갈래 이상 — ${[...modes].join(', ')}`)
+  for (const m of modes) ok(FIRE_MODE_LABEL[m], `${m} 에 이름표가 있다`)
+
+  // ── 예열 ──────────────────────────────────────────────────────
+  {
+    const w = WEAPONS.minigun
+    ok(w.spinUp > 0 && w.spinMin > 0 && w.spinMin < 1, '미니건에 예열 수치가 있다')
+    /* 안 돌았을 때가 다 돌았을 때보다 느려야 한다 */
+    ok(shotInterval(w, 0) > shotInterval(w, 1), '예열 전이 예열 후보다 느리다')
+    near(shotInterval(w, 1), 60 / w.rpm, 1e-9, '다 돌면 규격 연사')
+    near(shotInterval(w, 0), 60 / (w.rpm * w.spinMin), 1e-9, '안 돌면 최저 연사')
+
+    let p = initialPlayer(0, 0, { loadout: { primary: 'minigun', secondary: 'pistol', melee: 'knife' } })
+    eq(p.spin, 0, '처음엔 안 돌아 있다')
+    for (let i = 0; i < Math.ceil(w.spinUp * 60) + 5; i++) p = tickTrigger(p, true, 1 / 60)
+    near(p.spin, 1, 1e-6, '누르고 있으면 끝까지 돈다')
+    for (let i = 0; i < Math.ceil(w.spinDown * 60) + 5; i++) p = tickTrigger(p, false, 1 / 60)
+    near(p.spin, 0, 1e-6, '놓으면 식는다')
+
+    /* ★ 무기를 바꾸면 회전이 풀려야 한다. 안 그러면 미니건을 돌려
+       놓고 칼로 바꿨다 꺼내는 것만으로 공짜 최대 연사가 된다. */
+    let q = initialPlayer(0, 0, { loadout: { primary: 'minigun', secondary: 'pistol', melee: 'knife' } })
+    for (let i = 0; i < 200; i++) q = tickTrigger(q, true, 1 / 60)
+    ok(q.spin > 0.9, '충분히 돌려 놓았다')
+    q = switchSlot({ ...q, cooldown: 0 }, 'melee')
+    eq(q.spin, 0, '무기를 바꾸면 회전이 풀린다')
+    eq(resetTrigger({ ...q, spin: 1, charge: 1, burstLeft: 3 }).spin, 0, 'resetTrigger 가 비운다')
+  }
+
+  // ── 차지 ──────────────────────────────────────────────────────
+  {
+    const w = WEAPONS.railgun
+    ok(w.charge > 0 && w.chargeMax > 1, '레일건에 차지 수치가 있다')
+    near(chargeMultiplier(w, 0), 1, 1e-9, '안 모으면 1배')
+    near(chargeMultiplier(w, 1), w.chargeMax, 1e-9, '다 모으면 최대 배율')
+    ok(chargeMultiplier(w, 0.5) > 1 && chargeMultiplier(w, 0.5) < w.chargeMax, '중간은 중간')
+    /* 범위 밖을 넣어도 안 터진다 */
+    near(chargeMultiplier(w, -5), 1, 1e-9, '음수는 0 으로 친다')
+    near(chargeMultiplier(w, 9), w.chargeMax, 1e-9, '1 을 넘으면 최대로 자른다')
+    /* 차지가 아닌 무기는 배율이 없다 */
+    near(chargeMultiplier(WEAPONS.rifle, 1), 1, 1e-9, '차지 무기가 아니면 1배')
+
+    let p = initialPlayer(0, 0, { loadout: { primary: 'railgun', secondary: 'pistol', melee: 'knife' } })
+    eq(p.charge, 0, '처음엔 안 모여 있다')
+    for (let i = 0; i < Math.ceil(w.charge * 60) + 5; i++) p = tickTrigger(p, true, 1 / 60)
+    near(p.charge, 1, 1e-6, '누르고 있으면 가득 모인다')
+    ok(p.charging, '모으는 중이라고 표시된다')
+    p = tickTrigger(p, false, 1 / 60)
+    ok(!p.charging, '놓으면 모으기가 끝난다')
+  }
+
+  // ── 점사 ──────────────────────────────────────────────────────
+  for (const id of ['battle', 'burstpistol']) {
+    const w = WEAPONS[id]
+    eq(fireMode(w), 'burst', `${id} 는 점사`)
+    ok(w.burst >= 2, `${id} 는 두 발 이상 나간다`)
+    ok(w.burstGap > 0 && w.burstRest > w.burstGap,
+      `${id} 는 점사 안 간격보다 점사 사이 쉼이 길다`)
+    ok(!w.auto, `${id} 는 누르고 있는 것만으로 계속 나가지 않는다`)
+  }
+
+  /* ★ 점사 사이에는 실제로 쉼이 있어야 한다.
+
+     "세 발 → 쉼 → 세 발"의 박자가 점사의 정체다. 쉼이 없으면
+     그냥 연사가 되고, 그러면 점사라는 갈래를 만든 이유가 없다.
+     발수만 세는 시험으로는 이걸 못 잡는다 — 시간을 재야 한다. */
+  {
+    const { createSession, stepSession } = sessionM
+    const w = WEAPONS.burstpistol
+    const ss = createSession(9, {
+      loadout: { primary: 'rifle', secondary: 'burstpistol', melee: 'knife' },
+    })
+    const input = {
+      forward: false, back: false, left: false, right: false, jump: false, sprint: false,
+      fire: false, firePressed: false, reload: false, switchSlot: 'secondary', cycle: 0,
+      yaw: 0, pitch: 0,
+    }
+    stepSession(ss, input, 1 / 60)
+    input.switchSlot = null
+    ss.player.cooldown = 0
+
+    /* 계속 누르고 있으면서 발사 시각을 기록하되, 탄창이 비기 전에
+       멈춘다. 재장전이 끼면 그 1.4초가 "가장 긴 간격"이 되어 버려서,
+       점사 사이의 쉼이 사라져도 시험이 통과한다 — 재고 싶은 것이
+       재장전 시간에 가려진다. */
+    const times = []
+    let t = 0
+    const wanted = w.burst * 3
+    for (let i = 0; i < 400 && times.length < wanted; i++) {
+      input.fire = true
+      input.firePressed = true       // 사람이 연타하는 상황까지 포함
+      const evs = stepSession(ss, input, 1 / 60)
+      t += 1 / 60
+      for (const e of evs) if (e.type === 'shot') times.push(t)
+    }
+    eq(times.length, wanted, `점사 세 번치가 나갔다 — ${times.length}발`)
+    ok(ss.player.reloading <= 0 && ss.player.ammo.burstpistol.inMag > 0,
+      '아직 탄창이 남아 있다 — 재장전이 간격을 가리지 않는다')
+
+    /* 간격을 점사 안(gap)과 점사 사이(rest)로 갈라 본다 */
+    const gaps = []
+    for (let i = 1; i < times.length; i++) gaps.push(times[i] - times[i - 1])
+    const longest = Math.max(...gaps)
+    ok(longest >= w.burstRest - 0.03,
+      `점사 사이에 쉼이 있다 — 가장 긴 간격 ${longest.toFixed(3)}s ≥ ${w.burstRest}s`)
+    ok(longest > w.burstGap * 2,
+      `그 쉼이 점사 안 간격(${w.burstGap}s)보다 확실히 길다`)
+  }
+}
+
+// ══════════════════════════════════════════════════════ 세션 · 로비
+section('세션 — 로비에서 고른 것으로 시작한다')
+{
+  const { createSession, stepSession, hudSnapshot } = sessionM
+  const { WEAPONS, WEAPONS_BY_SLOT, SLOTS, normalizeLoadout, DEFAULT_LOADOUT } = weaponsM
+
+  const blank = () => ({
+    forward: false, back: false, left: false, right: false, jump: false, sprint: false,
+    fire: false, firePressed: false, reload: false, switchSlot: null, cycle: 0,
+    yaw: 0, pitch: 0,
+  })
+
+  /* 고른 셋을 그대로 들고 시작한다 */
+  {
+    const lo = { primary: 'railgun', secondary: 'magnum', melee: 'hammer' }
+    const s2 = createSession(1, { difficulty: 'expert', loadout: lo })
+    eq(s2.player.weapon, 'railgun', '주무기를 들고 시작')
+    for (const slot of SLOTS) eq(s2.player.slots[slot], lo[slot], `${slot} 자리`)
+    const owned = weaponsM.WEAPON_ORDER.filter((id) => s2.player.ammo[id].owned)
+    eq(owned.length, 3, '고른 셋만 가진다')
+    eq(s2.difficulty.id, 'expert', '고른 난이도가 들어간다')
+  }
+
+  /* 이상한 구성을 넣어도 게임이 안 깨진다 */
+  {
+    const s3 = createSession(1, { loadout: { primary: 'knife', secondary: null, melee: 'sniper' } })
+    for (const slot of SLOTS) {
+      eq(WEAPONS[s3.player.slots[slot]].slot, slot, `${slot} 자리가 올바른 무기로 고쳐진다`)
+    }
+    ok(WEAPONS[s3.player.weapon], '들고 있는 무기가 실재한다')
+  }
+  eq(normalizeLoadout({}).primary, DEFAULT_LOADOUT.primary, '빈 구성은 기본값')
+  eq(normalizeLoadout(undefined).melee, DEFAULT_LOADOUT.melee, '없어도 기본값')
+
+  /* ★ 모든 조합이 실제로 굴러가야 한다.
+
+     21자루면 조합이 9×7×5 = 315 가지다. 하나라도 세션을 못 만들거나
+     첫 몇 초에 터지면, 그 조합을 고른 사람에게만 게임이 고장 난다. */
+  {
+    let bad = 0
+    for (const a of WEAPONS_BY_SLOT.primary) {
+      for (const b of WEAPONS_BY_SLOT.secondary) {
+        for (const c of WEAPONS_BY_SLOT.melee) {
+          try {
+            const ss = createSession(7, { loadout: { primary: a, secondary: b, melee: c } })
+            const input = blank()
+            for (let i = 0; i < 30; i++) {
+              input.fire = i % 3 !== 0
+              input.firePressed = i % 3 === 1
+              stepSession(ss, input, 1 / 60)
+            }
+            const h = hudSnapshot(ss)
+            if (!h || !Number.isFinite(h.hp)) bad++
+          } catch { bad++ }
+        }
+      }
+    }
+    eq(bad, 0, `주무기×보조×근접 모든 조합이 굴러간다 (${WEAPONS_BY_SLOT.primary.length}×${WEAPONS_BY_SLOT.secondary.length}×${WEAPONS_BY_SLOT.melee.length})`)
+  }
+
+  /* 점사가 세션에서 실제로 정해진 발수만큼 나가는가 */
+  {
+    const w = WEAPONS.burstpistol
+    const ss = createSession(5, { loadout: { primary: 'rifle', secondary: 'burstpistol', melee: 'knife' } })
+    const input = blank()
+    input.switchSlot = 'secondary'
+    stepSession(ss, input, 1 / 60)
+    input.switchSlot = null
+    ss.player.cooldown = 0
+
+    const before = ss.player.ammo.burstpistol.inMag
+    input.fire = true
+    input.firePressed = true
+    let fired = 0
+    for (let i = 0; i < 40; i++) {
+      const evs = stepSession(ss, input, 1 / 60)
+      fired += evs.filter((e) => e.type === 'shot').length
+      input.firePressed = false          // 한 번만 눌렀다
+    }
+    eq(fired, w.burst, `한 번 누르면 정확히 ${w.burst} 발`)
+    eq(before - ss.player.ammo.burstpistol.inMag, w.burst, '탄도 그만큼 준다')
+  }
+
+  /* 차지가 세션에서 실제로 배율을 싣는가 */
+  {
+    const ss = createSession(5, { loadout: { primary: 'railgun', secondary: 'pistol', melee: 'knife' } })
+    const input = blank()
+    // 살짝만 눌렀다 놓으면 안 나간다
+    input.fire = true
+    stepSession(ss, input, 1 / 60)
+    input.fire = false
+    let evs = stepSession(ss, input, 1 / 60)
+    eq(evs.filter((e) => e.type === 'shot').length, 0, '조금만 모으고 놓으면 안 나간다')
+
+    // 충분히 모았다 놓으면 나가고, 배율이 실린다
+    input.fire = true
+    for (let i = 0; i < Math.ceil(WEAPONS.railgun.charge * 60) + 5; i++) {
+      stepSession(ss, input, 1 / 60)
+    }
+    input.fire = false
+    evs = stepSession(ss, input, 1 / 60)
+    const shot = evs.find((e) => e.type === 'shot')
+    ok(shot, '다 모으고 놓으면 나간다')
+    ok(shot.charged > 1, `배율이 실렸다 — ×${shot.charged?.toFixed(2)}`)
+    near(shot.charged, WEAPONS.railgun.chargeMax, 0.05, '가득 모았으니 최대 배율에 가깝다')
+    eq(ss.player.charge, 0, '쏘고 나면 모은 것이 비워진다')
   }
 }
 
@@ -2033,6 +2397,31 @@ section('통합 — 한 판을 끝까지 돌린다')
          자리에서 멈춘 채로 웨이브가 안 끝난다. 게임의 결함이 아니라
          "가만히 서 있는 봇"이라는 전제가 깨진 것이다. */
       p = { ...p, hp: PLAYER.maxHp, invuln: 0, knock: { x: 0, z: 0 } }
+
+      /* 탄이 마르면 다음 자리로 넘어간다.
+
+         로비에서 무기를 고르게 된 뒤로, 주무기 예비탄은 언젠가
+         반드시 바닥난다(권총만 무한이다). 안 바꾸는 봇은 그 시점부터
+         아무것도 못 잡아서, 게임이 멈춘 것처럼 보이지만 실제로는
+         봇이 빈 총을 들고 서 있는 것이다. 사람은 당연히 바꾼다. */
+      {
+        const dry = (id) => {
+          const w = WEAPONS[id]
+          if (w.noAmmo) return false
+          const a = p.ammo[id]
+          return a.inMag <= 0 && a.reserve <= 0
+        }
+        if (dry(p.weapon) && p.reloading <= 0) {
+          const order = ['primary', 'secondary', 'melee']
+          for (const slot of order) {
+            const id = p.slots[slot]
+            if (id && !dry(id) && id !== p.weapon) {
+              p = playerM.switchSlot({ ...p, cooldown: 0 }, slot)
+              break
+            }
+          }
+        }
+      }
 
       // 가장 가까운 적을 조준해 쏜다
       const alive = enemies.filter((e) => e.state !== 'dead')

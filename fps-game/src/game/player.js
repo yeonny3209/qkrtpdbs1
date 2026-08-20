@@ -9,7 +9,7 @@
 import { resolveMove, groundHeightAt, ceilingAt } from './collide.js'
 import {
   WEAPONS, WEAPON_ORDER, WEAPONS_BY_SLOT, SLOTS,
-  shotInterval, reloadAmount, initialAmmo, initialSlots,
+  shotInterval, reloadAmount, initialAmmo, initialSlots, DEFAULT_LOADOUT,
 } from './weapons.js'
 
 export const PLAYER = {
@@ -42,7 +42,8 @@ export const PLAYER = {
   regenRate: 9,          // 초당 회복량
 }
 
-export function initialPlayer(x = 0, z = 0) {
+export function initialPlayer(x = 0, z = 0, opts = {}) {
+  const loadout = opts.loadout || DEFAULT_LOADOUT
   return {
     x, z,
     y: 0,                 // 발 높이. 바닥이 평면이라 0 이 곧 착지 상태
@@ -53,16 +54,24 @@ export function initialPlayer(x = 0, z = 0) {
     sinceHit: PLAYER.regenDelay,   // 시작하자마자 회복 대기 없이 만피
     yaw: 0,               // 좌우 시점 — 렌더링 쪽 카메라와 동기화
     pitch: 0,
-    weapon: 'pistol',
-    /* 슬롯마다 지금 어떤 무기가 들어 있는지. 주무기 자리는 비어
-       있다가 주우면 채워진다. */
-    slots: initialSlots(),
-    ammo: initialAmmo(),
+    /* 로비에서 고른 것으로 시작한다 */
+    weapon: initialSlots(loadout).primary,
+    slots: initialSlots(loadout),
+    ammo: initialAmmo(loadout),
+    /* 난이도가 회복 속도를 조절한다. 0 이면 아예 안 찬다(신화). */
+    regenMul: opts.regenMul ?? 1,
     cooldown: 0,          // 다음 발사까지
     reloading: 0,         // 남은 재장전 시간, 0 이면 안 하는 중
     recoil: 0,            // 무기 반동 애니메이션 진행도
     bob: 0,               // 걸을 때 화면 흔들림 위상
     knock: { x: 0, z: 0 },// 브루트에게 맞아 밀리는 속도
+
+    /* ── 발사 방식별 상태 ──────────────────────────────────────
+       세 가지 방아쇠가 각자 조금씩 기억할 것이 있다. */
+    burstLeft: 0,         // 점사 — 이번 누름에서 남은 발수
+    spin: 0,              // 예열 — 0..1, 1 이면 최대 연사
+    charge: 0,            // 차지 — 0..1, 1 이면 최대 배율
+    charging: false,      // 차지 — 지금 모으는 중인가
   }
 }
 
@@ -152,8 +161,9 @@ export function movePlayer(p, input, dt, boxes) {
 
   // ── 체력 회복 ────────────────────────────────────────────────
   s.sinceHit += dt
-  if (s.sinceHit >= PLAYER.regenDelay && s.hp > 0 && s.hp < PLAYER.maxHp) {
-    s.hp = Math.min(PLAYER.maxHp, s.hp + PLAYER.regenRate * dt)
+  const regen = PLAYER.regenRate * (s.regenMul ?? 1)
+  if (regen > 0 && s.sinceHit >= PLAYER.regenDelay && s.hp > 0 && s.hp < PLAYER.maxHp) {
+    s.hp = Math.min(PLAYER.maxHp, s.hp + regen * dt)
   }
 
   return s
@@ -199,6 +209,44 @@ export function canFire(p) {
   return p.ammo[p.weapon].inMag > 0
 }
 
+/* ── 예열 · 차지 ────────────────────────────────────────────────
+   방아쇠를 잡고 있는 동안 자라는 값들. 매 프레임 갱신한다. */
+export function tickTrigger(p, holding, dt) {
+  const w = WEAPONS[p.weapon]
+  const s = { ...p }
+
+  // 예열 — 잡고 있으면 오르고 놓으면 식는다
+  if (w.spinUp) {
+    s.spin = holding
+      ? Math.min(1, s.spin + dt / w.spinUp)
+      : Math.max(0, s.spin - dt / (w.spinDown || w.spinUp))
+  } else if (s.spin !== 0) {
+    s.spin = 0
+  }
+
+  // 차지 — 잡고 있으면 모인다. 놓는 순간은 session 이 본다.
+  if (w.charge) {
+    if (holding && canFire(s)) {
+      s.charging = true
+      s.charge = Math.min(1, s.charge + dt / w.charge)
+    } else if (!holding) {
+      s.charging = false
+    }
+  } else if (s.charge !== 0 || s.charging) {
+    s.charge = 0
+    s.charging = false
+  }
+
+  return s
+}
+
+/* 무기를 바꾸거나 죽었을 때 방아쇠 상태를 비운다.
+   안 비우면 미니건을 돌려 놓고 칼로 바꿨다가 다시 꺼냈을 때
+   공짜로 최대 연사가 된다. */
+export function resetTrigger(p) {
+  return { ...p, burstLeft: 0, spin: 0, charge: 0, charging: false }
+}
+
 /* 한 발 소비. 실제 명중 판정은 combat.fireShot 이 한다 — 여기서는
    탄약과 쿨다운만 만진다. */
 export function consumeShot(p) {
@@ -207,12 +255,12 @@ export function consumeShot(p) {
 
   /* 근접무기는 쓸 탄이 없다. 이걸 빠뜨리면 탄창이 음수로 내려간다. */
   if (w.noAmmo) {
-    return { ...p, cooldown: shotInterval(w), recoil: 1 }
+    return { ...p, cooldown: shotInterval(w, p.spin), recoil: 1 }
   }
 
   const next = {
     ...p,
-    cooldown: shotInterval(w),
+    cooldown: shotInterval(w, p.spin),
     recoil: 1,
     ammo: { ...p.ammo, [p.weapon]: { ...ammo, inMag: ammo.inMag - 1 } },
   }
@@ -233,7 +281,7 @@ export function switchWeapon(p, id) {
   if (p.weapon === id) return p
   const slot = WEAPONS[id].slot
   return {
-    ...p,
+    ...resetTrigger(p),
     weapon: id,
     slots: { ...p.slots, [slot]: id },
     reloading: 0,

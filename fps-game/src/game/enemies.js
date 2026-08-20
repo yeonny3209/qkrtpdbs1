@@ -97,6 +97,11 @@ export function makeEnemy(type, x, z) {
     age: 0,
     avoidSide: 0,       // 벽을 돌아갈 때 정한 방향(+1/-1)
     avoidT: 0,          // 그 방향을 유지할 남은 시간
+    /* 난이도·웨이브 배율. 태어날 때 새겨지고 그 뒤로 안 바뀐다.
+       없으면 1 — 테스트에서 굳이 채워 넣지 않아도 되게 한다. */
+    speedScale: 1,
+    dmgScale: 1,
+    accScale: 1,
   }
 }
 
@@ -329,11 +334,15 @@ export function tickEnemy(enemy, ctx, dt) {
   /* 공격 */
   if (e.state === 'attacking' && e.cooldown <= 0) {
     e.cooldown = t.attackCooldown
+    /* 난이도가 아픈 정도와 명중률을 조절한다. 명중률은 1 을 넘으면
+       백발백중이 되어 엄폐물이 무의미해지므로 0.9 에서 자른다. */
+    const dmg = t.damage * (e.dmgScale || 1)
     if (t.ranged) {
-      const hit = ctx.rng() < t.accuracy
-      events.push({ type: 'shoot', enemy: e, damage: hit ? t.damage : 0, hit })
+      const acc = Math.min(0.9, t.accuracy * (e.accScale || 1))
+      const hit = ctx.rng() < acc
+      events.push({ type: 'shoot', enemy: e, damage: hit ? dmg : 0, hit })
     } else {
-      events.push({ type: 'melee', enemy: e, damage: t.damage, knockback: t.knockback || 0 })
+      events.push({ type: 'melee', enemy: e, damage: dmg, knockback: t.knockback || 0 })
     }
   }
 

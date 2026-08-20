@@ -15,8 +15,13 @@ import { ALL_BOXES, PLAYER_START, PICKUP_SPOTS } from './arena.js'
 import {
   initialPlayer, movePlayer, tickReload, canFire, consumeShot, startReload,
   switchSlot, cycleWeapon, hurtPlayer, grantPickup, aimDir, eyeOf, PLAYER,
+  tickTrigger, resetTrigger,
 } from './player.js'
-import { WEAPONS, WEAPONS_BY_SLOT, SLOTS, SLOT_LABEL } from './weapons.js'
+import {
+  WEAPONS, WEAPONS_BY_SLOT, SLOTS, SLOT_LABEL,
+  chargeMultiplier, fireMode, normalizeLoadout, DEFAULT_LOADOUT,
+} from './weapons.js'
+import { getDifficulty, combinedScaling, DEFAULT_DIFFICULTY } from './difficulty.js'
 import { fireShot } from './combat.js'
 import {
   makeEnemy, tickEnemy, damageEnemy, shouldRemove, ENEMY_TYPES, resetEnemyIds,
@@ -38,16 +43,20 @@ const READY_TIME = 3.5
    느려지는 편이 낫다. */
 const MAX_DT = 1 / 20
 
-export function createSession(seed = Date.now()) {
+export function createSession(seed = Date.now(), opts = {}) {
   resetEnemyIds()
+  const diff = getDifficulty(opts.difficulty || DEFAULT_DIFFICULTY)
+  const loadout = normalizeLoadout(opts.loadout || DEFAULT_LOADOUT)
   return {
+    difficulty: diff,
+    loadout,
     phase: 'ready',        // ready → wave ⇄ break → over
     wave: 0,
     timer: READY_TIME,
     schedule: [],
     spawned: 0,
     waveT: 0,
-    player: initialPlayer(PLAYER_START.x, PLAYER_START.z),
+    player: initialPlayer(PLAYER_START.x, PLAYER_START.z, { loadout, regenMul: diff.regen }),
     enemies: [],
     pickups: [],
     score: initialScore(),
@@ -105,12 +114,54 @@ export function stepSession(s, input, dtRaw) {
 
   // ── 사격 ──────────────────────────────────────────────────────
   const weapon = WEAPONS[s.player.weapon]
-  const wantsFire = weapon.auto ? input.fire : input.firePressed
-  if (wantsFire && canFire(s.player)) {
+
+  /* 차지 무기는 "놓는 순간"에 나간다. 그런데 tickTrigger 가 손을
+     뗀 프레임에 charging 을 먼저 꺼 버리므로, 갱신 전에 붙잡아 둬야
+     한다. 안 그러면 다 모아 놓고 놓아도 영영 안 나간다 — 방아쇠를
+     당길 수 없는 총이 된다. */
+  const wasCharging = s.player.charging
+  const heldCharge = s.player.charge
+
+  /* 방아쇠를 잡고 있는 동안 자라는 값(예열·차지)을 갱신한다.
+     쏠지 말지 정하기 전에 해야, 이번 프레임의 회전수로 이번 발이
+     나간다. */
+  s.player = tickTrigger(s.player, !!input.fire, dt)
+
+  /* 이번 프레임에 몇 발이 나가는지, 배율은 얼마인지 정한다.
+     방아쇠 방식이 다섯이라 여기서 한 번에 갈라 둔다. */
+  let shots = 0
+  let damageMul = 1
+
+  if (weapon.burst) {
+    /* 점사 — 누르는 순간 발수를 채워 두고, 쿨다운마다 한 발씩
+       내보낸다. 마지막 발 뒤에는 더 길게 쉰다. */
+    if (input.firePressed && s.player.burstLeft <= 0 && canFire(s.player)) {
+      s.player = { ...s.player, burstLeft: weapon.burst }
+    }
+    if (s.player.burstLeft > 0 && canFire(s.player)) shots = 1
+  } else if (weapon.charge) {
+    /* 차지 — 놓는 순간에 나간다. 조금밖에 못 모았으면 안 나가고
+       모은 것도 버린다(살짝 스친 클릭으로 아까운 탄을 안 쓰게). */
+    const released = wasCharging && !input.fire
+    if (released) {
+      if (heldCharge >= weapon.chargeMin && canFire(s.player)) {
+        shots = 1
+        damageMul = chargeMultiplier(weapon, heldCharge)
+      }
+      s.player = { ...s.player, charge: 0, charging: false }
+    }
+  } else {
+    const wantsFire = weapon.auto ? input.fire : input.firePressed
+    if (wantsFire && canFire(s.player)) shots = 1
+  }
+
+  if (shots > 0) {
     const origin = { x: s.player.x, y: eyeOf(s.player), z: s.player.z }
     const dir = aimDir(s.player)
     const alive = s.enemies.filter((e) => e.state !== 'dead')
-    const res = fireShot(weapon, origin, dir, alive, s.boxes, s.rng)
+    /* 차지 배율은 무기 수치를 통째로 복사하지 않고 피해만 올린다 */
+    const fired = damageMul === 1 ? weapon : { ...weapon, damage: weapon.damage * damageMul }
+    const res = fireShot(fired, origin, dir, alive, s.boxes, s.rng)
 
     for (const d of res.damages) {
       const i = s.enemies.findIndex((e) => e.id === d.enemy.id)
@@ -134,6 +185,18 @@ export function stepSession(s, input, dtRaw) {
     }
     s.player = consumeShot(s.player)
 
+    /* 점사 — 한 발 썼으니 남은 발수를 줄이고, 다 나갔으면 길게 쉰다.
+       consumeShot 이 넣은 쿨다운(rpm 기준)은 점사 안의 간격이므로
+       여기서 덮어써야 "세 발 → 쉼"의 박자가 생긴다. */
+    if (weapon.burst) {
+      const left = s.player.burstLeft - 1
+      s.player = {
+        ...s.player,
+        burstLeft: Math.max(0, left),
+        cooldown: left > 0 ? weapon.burstGap : weapon.burstRest,
+      }
+    }
+
     /* 예광선이 끝날 지점들. 아무것도 못 맞힌 알은 착탄점이 없으므로
        사거리 끝까지 그린다 — 허공에 쐈을 때 화면에 아무 일도 안
        일어나면 방아쇠가 먹었는지조차 알 수 없다.
@@ -152,7 +215,9 @@ export function stepSession(s, input, dtRaw) {
       }
     }
     events.push({
-      type: 'shot', weapon: weapon.id, melee: !!weapon.melee, origin, dir, ends,
+      type: 'shot', weapon: weapon.id, melee: !!weapon.melee,
+      charged: damageMul > 1 ? damageMul : 0,
+      origin, dir, ends,
     })
   }
 
@@ -185,6 +250,7 @@ export function stepSession(s, input, dtRaw) {
           if (!hr.blocked) {
             events.push({ type: 'playerHurt', damage: ev.damage, from: ev.enemy })
             if (hr.died) {
+              s.player = resetTrigger(s.player)
               s.phase = 'over'
               s.best = saveBest(s.score.points, s.wave)
               events.push({ type: 'gameOver', points: s.score.points, wave: s.wave })
@@ -224,11 +290,16 @@ export function stepSession(s, input, dtRaw) {
     s.waveT += dt
     while (s.spawned < s.schedule.length && s.schedule[s.spawned].at <= s.waveT) {
       const item = s.schedule[s.spawned++]
-      const scale = waveScaling(s.wave)
+      /* 웨이브 배율과 난이도 배율을 합쳐 태어날 때 한 번만 새긴다.
+         매 프레임 곱하면 난이도를 바꿀 수 없는 값들(이미 깎인 체력)이
+         뒤늦게 흔들린다. */
+      const scale = combinedScaling(waveScaling(s.wave), s.difficulty)
       const e = makeEnemy(item.type, item.point.x, item.point.z)
-      e.hp = Math.round(e.hp * scale.hp)
+      e.hp = Math.max(1, Math.round(e.hp * scale.hp))
       e.maxHp = e.hp
       e.speedScale = scale.speed
+      e.dmgScale = scale.damage
+      e.accScale = scale.accuracy
       s.enemies.push(e)
       events.push({ type: 'spawn', enemy: e })
     }
@@ -259,6 +330,13 @@ export function hudSnapshot(s) {
     weaponIcon: w.icon,
     slot: w.slot,
     noAmmo: !!w.noAmmo,
+    fireMode: fireMode(w),
+    /* 방아쇠가 모으고 있는 것들 — HUD 가 게이지로 보여준다 */
+    spin: w.spinUp ? s.player.spin : 0,
+    charge: w.charge ? s.player.charge : 0,
+    charging: !!s.player.charging,
+    burstLeft: w.burst ? s.player.burstLeft : 0,
+    difficulty: { id: s.difficulty.id, name: s.difficulty.name, color: s.difficulty.color },
     inMag: ammo.inMag,
     reserve: ammo.reserve,
     reloading: s.player.reloading > 0,

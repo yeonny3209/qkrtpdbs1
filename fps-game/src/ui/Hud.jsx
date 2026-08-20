@@ -106,7 +106,15 @@ export default function Hud({ hud, banner, hitmarker, hurtKey, floaters }) {
 
       {/* ── 오른쪽 위: 웨이브 ───────────────────────────────────── */}
       <div className="absolute right-5 top-4 text-right">
-        <div className="text-xs tracking-[0.3em] text-white/60">웨이브</div>
+        <div className="flex items-center justify-end gap-1.5">
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-bold tracking-widest"
+            style={{ background: `${hud.difficulty.color}28`, color: hud.difficulty.color }}
+          >
+            {hud.difficulty.name}
+          </span>
+          <span className="text-xs tracking-[0.3em] text-white/60">웨이브</span>
+        </div>
         <div className="text-3xl font-bold tabular-nums drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
           {hud.wave || '—'}
         </div>
@@ -159,9 +167,25 @@ export default function Hud({ hud, banner, hitmarker, hurtKey, floaters }) {
             <span className="text-lg text-white/50">/ {fmt(hud.reserve)}</span>
           </div>
         )}
+        {/* 재장전 · 예열 · 차지는 같은 자리를 나눠 쓴다. 셋 다
+            "지금 기다리는 중"이라는 같은 뜻이라, 눈이 한 곳만 보면 된다. */}
         {hud.reloading ? (
           <div className="mt-1 h-1.5 w-32 overflow-hidden rounded-full bg-black/60 ring-1 ring-white/15">
             <div className="h-full bg-sky-400" style={{ width: `${hud.reloadPct * 100}%` }} />
+          </div>
+        ) : hud.charge > 0 ? (
+          <div className="mt-1 h-1.5 w-32 overflow-hidden rounded-full bg-black/60 ring-1 ring-white/15">
+            <div
+              className="h-full transition-[width] duration-75"
+              style={{
+                width: `${hud.charge * 100}%`,
+                background: hud.charge >= 1 ? '#ffd166' : '#7fd4ff',
+              }}
+            />
+          </div>
+        ) : hud.spin > 0 ? (
+          <div className="mt-1 h-1.5 w-32 overflow-hidden rounded-full bg-black/60 ring-1 ring-white/15">
+            <div className="h-full bg-amber-400" style={{ width: `${hud.spin * 100}%` }} />
           </div>
         ) : (
           <div className="mt-1 h-1.5 w-32" />

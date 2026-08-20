@@ -102,32 +102,18 @@ export function spawnSchedule(n, rng) {
 /* 웨이브 사이 쉬는 시간 */
 export const WAVE_BREAK = 7.0
 
-/* 무기가 풀리는 순서.
+/* 보급품.
 
-   한 웨이브에 하나씩만 준다. 몰아 주면 고르는 재미가 없고, 무엇이
-   달라졌는지도 모른 채 지나간다. 순서는 "쓰기 쉬운 것부터, 판을
-   뒤집는 것은 나중에"다 — 저격총과 경기관총이 3웨이브에 나오면
-   그 뒤로는 다른 무기를 쥘 이유가 없어진다.
+   무기는 더 이상 떨어지지 않는다 — 로비에서 세 자루를 골라 들고
+   들어오기 때문이다. 웨이브 도중에 다른 총이 굴러다니면 "고른다"는
+   행위가 두 군데로 쪼개져서, 로비에서 한 선택이 가벼워진다.
 
-   슬롯을 번갈아 채워서, 한동안 주무기만 늘거나 근접만 늘지 않게 한다. */
-export const WEAPON_UNLOCKS = {
-  2: 'rifle',      // 주무기 — 첫 화력
-  3: 'smg',        // 보조   — 근거리 속사
-  4: 'shotgun',    // 주무기 — 코앞 해결책
-  5: 'axe',        // 근접   — 브루트가 늘어날 즈음
-  6: 'magnum',     // 보조   — 한 방의 무게
-  8: 'lmg',        // 주무기 — 무리가 커질 때
-  10: 'sniper',    // 주무기 — 판을 정리하는 한 발
-}
-
+   대신 탄약이 더 자주 나온다. 고른 무기로 끝까지 가야 하니, 탄이
+   마르는 것이 실력이 아니라 운이 되면 안 된다. */
 export function pickupsForWave(n) {
   const out = []
-  const unlock = WEAPON_UNLOCKS[n]
-  if (unlock) out.push({ kind: 'weapon', weapon: unlock })
-
-  /* 그 뒤로는 탄약이 계속 나와야 한다. 안 나오면 후반에 권총만
-     남아서, 실력과 무관하게 벽에 부딪힌다. */
-  if (n >= 2 && n % 2 === 0) out.push({ kind: 'ammo' })
+  if (n >= 2) out.push({ kind: 'ammo' })
+  if (n >= 4 && n % 2 === 0) out.push({ kind: 'ammo' })   // 후반엔 두 개씩
   if (n >= 3 && n % 3 === 0) out.push({ kind: 'health' })
   return out
 }

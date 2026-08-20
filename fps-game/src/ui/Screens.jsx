@@ -5,36 +5,7 @@
    가릴 뿐이라, 일시정지를 풀면 있던 자리에서 그대로 이어진다.
    ================================================================== */
 import { WEAPONS, WEAPONS_BY_SLOT, SLOTS, SLOT_LABEL } from '../game/weapons.js'
-import { WEAPON_UNLOCKS } from '../game/waveSpawner.js'
 import { ENEMY_TYPES } from '../game/enemies.js'
-
-/* 무기를 어떻게 얻는지. 해제 웨이브는 waveSpawner 가 정하므로
-   거기서 가져온다 — 두 곳에 적어 두면 언젠가 어긋난다. */
-const START_NOTE = {
-  pistol: '처음부터 · 예비탄 무한',
-  knife: '처음부터 · 탄약 없음',
-}
-const UNLOCK_WAVE = Object.fromEntries(
-  Object.entries(WEAPON_UNLOCKS).map(([wave, id]) => [id, Number(wave)]),
-)
-function howToGet(id) {
-  if (START_NOTE[id]) return START_NOTE[id]
-  const w = UNLOCK_WAVE[id]
-  return w ? `${w}웨이브에 떨어진다` : '아레나에서 줍는다'
-}
-
-/* 한 줄 성격 — 수치는 옆에 붙고, 이건 "왜 이걸 드는가"를 말한다 */
-const CHARACTER = {
-  rifle: '두루 쓴다',
-  shotgun: '코앞에서 압도적',
-  lmg: '탄창 100발, 무리 제압',
-  sniper: '한 발이 크고 꿰뚫는다',
-  pistol: '최후의 보루',
-  smg: '근거리 속사',
-  magnum: '여섯 발, 한 발이 무겁다',
-  knife: '빠르다',
-  axe: '느리고 크게 벤다',
-}
 
 function Shell({ children }) {
   return (
@@ -73,10 +44,10 @@ export function MainMenu({ onStart, best }) {
         onClick={onStart}
         className="mt-8 w-full rounded-lg bg-rose-500 py-4 text-lg font-bold tracking-widest transition hover:bg-rose-400 active:scale-[0.99]"
       >
-        시작하기
+        무기 고르러 가기
       </button>
       <p className="mt-2 text-center text-xs text-white/40">
-        누르면 마우스가 화면에 잠깁니다. Esc 로 언제든 빠져나옵니다.
+        난이도와 무기 셋을 고르고 나서 들어갑니다.
       </p>
 
       {best.wave > 0 && (
@@ -120,28 +91,20 @@ export function MainMenu({ onStart, best }) {
             ))}
           </ul>
           <h2 className="mb-2 mt-5 text-xs tracking-[0.3em] text-white/50">무기</h2>
-          <ul className="space-y-2 text-sm text-white/70">
+          <ul className="space-y-1 text-sm text-white/70">
             {SLOTS.map((slot, i) => (
               <li key={slot}>
                 <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px]">
                   {i + 1}
                 </span>
                 <b className="ml-1.5 text-white">{SLOT_LABEL[slot]}</b>
-                <ul className="mt-0.5 ml-6 space-y-0.5 text-xs">
-                  {WEAPONS_BY_SLOT[slot].map((id) => (
-                    <li key={id}>
-                      {WEAPONS[id].icon} <span className="text-white/90">{WEAPONS[id].name}</span>
-                      <span className="text-white/45"> — {CHARACTER[id]}</span>
-                      <span className="text-white/30"> · {howToGet(id)}</span>
-                    </li>
-                  ))}
-                </ul>
+                <span className="text-white/45"> — {WEAPONS_BY_SLOT[slot].length}자루 중 하나</span>
               </li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-white/45">
-            한 자리를 여럿이 나눠 씁니다. 같은 숫자를 다시 누르면 그 자리
-            안에서 번갈아 꺼냅니다 — 새로 주웠다고 쓰던 것을 잃지 않습니다.
+            총 {Object.keys(WEAPONS).length}자루가 있습니다. 들어가기 전에 로비에서
+            자리마다 하나씩 골라 듭니다.
           </p>
         </div>
       </div>
@@ -196,7 +159,7 @@ export function PauseScreen({ onResume, onQuit, hud, lockError }) {
   )
 }
 
-export function GameOverScreen({ result, best, onRetry, onMenu }) {
+export function GameOverScreen({ result, best, onRetry, onLobby, onMenu }) {
   const isBest = result.points >= best.points && result.points > 0
   return (
     <Shell>
@@ -224,7 +187,13 @@ export function GameOverScreen({ result, best, onRetry, onMenu }) {
         onClick={onRetry}
         className="mt-8 w-full rounded-lg bg-rose-500 py-4 text-lg font-bold tracking-widest transition hover:bg-rose-400"
       >
-        다시 하기
+        같은 구성으로 다시
+      </button>
+      <button
+        onClick={onLobby}
+        className="mt-3 w-full rounded-lg bg-white/15 py-3 text-sm tracking-widest transition hover:bg-white/25"
+      >
+        무기 · 난이도 바꾸기
       </button>
       <button
         onClick={onMenu}

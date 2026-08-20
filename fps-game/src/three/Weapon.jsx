@@ -308,10 +308,327 @@ function Axe() {
   )
 }
 
+
+/* ── 새로 늘어난 자루들 ─────────────────────────────────────────
+   같은 조각을 다른 비율로 쓰면 총기 계열처럼 보인다. 실제 총도
+   한 집안이면 닮았으니 전부 딴판일 필요는 없다. 대신 손에 쥐었을 때
+   바로 갈리는 특징 하나씩은 반드시 준다 — 배틀라이플은 긴 총열과
+   조준경, 미니건은 회전 총열 다발, 레일건은 빛나는 코일. */
+
+function Carbine() {
+  return (
+    <group>
+      <Box pos={[0, 0.026, -0.14]} size={[0.056, 0.064, 0.36]} mat="polymer" />
+      <Box pos={[0, 0.008, -0.36]} size={[0.046, 0.046, 0.18]} mat="darkPoly" />
+      <Barrel z={-0.5} len={0.16} r={0.017} />
+      <Cyl pos={[0.034, 0.046, -0.02]} r={0.008} h={0.044} rot={[0, 0, Math.PI / 2]} seg={8} mat="steel" />
+      <Rail pos={[0, 0.06, -0.18]} len={0.3} count={8} />
+      <IronSights front={-0.42} rear={-0.04} y={0.076} />
+      <Magazine pos={[0, -0.13, -0.01]} size={[0.038, 0.17, 0.078]} tilt={0.12} curved />
+      <Grip pos={[0, -0.11, 0.08]} tilt={0.3} h={0.16} />
+      <Trigger pos={[0, -0.048, 0.04]} />
+      {/* 접이식 개머리판 — 카빈은 짧은 게 정체성이라 뼈대만 */}
+      {[-0.024, 0.024].map((x) => (
+        <Cyl key={x} pos={[x, 0.026, 0.16]} r={0.007} h={0.18} seg={8} mat="steel" />
+      ))}
+      <Box pos={[0, 0.026, 0.25]} size={[0.068, 0.034, 0.016]} mat="rubber" cast={false} />
+    </group>
+  )
+}
+
+function Battle() {
+  return (
+    <group>
+      <Box pos={[0, 0.028, -0.2]} size={[0.064, 0.074, 0.5]} mat="polymer" />
+      <Box pos={[0, 0.014, -0.5]} size={[0.05, 0.05, 0.24]} mat="darkPoly" />
+      {[-0.44, -0.5, -0.56].map((z) => (
+        <Box key={z} pos={[0, 0.014, z]} size={[0.056, 0.016, 0.014]} mat="blued" cast={false} />
+      ))}
+      <Barrel z={-0.72} len={0.24} r={0.021} />
+      {/* 총구 제동기 — 묵직한 3점사라는 표시 */}
+      <Cyl pos={[0, 0.014, -0.86]} r={0.03} h={0.06} seg={14} mat="blued" />
+      <Cyl pos={[0.038, 0.05, -0.04]} r={0.009} h={0.05} rot={[0, 0, Math.PI / 2]} seg={8} mat="steel" />
+      <Scope pos={[0, 0.105, -0.24]} len={0.2} r={0.026} />
+      <Magazine pos={[0, -0.15, -0.04]} size={[0.044, 0.2, 0.09]} tilt={0.14} curved />
+      <Grip pos={[0, -0.12, 0.1]} tilt={0.3} h={0.17} />
+      <Trigger pos={[0, -0.052, 0.055]} />
+      <Stock pos={[0, 0.012, 0.29]} len={0.26} />
+    </group>
+  )
+}
+
+function AutoShotgun() {
+  return (
+    <group>
+      <Box pos={[0, 0.02, -0.16]} size={[0.072, 0.08, 0.42]} mat="polymer" />
+      <Box pos={[0, 0.056, -0.2]} size={[0.064, 0.024, 0.38]} mat="darkPoly" cast={false} />
+      <Cyl pos={[0, 0.024, -0.52]} r={0.028} h={0.32} seg={16} mat="blued" />
+      <Cyl pos={[0, 0.024, -0.69]} r={0.033} h={0.03} seg={16} mat="steel" />
+      {/* 드럼 탄창 — 자동샷건임을 한눈에 알리는 실루엣 */}
+      <Cyl pos={[0, -0.15, -0.04]} r={0.1} h={0.062} rot={[0, 0, Math.PI / 2]} seg={20} mat="darkPoly" />
+      <Cyl pos={[0.034, -0.15, -0.04]} r={0.035} h={0.016} rot={[0, 0, Math.PI / 2]} seg={14} mat="steel" cast={false} />
+      {[0, 1, 2, 3, 4].map((i) => {
+        const a = (i / 5) * Math.PI * 2
+        return (
+          <Cyl key={i} pos={[0.036, -0.15 + Math.sin(a) * 0.062, -0.04 + Math.cos(a) * 0.062]}
+            r={0.013} h={0.014} rot={[0, 0, Math.PI / 2]} seg={10} mat="brass" cast={false} />
+        )
+      })}
+      <IronSights front={-0.6} rear={-0.02} y={0.078} />
+      <Grip pos={[0, -0.11, 0.12]} tilt={0.32} h={0.16} w={0.062} />
+      <Trigger pos={[0, -0.046, 0.07]} />
+      <Stock pos={[0, 0.01, 0.28]} len={0.24} />
+    </group>
+  )
+}
+
+function Minigun() {
+  const barrels = useRef()
+  useFrame((state, dt) => {
+    /* 총열 다발은 늘 조금씩 돈다. 예열 상태를 여기서 읽을 수도
+       있지만, 뷰모델이 세션을 직접 들여다보면 조각들이 서로 얽힌다.
+       "돌고 있다"는 인상만으로 충분하다. */
+    if (barrels.current) barrels.current.rotation.z += dt * 6
+  })
+  return (
+    <group>
+      <Box pos={[0, 0.02, -0.06]} size={[0.11, 0.11, 0.34]} mat="polymer" />
+      <Box pos={[0, 0.08, -0.06]} size={[0.09, 0.03, 0.3]} mat="darkPoly" cast={false} />
+      {/* 회전 총열 다발 — 미니건의 전부 */}
+      <group ref={barrels} position={[0, 0.02, -0.44]}>
+        {Array.from({ length: 6 }, (_, i) => {
+          const a = (i / 6) * Math.PI * 2
+          return (
+            <Cyl key={i} pos={[Math.cos(a) * 0.042, Math.sin(a) * 0.042, 0]}
+              r={0.014} h={0.44} seg={10} mat="blued" />
+          )
+        })}
+        <Cyl pos={[0, 0, -0.23]} r={0.055} h={0.03} seg={18} mat="steel" />
+        <Cyl pos={[0, 0, 0.2]} r={0.05} h={0.04} seg={18} mat="darkPoly" />
+      </group>
+      {/* 탄통과 탄띠 */}
+      <Box pos={[0.06, -0.16, 0.06]} size={[0.13, 0.16, 0.2]} mat="darkPoly" />
+      {[0, 1, 2, 3, 4].map((i) => (
+        <Box key={i} pos={[0.06, -0.08 + i * 0.016, 0.02 - i * 0.012]}
+          size={[0.02, 0.014, 0.03]} mat="brass" cast={false} />
+      ))}
+      {/* 두 손으로 잡는 손잡이 */}
+      <Grip pos={[0, -0.12, 0.16]} tilt={0.22} h={0.16} w={0.056} />
+      <Box pos={[-0.075, -0.04, 0.02]} size={[0.03, 0.11, 0.036]} mat="rubber" />
+      <Trigger pos={[0, -0.05, 0.12]} />
+    </group>
+  )
+}
+
+function Railgun() {
+  return (
+    <group>
+      <Box pos={[0, 0.03, -0.16]} size={[0.07, 0.08, 0.46]} mat="polymer" />
+      {/* 두 줄 레일 — 사이에서 튀어나간다 */}
+      {[-0.032, 0.032].map((x) => (
+        <Box key={x} pos={[x, 0.04, -0.56]} size={[0.018, 0.05, 0.44]} mat="steel" />
+      ))}
+      {/* 코일 — 빛나는 고리 넷. 차지한다는 인상을 이걸로 준다 */}
+      {[-0.42, -0.52, -0.62, -0.72].map((z) => (
+        <mesh key={z} position={[0, 0.04, z]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.052, 0.009, 8, 20]} />
+          <meshStandardMaterial
+            color="#8fdcff" emissive="#2f9fd4" emissiveIntensity={2.2} toneMapped={false}
+          />
+        </mesh>
+      ))}
+      <Box pos={[0, 0.088, -0.24]} size={[0.03, 0.016, 0.3]} mat="darkPoly" cast={false} />
+      {/* 등에 진 전원부 */}
+      <Box pos={[0, -0.02, 0.2]} size={[0.09, 0.1, 0.16]} mat="darkPoly" />
+      <mesh position={[0, 0.036, 0.2]}>
+        <boxGeometry args={[0.05, 0.014, 0.1]} />
+        <meshStandardMaterial
+          color="#b6f0ff" emissive="#3fb0e0" emissiveIntensity={2.6} toneMapped={false}
+        />
+      </mesh>
+      <Scope pos={[0, 0.13, -0.22]} len={0.22} r={0.028} />
+      <Grip pos={[0, -0.12, 0.08]} tilt={0.32} h={0.17} />
+      <Trigger pos={[0, -0.052, 0.035]} />
+      <Stock pos={[0, 0.0, 0.31]} len={0.22} />
+    </group>
+  )
+}
+
+function Silenced() {
+  return (
+    <group>
+      <Box pos={[0, 0.03, -0.13]} size={[0.048, 0.05, 0.3]} mat="blued" />
+      <Box pos={[0, -0.008, -0.1]} size={[0.044, 0.03, 0.24]} mat="polymer" />
+      {/* 굵고 긴 소음기 — 이 실루엣이 정체성이다 */}
+      <Cyl pos={[0, 0.03, -0.4]} r={0.031} h={0.26} seg={18} mat="darkPoly" />
+      {[-0.32, -0.4, -0.48].map((z) => (
+        <Cyl key={z} pos={[0, 0.03, z]} r={0.034} h={0.012} seg={18} mat="blued" cast={false} />
+      ))}
+      <Cyl pos={[0, 0.03, -0.53]} r={0.024} h={0.014} seg={16} mat="steel" />
+      <IronSights front={-0.24} rear={0.0} y={0.056} />
+      <Grip pos={[0, -0.115, 0.04]} tilt={0.32} h={0.17} w={0.05} d={0.085} />
+      <Trigger pos={[0, -0.042, -0.005]} />
+      <Box pos={[0, -0.2, 0.075]} size={[0.05, 0.014, 0.086]} mat="steel" cast={false} />
+    </group>
+  )
+}
+
+function BurstPistol() {
+  return (
+    <group>
+      <Box pos={[0, 0.03, -0.16]} size={[0.05, 0.054, 0.36]} mat="blued" />
+      {[0.0, -0.024].map((z) => (
+        <Box key={z} pos={[0, 0.03, z]} size={[0.054, 0.032, 0.008]} mat="darkPoly" cast={false} />
+      ))}
+      <Box pos={[0, -0.008, -0.14]} size={[0.046, 0.03, 0.3]} mat="polymer" />
+      <Cyl pos={[0, 0.03, -0.35]} r={0.014} h={0.04} seg={14} mat="steel" />
+      {/* 총열 아래로 뻗은 앞 손잡이 — 3점사를 눌러 잡는 자세 */}
+      <Box pos={[0, -0.055, -0.24]} size={[0.028, 0.075, 0.034]} mat="rubber" />
+      <IronSights front={-0.32} rear={0.0} y={0.06} />
+      <Grip pos={[0, -0.115, 0.05]} tilt={0.32} h={0.17} w={0.05} d={0.085} />
+      <Trigger pos={[0, -0.042, 0.005]} />
+    </group>
+  )
+}
+
+function DualOne({ side }) {
+  return (
+    <group position={[side * 0.13, side === 1 ? 0 : 0.02, side === 1 ? 0 : 0.03]}
+      rotation={[0, side * 0.09, side * -0.06]}>
+      <Box pos={[0, 0.03, -0.12]} size={[0.045, 0.048, 0.27]} mat="blued" />
+      <Box pos={[0, -0.008, -0.09]} size={[0.041, 0.028, 0.22]} mat="polymer" />
+      <Cyl pos={[0, 0.03, -0.26]} r={0.013} h={0.03} seg={12} mat="steel" />
+      <Box pos={[0, 0.058, -0.24]} size={[0.008, 0.016, 0.012]} mat="steel" cast={false} />
+      <Grip pos={[0, -0.1, 0.04]} tilt={0.32} h={0.15} w={0.045} d={0.078} />
+      <Trigger pos={[0, -0.038, -0.005]} />
+    </group>
+  )
+}
+
+/* 두 자루를 좌우로 벌려 든다. 하나짜리와 헷갈릴 수 없는 실루엣 */
+function DualPistol() {
+  return (
+    <group>
+      <DualOne side={-1} />
+      <DualOne side={1} />
+    </group>
+  )
+}
+
+function MachinePistol() {
+  return (
+    <group>
+      <Box pos={[0, 0.026, -0.11]} size={[0.05, 0.062, 0.28]} mat="polymer" />
+      <Box pos={[0, 0.054, -0.13]} size={[0.044, 0.022, 0.24]} mat="darkPoly" cast={false} />
+      <Cyl pos={[0, 0.026, -0.29]} r={0.015} h={0.12} seg={12} mat="blued" />
+      <Cyl pos={[0, 0.026, -0.36]} r={0.019} h={0.016} seg={14} mat="steel" />
+      {/* 아주 긴 탄창 — 눈 깜짝할 새 빈다는 인상 */}
+      <Magazine pos={[0, -0.17, -0.01]} size={[0.03, 0.26, 0.05]} tilt={0.04} />
+      <Grip pos={[0, -0.1, 0.05]} tilt={0.3} h={0.15} w={0.046} d={0.078} />
+      <Trigger pos={[0, -0.04, 0.012]} />
+      <Cyl pos={[0.03, 0.05, -0.02]} r={0.007} h={0.036} rot={[0, 0, Math.PI / 2]} seg={8} mat="steel" />
+    </group>
+  )
+}
+
+function Katana() {
+  return (
+    <group rotation={[0, 0, -0.26]}>
+      {/* 길고 살짝 휜 날 — 토막을 조금씩 꺾어 곡선을 만든다 */}
+      {Array.from({ length: 5 }, (_, i) => (
+        <group key={i} position={[i * 0.006, i * 0.012, -0.12 - i * 0.13]} rotation={[i * 0.02, 0, 0]}>
+          <Box size={[0.016, 0.046, 0.14]} mat="steel" />
+          <Box pos={[0, -0.026, 0]} size={[0.02, 0.012, 0.14]} mat="blued" cast={false} />
+        </group>
+      ))}
+      {/* 칼끝 */}
+      <mesh position={[0.03, 0.062, -0.79]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <coneGeometry args={[0.026, 0.1, 4]} />
+        <meshStandardMaterial color="#eef3f8" roughness={0.1} metalness={1} />
+      </mesh>
+      {/* 츠바(코등이) */}
+      <Cyl pos={[0, -0.006, -0.06]} r={0.055} h={0.014} seg={16} mat="brass" />
+      {/* 자루 — 감은 끈 */}
+      <Cyl pos={[0, -0.02, 0.08]} r={0.024} h={0.26} seg={12} mat="darkPoly" rot={[Math.PI / 2 - 0.1, 0, 0]} />
+      {[0.0, 0.05, 0.1, 0.15, 0.2].map((z) => (
+        <Box key={z} pos={[0, -0.014 - z * 0.1, z]} size={[0.052, 0.014, 0.02]}
+          rot={[0.1, 0, Math.PI / 4]} mat="rubber" cast={false} />
+      ))}
+      <Cyl pos={[0, -0.042, 0.215]} r={0.026} h={0.02} seg={12} mat="brass" cast={false} />
+    </group>
+  )
+}
+
+function Pipe() {
+  const rot = [Math.PI / 2 - 0.1, 0, 0]
+  return (
+    <group rotation={[0, 0, -0.3]}>
+      {/* 쇠관 — 끝에 나사산 이음쇠가 남아 있다 */}
+      <Cyl pos={[0, 0.0, -0.24]} r={0.036} h={0.7} seg={14} mat="steel" rot={rot} />
+      <Cyl pos={[0.008, 0.055, -0.55]} r={0.045} h={0.07} seg={14} mat="blued" rot={rot} />
+      {[-0.55, -0.52].map((z) => (
+        <Cyl key={z} pos={[0.008, 0.052, z]} r={0.048} h={0.01} seg={14} mat="darkPoly" rot={rot} cast={false} />
+      ))}
+      {/* 녹슨 자국처럼 보이는 띠 */}
+      <Cyl pos={[0, -0.01, -0.1]} r={0.038} h={0.05} seg={14} mat="rubber" rot={rot} cast={false} />
+      {/* 손이 닿는 곳에 감은 테이프 */}
+      <Cyl pos={[-0.012, -0.055, 0.13]} r={0.04} h={0.2} seg={14} mat="rubber" rot={rot} />
+      <Cyl pos={[-0.02, -0.08, 0.22]} r={0.038} h={0.016} seg={14} mat="darkPoly" rot={rot} cast={false} />
+      {/* 테이프가 감긴 결 — 이 몇 줄이 "주워서 감아 쓴 것"으로 읽히게 한다 */}
+      {[0.06, 0.11, 0.16, 0.21].map((z) => (
+        <Cyl key={z} pos={[-0.006 - z * 0.06, -0.03 - z * 0.24, z]} r={0.042} h={0.012}
+          seg={14} mat="blued" rot={rot} cast={false} />
+      ))}
+      {/* 관에 뚫린 구멍 두 개 — 배관에서 뜯어온 티 */}
+      {[-0.34, -0.18].map((z) => (
+        <Cyl key={z} pos={[0.036, z * 0.06 + 0.01, z]} r={0.009} h={0.02}
+          rot={[0, 0, Math.PI / 2]} seg={8} mat="darkPoly" cast={false} />
+      ))}
+      {/* 끝을 조인 죔쇠 */}
+      <Box pos={[0.012, 0.078, -0.62]} size={[0.09, 0.022, 0.03]} rot={[0.1, 0, 0]}
+        mat="darkPoly" cast={false} />
+      <Cyl pos={[0.012, 0.078, -0.64]} r={0.05} h={0.014} seg={14} mat="steel" rot={rot} cast={false} />
+    </group>
+  )
+}
+
+function Hammer() {
+  const haftRot = [Math.PI / 2 - 0.14, 0, 0]
+  return (
+    <group rotation={[0, 0, -0.2]}>
+      <Cyl pos={[0, -0.02, 0.02]} r={0.024} r2={0.028} h={0.66} seg={12} mat="wood" rot={haftRot} />
+      <Cyl pos={[0, -0.07, 0.27]} r={0.031} h={0.16} seg={12} mat="rubber" rot={haftRot} />
+      <Cyl pos={[0, -0.1, 0.36]} r={0.034} h={0.024} seg={12} mat="steel" rot={haftRot} />
+      {/* 머리 — 커다란 쇳덩이 */}
+      <group position={[0, 0.07, -0.3]}>
+        <Box pos={[0, 0, 0]} size={[0.19, 0.15, 0.15]} mat="blued" />
+        {/* 때리는 면 — 밝게 해서 어디로 치는지 알린다 */}
+        <Box pos={[-0.1, 0, 0]} size={[0.03, 0.16, 0.16]} mat="steel" />
+        {[-0.055, 0.055].map((y) => (
+          <Box key={y} pos={[-0.1, y, 0]} size={[0.036, 0.03, 0.17]} mat="darkPoly" cast={false} />
+        ))}
+        {/* 반대쪽 쐐기 */}
+        <mesh position={[0.12, 0, 0]} rotation={[0, 0, -Math.PI / 2]} castShadow>
+          <coneGeometry args={[0.06, 0.09, 4]} />
+          <meshStandardMaterial color="#8d949e" roughness={0.3} metalness={0.98} />
+        </mesh>
+        {/* 자루를 물린 쇠테와 대갈못 */}
+        <Cyl pos={[0, -0.085, 0.03]} r={0.034} h={0.04} seg={12} mat="steel" cast={false} />
+        {[-0.04, 0.04].map((y) => (
+          <Cyl key={y} pos={[0, y, 0.078]} r={0.009} h={0.012} seg={8} mat="steel" cast={false} />
+        ))}
+      </group>
+    </group>
+  )
+}
+
 const MODELS = {
-  rifle: Rifle, shotgun: Shotgun, lmg: Lmg, sniper: Sniper,
-  pistol: Pistol, smg: Smg, magnum: Magnum,
-  knife: Knife, axe: Axe,
+  carbine: Carbine, rifle: Rifle, battle: Battle, shotgun: Shotgun,
+  autoshotgun: AutoShotgun, lmg: Lmg, minigun: Minigun, sniper: Sniper,
+  railgun: Railgun,
+  pistol: Pistol, silenced: Silenced, burstpistol: BurstPistol,
+  magnum: Magnum, dualpistol: DualPistol, smg: Smg, machinepistol: MachinePistol,
+  knife: Knife, katana: Katana, pipe: Pipe, axe: Axe, hammer: Hammer,
 }
 
 /* 무기마다 화면에서의 자리와 크기가 달라야 한다.
@@ -320,7 +637,19 @@ const MODELS = {
    구석에 조그맣게 놓인다. 긴 총은 뒤로 당기고 조금 줄이고, 짧은 총은
    앞으로 내민다. z 가 클수록(0 에 가까울수록) 몸 쪽으로 당겨진다. */
 const VIEW = {
+  carbine: { pos: [0.23, -0.24, -0.46], scale: 1.02 },
   rifle: { pos: [0.24, -0.25, -0.42], scale: 1 },
+  battle: { pos: [0.24, -0.25, -0.34], scale: 0.94 },
+  autoshotgun: { pos: [0.25, -0.26, -0.36], scale: 0.96 },
+  minigun: { pos: [0.24, -0.26, -0.3], scale: 0.92 },
+  railgun: { pos: [0.24, -0.25, -0.3], scale: 0.9 },
+  silenced: { pos: [0.2, -0.22, -0.46], scale: 1.04 },
+  burstpistol: { pos: [0.2, -0.22, -0.46], scale: 1.04 },
+  dualpistol: { pos: [0.0, -0.24, -0.5], scale: 1.0 },
+  machinepistol: { pos: [0.21, -0.23, -0.48], scale: 1.04 },
+  katana: { pos: [0.26, -0.24, -0.32], scale: 0.98 },
+  pipe: { pos: [0.27, -0.26, -0.4], scale: 1 },
+  hammer: { pos: [0.29, -0.3, -0.36], scale: 0.96 },
   shotgun: { pos: [0.24, -0.24, -0.36], scale: 0.98 },
   lmg: { pos: [0.26, -0.28, -0.34], scale: 0.94 },
   sniper: { pos: [0.23, -0.24, -0.26], scale: 0.86 },
@@ -334,9 +663,12 @@ const DEFAULT_VIEW = { pos: [0.24, -0.24, -0.44], scale: 1 }
 
 /* 총구 위치 — 화염과 예광선이 여기서 나간다 */
 const MUZZLE = {
-  rifle: -0.72, shotgun: -0.74, lmg: -0.78, sniper: -1.02,
-  pistol: -0.3, smg: -0.52, magnum: -0.43,
-  knife: -0.4, axe: -0.4,
+  carbine: -0.6, rifle: -0.72, battle: -0.9, shotgun: -0.74,
+  autoshotgun: -0.7, lmg: -0.78, minigun: -0.68, sniper: -1.02,
+  railgun: -0.8,
+  pistol: -0.3, silenced: -0.54, burstpistol: -0.37,
+  magnum: -0.43, dualpistol: -0.28, smg: -0.52, machinepistol: -0.37,
+  knife: -0.4, katana: -0.4, pipe: -0.4, axe: -0.4, hammer: -0.4,
 }
 
 export default function Weapon({ sessionRef, flashRef }) {

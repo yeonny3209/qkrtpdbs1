@@ -19,12 +19,27 @@ import Weapon from './three/Weapon.jsx'
 import PlayerRig from './three/PlayerRig.jsx'
 
 import Hud from './ui/Hud.jsx'
+import Lobby from './ui/Lobby.jsx'
 import { MainMenu, PauseScreen, GameOverScreen } from './ui/Screens.jsx'
 
 import { createSession } from './game/session.js'
 import { loadBest } from './game/score.js'
+import { DEFAULT_LOADOUT, normalizeLoadout } from './game/weapons.js'
+import { DEFAULT_DIFFICULTY } from './game/difficulty.js'
 import { useInput } from './hooks/useInput.js'
 import { ensureAudio } from './audio.js'
+
+/* 고른 구성을 브라우저에 남긴다. 막혀 있어도(사생활 보호 모드 등)
+   게임은 그냥 기본값으로 돌아가면 된다 — 저장 실패로 멈추지 않는다. */
+function loadStored(key, fallback, fix) {
+  try {
+    const raw = globalThis.localStorage?.getItem(key)
+    return raw ? fix(JSON.parse(raw)) : fallback
+  } catch { return fallback }
+}
+function store(key, value) {
+  try { globalThis.localStorage?.setItem(key, JSON.stringify(value)) } catch { /* 조용히 넘긴다 */ }
+}
 
 export default function App() {
   const [screen, setScreen] = useState('menu')
@@ -38,6 +53,11 @@ export default function App() {
   const [best, setBest] = useState(() => loadBest())
   const [result, setResult] = useState(null)
   const [lockError, setLockError] = useState(false)
+
+  /* 로비에서 고른 것. 다시 하기를 눌러도 그대로 쓴다 — 판마다 다시
+     고르게 하면 같은 구성으로 연습하는 것이 번거로워진다. */
+  const [loadout, setLoadout] = useState(() => loadStored('bb:loadout', DEFAULT_LOADOUT, normalizeLoadout))
+  const [difficulty, setDifficulty] = useState(() => loadStored('bb:difficulty', DEFAULT_DIFFICULTY, (v) => v))
 
   const sessionRef = useRef(null)
   const effectsRef = useRef(createEffects())
@@ -76,7 +96,7 @@ export default function App() {
 
   const startRun = useCallback(() => {
     ensureAudio()
-    sessionRef.current = createSession()
+    sessionRef.current = createSession(Date.now(), { difficulty, loadout })
     effectsRef.current = createEffects()
     setHud(null)
     setEnemyIds([])
@@ -88,7 +108,7 @@ export default function App() {
     /* 잠금 요청은 클릭 처리가 끝난 뒤라야 브라우저가 받아 준다 */
     requestAnimationFrame(() => controls.current?.lock())
     checkLock()
-  }, [checkLock])
+  }, [checkLock, difficulty, loadout])
 
   const resume = useCallback(() => {
     ensureAudio()
@@ -99,12 +119,12 @@ export default function App() {
 
   const toMenu = useCallback(() => {
     controls.current?.unlock()
-    sessionRef.current = createSession()
+    sessionRef.current = createSession(Date.now(), { difficulty, loadout })
     setScreen('menu')
     setHud(null)
     setEnemyIds([])
     setBest(loadBest())
-  }, [])
+  }, [difficulty, loadout])
 
   /* 마우스 잠금이 풀리면(Esc 등) 곧 일시정지다. 게임오버 화면에서는
      이미 풀어 놓은 것이므로 무시한다. */
@@ -113,6 +133,19 @@ export default function App() {
   }, [])
 
   const onLock = useCallback(() => setLockError(false), [])
+
+  const pickWeapon = useCallback((slot, id) => {
+    setLoadout((prev) => {
+      const next = normalizeLoadout({ ...prev, [slot]: id })
+      store('bb:loadout', next)
+      return next
+    })
+  }, [])
+
+  const pickDifficulty = useCallback((id) => {
+    setDifficulty(id)
+    store('bb:difficulty', id)
+  }, [])
 
   const onEvent = useCallback((ev) => {
     if (ev.kind === 'hitmarker') {
@@ -188,13 +221,26 @@ export default function App() {
           floaters={floaters}
         />
       )}
-      {screen === 'menu' && <MainMenu onStart={startRun} best={best} />}
+      {screen === 'menu' && <MainMenu onStart={() => setScreen('lobby')} best={best} />}
+      {screen === 'lobby' && (
+        <Lobby
+          loadout={loadout}
+          difficulty={difficulty}
+          onPick={pickWeapon}
+          onDifficulty={pickDifficulty}
+          onStart={startRun}
+          onBack={() => setScreen('menu')}
+          best={best}
+        />
+      )}
       {screen === 'paused' && (
         <PauseScreen onResume={resume} onQuit={toMenu} hud={hud} lockError={lockError} />
       )}
       {screen === 'over' && result && (
         <GameOverScreen
-          result={result} best={best} onRetry={startRun} onMenu={toMenu}
+          result={result} best={best} onRetry={startRun}
+          onLobby={() => { controls.current?.unlock(); setScreen('lobby') }}
+          onMenu={toMenu}
         />
       )}
     </div>

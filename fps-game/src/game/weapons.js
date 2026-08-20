@@ -5,19 +5,15 @@
    역할이라, 숫자키 1·2·3 이 언제나 같은 성격의 무기를 꺼낸다.
    손이 기억하는 것은 무기 이름이 아니라 "지금 뭐가 필요한가"다.
 
-   한 슬롯에 여럿이 들어간다. 같은 숫자를 다시 누르면 그 슬롯 안에서
-   교대한다 — 새 무기를 주웠다고 쓰던 것을 잃지 않는다.
+   스물한 자루가 있다. 수치만 조금씩 다른 총을 늘리면 고를 것이
+   많아지는 게 아니라 고르기 귀찮아질 뿐이라, 방아쇠를 당겼을 때
+   벌어지는 일 자체를 다섯 갈래로 나눴다.
 
-   ── 아홉 자루가 각자 다른 질문에 답한다 ────────────────────────
-     주무기   돌격소총  두루 쓴다. 답이 애매할 때의 답.
-              샷건      코앞. 멀면 거의 무의미하다.
-              경기관총  탄창 100발. 무리를 눕히되 정밀함은 버린다.
-              저격총    한 발이 크고, 줄지어 선 적을 꿰뚫는다.
-     보조     권총      예비탄 무한. 모든 게 떨어졌을 때 남는 것.
-              기관단총  근거리 속사. 대신 조금만 멀어도 힘이 없다.
-              매그넘    여섯 발뿐이지만 한 발이 무겁다.
-     근접     나이프    빠르다. 크롤러는 한 방.
-              전투도끼  느리고 크게 벤다. 브루트도 두 방.
+     · 단발/연사   방아쇠 한 번에 한 발. 가장 흔한 것.
+     · 점사(burst) 한 번에 정해진 발수가 나간다. 누르는 박자가 다르다.
+     · 예열(spin)  누르고 있으면 점점 빨라진다. 미리 돌려 두는 판단.
+     · 차지(charge)누르고 있다가 놓는다. 언제 놓을지가 실력이 된다.
+     · 근접        부채꼴 안을 벤다. 탄약이 없다.
 
    총은 전부 히트스캔이다 — 방아쇠를 당긴 프레임에 광선을 쏴서 즉시
    맞았는지 정한다. 투사체를 날리면 프레임 사이를 건너뛰어 얇은 적을
@@ -27,7 +23,7 @@
    두 가지만 예외다.
      · 근접무기 — 광선 하나로는 발밑의 크롤러를 자꾸 놓친다.
        부채꼴 안을 통째로 벤다. (combat.meleeSwing)
-     · 관통 — 저격총은 첫 적에서 멈추지 않고 뒤까지 꿰뚫는다.
+     · 관통 — 저격총·레일건은 첫 적에서 멈추지 않고 뒤까지 꿰뚫는다.
        (combat.raycastAll)
    ================================================================== */
 
@@ -42,197 +38,199 @@ export const SLOT_LABEL = {
 /* 숫자키 → 슬롯 */
 export const SLOT_KEY = { Digit1: 'primary', Digit2: 'secondary', Digit3: 'melee' }
 
+/* 발사 방식 — 로비에서 이 이름으로 성격을 미리 알려 준다 */
+export const FIRE_MODE_LABEL = {
+  single: '단발',
+  auto: '연사',
+  burst: '점사',
+  spin: '예열',
+  charge: '차지',
+  melee: '근접',
+}
+
+export function fireMode(w) {
+  if (w.melee) return 'melee'
+  if (w.charge) return 'charge'
+  if (w.spinUp) return 'spin'
+  if (w.burst) return 'burst'
+  return w.auto ? 'auto' : 'single'
+}
+
 export const WEAPONS = {
-  // ── 주무기 ────────────────────────────────────────────────────
+  // ══════════════════ 주무기 ══════════════════
+  carbine: {
+    id: 'carbine', slot: 'primary', name: '카빈', icon: '🔫',
+    blurb: '가볍고 정확하다. 한 발은 가볍지만 잘 맞는다',
+    damage: 12, pellets: 1, rpm: 600, mag: 24, reserve: 168, reload: 1.7,
+    spread: 1.8, range: 68, auto: true,
+    falloffStart: 34, falloffEnd: 68, falloffMin: 0.62, recoil: 0.42,
+  },
   rifle: {
-    id: 'rifle',
-    slot: 'primary',
-    name: '돌격소총',
-    icon: '🔩',
-    damage: 15,
-    pellets: 1,
-    rpm: 480,              // 초당 8발
-    mag: 30,
-    reserve: 180,
-    reload: 2.0,
-    spread: 3.0,
-    range: 70,
-    auto: true,
-    falloffStart: 30,
-    falloffEnd: 70,
-    falloffMin: 0.6,
-    recoil: 0.55,
+    id: 'rifle', slot: 'primary', name: '돌격소총', icon: '🔩',
+    blurb: '두루 쓴다. 답이 애매할 때의 답',
+    damage: 15, pellets: 1, rpm: 480, mag: 30, reserve: 180, reload: 2.0,
+    spread: 3.0, range: 70, auto: true,
+    falloffStart: 30, falloffEnd: 70, falloffMin: 0.6, recoil: 0.55,
+  },
+  battle: {
+    id: 'battle', slot: 'primary', name: '배틀라이플', icon: '🎖️',
+    blurb: '3점사. 한 번 누를 때마다 묵직한 세 발',
+    damage: 26, pellets: 1, rpm: 700, mag: 21, reserve: 147, reload: 2.3,
+    spread: 1.5, range: 80, auto: false,
+    /* 점사 — 한 번 누르면 burst 발이 burstGap 간격으로 나가고,
+       그 뒤 burstRest 만큼 쉰다. 연사보다 박자가 또렷하다. */
+    burst: 3, burstGap: 0.075, burstRest: 0.34,
+    falloffStart: 40, falloffEnd: 80, falloffMin: 0.66, recoil: 1.1,
   },
   shotgun: {
-    id: 'shotgun',
-    slot: 'primary',
-    name: '샷건',
-    icon: '💥',
-    damage: 7.5,           // 알 하나당. 8알 전탄 명중 시 60
-    pellets: 8,
-    rpm: 72,               // 초당 1.2발
-    mag: 6,
-    reserve: 36,
-    reload: 2.5,
-    spread: 12.0,
-    range: 28,
-    auto: false,
-    falloffStart: 8,       // 아주 빨리 죽는다 — 근접 전용이라는 뜻
-    falloffEnd: 28,
-    falloffMin: 0.2,
-    recoil: 2.2,
+    id: 'shotgun', slot: 'primary', name: '샷건', icon: '💥',
+    blurb: '코앞에서 압도적. 멀면 거의 무의미하다',
+    damage: 7.5, pellets: 8, rpm: 72, mag: 6, reserve: 36, reload: 2.5,
+    spread: 12.0, range: 28, auto: false,
+    falloffStart: 8, falloffEnd: 28, falloffMin: 0.2, recoil: 2.2,
+  },
+  autoshotgun: {
+    id: 'autoshotgun', slot: 'primary', name: '자동샷건', icon: '🌪️',
+    blurb: '샷건인데 연사된다. 한 발의 무게는 덜하다',
+    damage: 6, pellets: 6, rpm: 180, mag: 10, reserve: 60, reload: 3.0,
+    spread: 9.0, range: 26, auto: true,
+    falloffStart: 8, falloffEnd: 26, falloffMin: 0.24, recoil: 1.5,
   },
   lmg: {
-    id: 'lmg',
-    slot: 'primary',
-    name: '경기관총',
-    icon: '⛓️',
-    damage: 13,
-    pellets: 1,
-    rpm: 700,
-    mag: 100,              // 재장전 없이 오래 버틴다
-    reserve: 300,
-    reload: 4.2,           // 그 대가로 한 번 비면 아주 오래 무방비다
-    spread: 5.5,           // 정밀함은 버렸다
-    range: 60,
-    auto: true,
-    falloffStart: 22,
-    falloffEnd: 60,
-    falloffMin: 0.5,
-    recoil: 0.75,
+    id: 'lmg', slot: 'primary', name: '경기관총', icon: '⛓️',
+    blurb: '탄창 100발. 무리를 눕히되 정밀함은 버린다',
+    damage: 13, pellets: 1, rpm: 700, mag: 100, reserve: 300, reload: 4.2,
+    spread: 5.5, range: 60, auto: true,
+    falloffStart: 22, falloffEnd: 60, falloffMin: 0.5, recoil: 0.75,
+  },
+  minigun: {
+    id: 'minigun', slot: 'primary', name: '미니건', icon: '🌀',
+    blurb: '돌기 시작하면 멈출 수 없다. 다만 도는 데 시간이 걸린다',
+    damage: 11, pellets: 1, rpm: 1200, mag: 200, reserve: 400, reload: 5.5,
+    spread: 6.5, range: 55, auto: true,
+    /* 예열 — 누르고 있으면 spinUp 초에 걸쳐 최대 연사에 이른다.
+       손을 떼면 spinDown 초에 걸쳐 식는다. 미리 돌려 두는 판단이
+       생기는 게 이 무기의 전부다. */
+    spinUp: 1.15, spinDown: 0.8, spinMin: 0.28,
+    falloffStart: 18, falloffEnd: 55, falloffMin: 0.45, recoil: 0.5,
   },
   sniper: {
-    id: 'sniper',
-    slot: 'primary',
-    name: '대물 저격총',
-    icon: '🎯',
-    damage: 120,           // 트루퍼는 한 방, 브루트는 두 방
-    pellets: 1,
-    rpm: 50,               // 볼트액션 — 한 발 쏘고 한참 기다린다
-    mag: 5,
-    reserve: 40,
-    reload: 3.2,
-    spread: 0,             // 조준선 그대로 나간다
-    range: 100,
-    auto: false,
-    /* 줄지어 오는 적을 한 발로 꿰뚫는다. 뒤로 갈수록 위력이 줄어
-       "무리를 정렬시켜 쏘는" 판단이 값을 하되 무한정 세지지는 않는다. */
-    pierce: 2,
-    pierceFalloff: 0.72,
-    falloffStart: 100,     // 거리로 약해지지 않는다 — 원거리 무기다
-    falloffEnd: 101,
-    falloffMin: 1,
-    recoil: 3.0,
+    id: 'sniper', slot: 'primary', name: '대물 저격총', icon: '🎯',
+    blurb: '한 발이 크고, 줄지어 선 셋까지 꿰뚫는다',
+    damage: 120, pellets: 1, rpm: 50, mag: 5, reserve: 40, reload: 3.2,
+    spread: 0, range: 100, auto: false,
+    pierce: 2, pierceFalloff: 0.72,
+    falloffStart: 100, falloffEnd: 101, falloffMin: 1, recoil: 3.0,
+  },
+  railgun: {
+    id: 'railgun', slot: 'primary', name: '레일건', icon: '⚡',
+    blurb: '눌러 모았다가 놓는다. 다 모으면 한 줄을 통째로 지운다',
+    damage: 70, pellets: 1, rpm: 40, mag: 4, reserve: 24, reload: 3.6,
+    spread: 0, range: 120, auto: false,
+    /* 차지 — 누르고 있으면 charge 초에 걸쳐 배율이 1 → chargeMax.
+       chargeMin 만큼도 안 모으고 놓으면 안 나간다(오발 방지). */
+    charge: 1.15, chargeMax: 3.4, chargeMin: 0.18,
+    pierce: 99, pierceFalloff: 0.88,
+    falloffStart: 120, falloffEnd: 121, falloffMin: 1, recoil: 3.4,
   },
 
-  // ── 보조무기 ──────────────────────────────────────────────────
+  // ══════════════════ 보조무기 ══════════════════
   pistol: {
-    id: 'pistol',
-    slot: 'secondary',
-    name: '권총',
-    icon: '🔫',
-    damage: 22,
-    pellets: 1,
-    rpm: 180,              // 초당 3발
-    mag: 12,
-    reserve: Infinity,     // 최후의 보루 — 이것마저 떨어지면 할 게 없다
-    reload: 1.0,
-    spread: 1.0,           // 도(degree), 조준선에서 벌어지는 최대 각
-    range: 80,
-    auto: false,
-    falloffStart: 40,      // 이 거리부터 피해가 준다
-    falloffEnd: 80,        // 이 거리에서 최소 배율
-    falloffMin: 0.55,
-    recoil: 0.9,           // 화면이 튀는 정도(무기 반동 애니메이션용)
+    id: 'pistol', slot: 'secondary', name: '권총', icon: '🔫',
+    blurb: '예비탄 무한. 모든 게 떨어졌을 때 남는 것',
+    damage: 22, pellets: 1, rpm: 180, mag: 12, reserve: Infinity, reload: 1.0,
+    spread: 1.0, range: 80, auto: false,
+    falloffStart: 40, falloffEnd: 80, falloffMin: 0.55, recoil: 0.9,
   },
-  smg: {
-    id: 'smg',
-    slot: 'secondary',
-    name: '기관단총',
-    icon: '🧨',
-    damage: 10,
-    pellets: 1,
-    rpm: 780,              // 눈 깜짝할 새 탄창이 빈다
-    mag: 25,
-    reserve: 200,
-    reload: 1.6,
-    spread: 4.5,
-    range: 34,
-    auto: true,
-    falloffStart: 12,      // 조금만 멀어져도 힘이 빠진다
-    falloffEnd: 34,
-    falloffMin: 0.35,
-    recoil: 0.5,
+  silenced: {
+    id: 'silenced', slot: 'secondary', name: '소음권총', icon: '🤫',
+    blurb: '조용하고 거의 안 흔들린다. 침착하게 맞히는 총',
+    damage: 20, pellets: 1, rpm: 220, mag: 15, reserve: 150, reload: 1.2,
+    spread: 0.35, range: 85, auto: false,
+    falloffStart: 45, falloffEnd: 85, falloffMin: 0.6, recoil: 0.3,
+  },
+  burstpistol: {
+    id: 'burstpistol', slot: 'secondary', name: '점사권총', icon: '📌',
+    blurb: '3점사. 한 번 누르면 세 발이 나간다',
+    damage: 16, pellets: 1, rpm: 800, mag: 18, reserve: 144, reload: 1.4,
+    spread: 1.6, range: 60, auto: false,
+    burst: 3, burstGap: 0.06, burstRest: 0.28,
+    falloffStart: 26, falloffEnd: 60, falloffMin: 0.5, recoil: 0.7,
   },
   magnum: {
-    id: 'magnum',
-    slot: 'secondary',
-    name: '매그넘',
-    icon: '🎰',
-    damage: 58,            // 크롤러 한 방, 트루퍼 두 방
-    pellets: 1,
-    rpm: 96,
-    mag: 6,
-    reserve: 48,
-    reload: 2.2,           // 탄알을 하나씩 밀어 넣는 리볼버다
-    spread: 1.2,
-    range: 75,
-    auto: false,
-    falloffStart: 45,
-    falloffEnd: 75,
-    falloffMin: 0.6,
-    recoil: 2.6,
+    id: 'magnum', slot: 'secondary', name: '매그넘', icon: '🎰',
+    blurb: '여섯 발뿐이지만 한 발이 무겁다',
+    damage: 58, pellets: 1, rpm: 96, mag: 6, reserve: 48, reload: 2.2,
+    spread: 1.2, range: 75, auto: false,
+    falloffStart: 45, falloffEnd: 75, falloffMin: 0.6, recoil: 2.6,
+  },
+  dualpistol: {
+    id: 'dualpistol', slot: 'secondary', name: '쌍권총', icon: '✌️',
+    blurb: '양손에 하나씩. 두 배로 쏟아붓고 두 배로 빨리 빈다',
+    damage: 19, pellets: 1, rpm: 420, mag: 24, reserve: 168, reload: 2.0,
+    spread: 3.2, range: 55, auto: true,
+    falloffStart: 22, falloffEnd: 55, falloffMin: 0.45, recoil: 0.6,
+  },
+  smg: {
+    id: 'smg', slot: 'secondary', name: '기관단총', icon: '🧨',
+    blurb: '근거리 속사. 조금만 멀어도 힘이 없다',
+    damage: 10, pellets: 1, rpm: 780, mag: 25, reserve: 200, reload: 1.6,
+    spread: 4.5, range: 34, auto: true,
+    falloffStart: 12, falloffEnd: 34, falloffMin: 0.35, recoil: 0.5,
+  },
+  machinepistol: {
+    id: 'machinepistol', slot: 'secondary', name: '자동권총', icon: '💨',
+    blurb: '눈 깜짝할 새 탄창이 빈다. 코앞에서만 쓸 것',
+    damage: 8, pellets: 1, rpm: 950, mag: 20, reserve: 180, reload: 1.5,
+    spread: 6.5, range: 26, auto: true,
+    falloffStart: 9, falloffEnd: 26, falloffMin: 0.3, recoil: 0.45,
   },
 
-  // ── 근접무기 ──────────────────────────────────────────────────
+  // ══════════════════ 근접무기 ══════════════════
+  /* 탄창도 예비탄도 0 이다. Infinity 를 넣어 "안 떨어지는 탄약"인
+     척하는 대신, 탄약이라는 개념을 아예 안 쓴다는 뜻으로 0 을 둔다.
+     그래서 canFire 와 consumeShot 이 noAmmo 를 반드시 봐야 하고,
+     둘 중 하나라도 빠뜨리면 즉시 먹통이 된다 — 있으나 마나 한
+     방어 코드가 아니라, 없으면 바로 깨지는 코드가 된다. */
   knife: {
-    id: 'knife',
-    slot: 'melee',
-    name: '전투 나이프',
-    icon: '🔪',
-    melee: true,
-    noAmmo: true,          // 탄창도 예비탄도 재장전도 없다
-    damage: 46,            // 크롤러(30)는 한 방, 트루퍼(60)는 두 방
-    pellets: 1,
-    rpm: 96,               // 초당 1.6번
-    /* 탄창도 예비탄도 0 이다. Infinity 를 넣어 "안 떨어지는 탄약"인
-       척하는 대신, 탄약이라는 개념을 아예 안 쓴다는 뜻으로 0 을 둔다.
-       그래서 canFire 와 consumeShot 이 noAmmo 를 반드시 봐야 하고,
-       둘 중 하나라도 빠뜨리면 칼이 즉시 먹통이 된다 — 있으나 마나 한
-       방어 코드가 아니라, 없으면 바로 깨지는 코드가 된다. */
-    mag: 0,
-    reserve: 0,
-    reload: 0,
-    spread: 0,
-    range: 2.5,
-    arc: 75,               // 부채꼴 전체 각(도)
-    auto: true,            // 누르고 있으면 계속 휘두른다
-    falloffStart: 2.5,     // 거리 감쇠 없음 — 닿거나 안 닿거나
-    falloffEnd: 2.6,
-    falloffMin: 1,
-    recoil: 1.4,
+    id: 'knife', slot: 'melee', name: '전투 나이프', icon: '🔪',
+    blurb: '빠르다. 크롤러는 한 방',
+    melee: true, noAmmo: true,
+    damage: 46, pellets: 1, rpm: 96, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.5, arc: 75, auto: true,
+    falloffStart: 2.5, falloffEnd: 2.6, falloffMin: 1, recoil: 1.4,
+  },
+  katana: {
+    id: 'katana', slot: 'melee', name: '카타나', icon: '⚔️',
+    blurb: '멀리서부터 벤다. 빠르기와 길이를 함께 가진다',
+    melee: true, noAmmo: true,
+    damage: 62, pellets: 1, rpm: 78, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 3.2, arc: 95, auto: true,
+    falloffStart: 3.2, falloffEnd: 3.3, falloffMin: 1, recoil: 1.7,
+  },
+  pipe: {
+    id: 'pipe', slot: 'melee', name: '쇠파이프', icon: '🪈',
+    blurb: '어디서 주웠는지 모를 쇳덩이. 무난하게 아프다',
+    melee: true, noAmmo: true,
+    damage: 58, pellets: 1, rpm: 84, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.7, arc: 85, auto: true,
+    falloffStart: 2.7, falloffEnd: 2.8, falloffMin: 1, recoil: 1.9,
   },
   axe: {
-    id: 'axe',
-    slot: 'melee',
-    name: '전투 도끼',
-    icon: '🪓',
-    melee: true,
-    noAmmo: true,
-    damage: 95,            // 브루트(150)도 두 번이면 눕는다
-    pellets: 1,
-    rpm: 48,               // 나이프의 절반 속도
-    mag: 0,
-    reserve: 0,
-    reload: 0,
-    spread: 0,
-    range: 2.9,            // 더 길게 닿는다
-    arc: 100,              // 더 넓게 훑는다
-    auto: true,
-    falloffStart: 2.9,
-    falloffEnd: 3.0,
-    falloffMin: 1,
-    recoil: 2.4,
+    id: 'axe', slot: 'melee', name: '전투 도끼', icon: '🪓',
+    blurb: '느리고 크게 벤다. 브루트도 두 방',
+    melee: true, noAmmo: true,
+    damage: 95, pellets: 1, rpm: 48, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.9, arc: 100, auto: true,
+    falloffStart: 2.9, falloffEnd: 3.0, falloffMin: 1, recoil: 2.4,
+  },
+  hammer: {
+    id: 'hammer', slot: 'melee', name: '대형 망치', icon: '🔨',
+    blurb: '아주 느리다. 대신 닿는 것은 전부 한 번에 눕는다',
+    melee: true, noAmmo: true,
+    damage: 132, pellets: 1, rpm: 34, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 3.0, arc: 120, auto: true,
+    falloffStart: 3.0, falloffEnd: 3.1, falloffMin: 1, recoil: 3.2,
   },
 }
 
@@ -246,9 +244,13 @@ export const WEAPONS_BY_SLOT = SLOTS.reduce((acc, s) => {
 export const WEAPON_ORDER = SLOTS.flatMap((s) => WEAPONS_BY_SLOT[s])
 
 /* 발 사이 최소 간격(초). rpm 을 그대로 두면 연사 판정을 매번
-   나눗셈해야 해서, 여기서 한 번만 바꾼다. */
-export function shotInterval(weapon) {
-  return 60 / weapon.rpm
+   나눗셈해야 해서, 여기서 한 번만 바꾼다.
+
+   예열 무기는 지금 회전수(spin 0..1)에 따라 간격이 줄어든다. */
+export function shotInterval(weapon, spin = 1) {
+  if (!weapon.spinUp) return 60 / weapon.rpm
+  const frac = weapon.spinMin + (1 - weapon.spinMin) * Math.max(0, Math.min(1, spin))
+  return 60 / (weapon.rpm * frac)
 }
 
 /* 탄창이 빈 채로 방아쇠를 당기면 자동 재장전이 걸려야 한다.
@@ -267,29 +269,38 @@ export function reloadAmount(weapon, ammo) {
   return Math.min(room, ammo.reserve)
 }
 
-/* 처음부터 들고 시작하는 것들. 나머지는 아레나에서 주워야 하고,
-   주우러 나가는 그 순간이 이 게임의 위험 부담이다. */
-export const STARTING_WEAPONS = ['pistol', 'knife']
+/* 차지 배율 — 0 이면 1배, 다 모으면 chargeMax 배 */
+export function chargeMultiplier(weapon, charge) {
+  if (!weapon.charge) return 1
+  const c = Math.max(0, Math.min(1, charge))
+  return 1 + (weapon.chargeMax - 1) * c
+}
 
-export function initialAmmo() {
+/* 로비에서 고른 것으로 시작한다. 아무것도 안 고르면 이 기본값. */
+export const DEFAULT_LOADOUT = { primary: 'rifle', secondary: 'pistol', melee: 'knife' }
+
+/* 고른 무기가 진짜 그 슬롯의 무기인지 확인해 정리한다.
+   저장된 값이 낡았거나 손으로 건드렸을 때 게임이 안 깨지게 한다. */
+export function normalizeLoadout(loadout = {}) {
   const out = {}
-  for (const id of WEAPON_ORDER) {
-    const w = WEAPONS[id]
-    const start = STARTING_WEAPONS.includes(id)
-    out[id] = {
-      inMag: w.mag,
-      reserve: start ? w.reserve : 0,
-      owned: start,
-    }
+  for (const slot of SLOTS) {
+    const id = loadout[slot]
+    out[slot] = (WEAPONS[id] && WEAPONS[id].slot === slot) ? id : DEFAULT_LOADOUT[slot]
   }
   return out
 }
 
-/* 시작 슬롯 구성 — 주무기 자리는 비어 있다 */
-export function initialSlots() {
+export function initialAmmo(loadout = DEFAULT_LOADOUT) {
+  const picked = new Set(Object.values(normalizeLoadout(loadout)))
   const out = {}
-  for (const s of SLOTS) {
-    out[s] = STARTING_WEAPONS.find((id) => WEAPONS[id].slot === s) || null
+  for (const id of WEAPON_ORDER) {
+    const w = WEAPONS[id]
+    const start = picked.has(id)
+    out[id] = { inMag: w.mag, reserve: start ? w.reserve : 0, owned: start }
   }
   return out
+}
+
+export function initialSlots(loadout = DEFAULT_LOADOUT) {
+  return normalizeLoadout(loadout)
 }

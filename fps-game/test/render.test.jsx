@@ -239,7 +239,10 @@ ok(Math.abs(session.player.y) < 1e-6, '이동 뒤에도 땅에 서 있다')
 {
   const killsBefore = session.score.kills
   const shotsBefore = seen.filter((e) => e.kind === 'hitmarker').length
-  const magBefore = session.player.ammo.pistol.inMag
+  /* 시작 무기는 로비에서 고른 주무기다(기본 구성에서는 소총).
+     권총을 고정해 보면 안 쏘는 총의 탄약을 재게 된다. */
+  const firing = session.player.weapon
+  const magBefore = session.player.ammo[firing].inMag
   /* 매 프레임 가장 가까운 적의 몸 한가운데를 겨눈다.
 
      pitch 를 0 으로 두면 눈높이(1.62)에서 수평으로 나가서 키 1.05 인
@@ -288,7 +291,7 @@ ok(Math.abs(session.player.y) < 1e-6, '이동 뒤에도 땅에 서 있다')
     await ReactThreeTestRenderer.act(async () => { await renderer.advanceFrames(6, 1 / 60) })
   }
   inputRef.current.fire = false
-  const magAfter = session.player.ammo.pistol.inMag
+  const magAfter = session.player.ammo[firing].inMag
   ok(magAfter !== magBefore || session.player.reloading > 0, '탄약이 소비됨')
   ok(session.score.kills > killsBefore,
     `사격으로 적을 잡음 — 처치 ${killsBefore} → ${session.score.kills}`)
