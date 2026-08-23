@@ -10,7 +10,6 @@
    떨어져서, 게임이 어려워지는 게 아니라 컴퓨터가 느려질 뿐이다.
    대신 웨이브가 오르면 체력·속도 배율이 붙어 계속 빡빡해진다.
    ================================================================== */
-import { SPAWN_POINTS } from './arena.js'
 import { intOf } from './rng.js'
 
 export const MAX_CRAWLERS = 18
@@ -67,8 +66,11 @@ export function waveScaling(n) {
    죽거나 안 죽거나로 끝난다. 나눠 보내면 웨이브 내내 압박이 유지된다.
 
    같은 지점에서 연달아 나오지 않게 직전 지점을 피한다 — 한 곳만
-   보고 있으면 되는 상황을 막는다. */
-export function spawnSchedule(n, rng) {
+   보고 있으면 되는 상황을 막는다.
+
+   스폰 지점은 맵마다 다르므로 인자로 받는다. 예전처럼 모듈 상수를
+   쓰면 맵을 바꿔도 적이 늘 같은 자리에서 나온다 — 벽 속에서. */
+export function spawnSchedule(n, rng, spawnPoints) {
   const comp = waveComposition(n)
   const queue = []
 
@@ -88,14 +90,15 @@ export function spawnSchedule(n, rng) {
      길어지기만 하고 밀도는 그대로다. */
   const gap = Math.max(0.38, 1.25 - n * 0.04)
 
+  const points = spawnPoints
   let last = -1
   return queue.map((type, i) => {
-    let idx = intOf(rng, SPAWN_POINTS.length)
-    if (idx === last && SPAWN_POINTS.length > 1) {
-      idx = (idx + 1 + intOf(rng, SPAWN_POINTS.length - 1)) % SPAWN_POINTS.length
+    let idx = intOf(rng, points.length)
+    if (idx === last && points.length > 1) {
+      idx = (idx + 1 + intOf(rng, points.length - 1)) % points.length
     }
     last = idx
-    return { type, at: i * gap, spawnIndex: idx, point: SPAWN_POINTS[idx] }
+    return { type, at: i * gap, spawnIndex: idx, point: points[idx] }
   })
 }
 

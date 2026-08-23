@@ -53,6 +53,8 @@ export default function App() {
   const [best, setBest] = useState(() => loadBest())
   const [result, setResult] = useState(null)
   const [lockError, setLockError] = useState(false)
+  /* 판마다 맵이 바뀐다. Arena 는 이 값이 바뀔 때만 다시 그린다. */
+  const [mapId, setMapId] = useState(null)
 
   /* 로비에서 고른 것. 다시 하기를 눌러도 그대로 쓴다 — 판마다 다시
      고르게 하면 같은 구성으로 연습하는 것이 번거로워진다. */
@@ -68,6 +70,7 @@ export default function App() {
   const inputRef = useInput(inputEnabled)
 
   if (!sessionRef.current) sessionRef.current = createSession()
+  if (mapId === null) setMapId(sessionRef.current.map.id)
 
   /* 화면이 바뀔 때마다 "지금 굴러가는 중인가"를 ref 에도 적어 둔다.
      useFrame 안에서는 state 를 못 읽는다 — 클로저가 처음 값에 묶인다. */
@@ -97,6 +100,7 @@ export default function App() {
   const startRun = useCallback(() => {
     ensureAudio()
     sessionRef.current = createSession(Date.now(), { difficulty, loadout })
+    setMapId(sessionRef.current.map.id)
     effectsRef.current = createEffects()
     setHud(null)
     setEnemyIds([])
@@ -120,6 +124,7 @@ export default function App() {
   const toMenu = useCallback(() => {
     controls.current?.unlock()
     sessionRef.current = createSession(Date.now(), { difficulty, loadout })
+    setMapId(sessionRef.current.map.id)
     setScreen('menu')
     setHud(null)
     setEnemyIds([])
@@ -191,7 +196,7 @@ export default function App() {
         <color attach="background" args={['#4d5a6b']} />
         <fog attach="fog" args={['#4d5a6b', 26, 68]} />
 
-        <Arena />
+        <Arena key={mapId} map={sessionRef.current.map} />
         {enemyIds.map((id) => (
           <Enemy key={id} id={id} sessionRef={sessionRef} />
         ))}

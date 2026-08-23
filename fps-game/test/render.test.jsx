@@ -81,7 +81,7 @@ let enemyIds = []
 function Scene() {
   return (
     <>
-      <Arena />
+      <Arena map={session.map} />
       {enemyIds.map((id) => <Enemy key={id} id={id} sessionRef={sessionRef} />)}
       <Pickups sessionRef={sessionRef} revision={0} />
       <Effects effectsRef={effectsRef} />

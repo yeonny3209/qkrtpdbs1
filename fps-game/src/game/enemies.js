@@ -251,7 +251,18 @@ export function tickEnemy(enemy, ctx, dt) {
     const ux = mx / step
     const uz = mz / step
     const gained = (moved.x - e.x) * ux + (moved.z - e.z) * uz
-    const blocked = gained < step * 0.4
+
+    /* 막혔다고 볼 기준은 들어갈 때와 나올 때가 달라야 한다.
+
+       기준이 하나면 벽을 비스듬히 마주한 자리에서 값이 그 선에
+       딱 걸린다. 그런 프레임에는 "트였다"고 읽혀 벽을 따라 미끄러지고,
+       다음 프레임에는 "막혔다"고 읽혀 반대쪽으로 돈다. 둘이 번갈아
+       나오면 제자리에서 떨며 벽 끝을 영영 못 돌아 나간다.
+
+       그래서 우회 중에는 확실히 트여야(75%) 그만둔다. 한번 돌기
+       시작하면 어중간한 틈에 홀리지 않고 끝까지 돈다. */
+    const bar = e.avoidT > 0 ? 0.75 : 0.4
+    const blocked = gained < step * bar
 
     /* 벽에 막혔을 때 — 한쪽 방향을 정해 "한동안 그쪽으로만" 돈다.
 

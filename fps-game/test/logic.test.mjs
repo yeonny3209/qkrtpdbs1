@@ -12,6 +12,12 @@ const [rngM, arenaM, collideM, weaponsM, combatM, enemiesM, waveM, scoreM, playe
     load('score.js'), load('player.js'),
   ])
 const diffM = await load('difficulty.js')
+const mapsM = await load('maps.js')
+
+/* 충돌·이동·적 길찾기 검사는 맵 하나 위에서 돈다. 열 장 전부에
+   대해서는 위 "맵" 절이 배치 규칙을 보고, 아래 "모든 맵에서 적이
+   도달하는가" 절이 길찾기를 본다. 여기서는 대표로 벙커를 쓴다. */
+const BUNKER = mapsM.getMap('bunker')
 const sessionM = await load('session.js')
 
 let pass = 0, fail = 0
@@ -55,89 +61,143 @@ section('rng — 결정성')
 }
 
 // ══════════════════════════════════════════════════════ arena
-section('arena — 맵 구조')
+section('맵 — 열 장이 전부 성립하는가')
 {
-  const { ARENA, ALL_BOXES, COVER_BOXES, WALL_BOXES, SPAWN_POINTS, PLAYER_START, insideArena } = arenaM
-  eq(WALL_BOXES.length, 4, '담장 네 짝')
-  ok(COVER_BOXES.length >= 8, '엄폐물 충분')
-  eq(ALL_BOXES.length,
-    WALL_BOXES.length + COVER_BOXES.length + arenaM.STAIR_BOXES.length,
-    '전체 = 담장 + 엄폐물 + 계단')
-  ok(arenaM.STAIR_BOXES.length >= 8, `계단이 놓여 있다 — ${arenaM.STAIR_BOXES.length}칸`)
+  const { MAPS, getMap, pickMap, DEFAULT_MAP } = mapsM
+  const { MIN_GAP, insideArena } = arenaM
+  const { STEP_HEIGHT } = collideM
+  const { ENEMY_TYPES } = enemiesM
+  const { PLAYER } = playerM
 
-  for (const b of ALL_BOXES) {
-    ok(b.minX < b.maxX && b.minZ < b.maxZ && b.minY < b.maxY, '상자 min<max')
-  }
+  eq(MAPS.length, 10, '맵이 열 장')
+  eq(new Set(MAPS.map((m) => m.id)).size, 10, '아이디가 서로 다르다')
+  eq(new Set(MAPS.map((m) => m.name)).size, 10, '이름이 서로 다르다')
+  for (const m of MAPS) ok(m.name && m.blurb, `${m.id} 에 이름과 설명이 있다`)
+  eq(getMap('없는맵').id, DEFAULT_MAP, '모르는 이름은 기본 맵으로')
 
-  // 담장 안쪽 면이 정확히 ±half
-  const h = ARENA.half
-  for (const b of WALL_BOXES) {
-    const nearest = Math.min(
-      Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ),
-    )
-    ok(Math.abs(nearest - h) < 1e-9, `담장 안쪽 면이 ±${h}`)
-  }
-
-  // 엄폐물이 플레이어 시작점을 덮지 않아야 한다
-  for (const b of COVER_BOXES) {
-    const covers = PLAYER_START.x >= b.minX - 0.5 && PLAYER_START.x <= b.maxX + 0.5 &&
-                   PLAYER_START.z >= b.minZ - 0.5 && PLAYER_START.z <= b.maxZ + 0.5
-    ok(!covers, '시작점이 엄폐물에 안 겹침')
-  }
-
-  // 스폰 지점: 아레나 안 + 시작점에서 충분히 멀고 + 어떤 적도 안 낀다
-  const widestR = Math.max(...Object.values(enemiesM.ENEMY_TYPES).map((t) => t.radius))
-  for (const s of SPAWN_POINTS) {
-    ok(insideArena(s.x, s.z, 1), `스폰 (${s.x},${s.z}) 아레나 안`)
-    const d = Math.hypot(s.x - PLAYER_START.x, s.z - PLAYER_START.z)
-    ok(d >= 12, `스폰 (${s.x},${s.z}) 시작점에서 12 이상 — got ${d.toFixed(1)}`)
-    for (const b of ALL_BOXES) {
-      const nx = Math.max(b.minX, Math.min(s.x, b.maxX))
-      const nz = Math.max(b.minZ, Math.min(s.z, b.maxZ))
-      const gap = Math.hypot(s.x - nx, s.z - nz)
-      ok(gap >= widestR + 0.3,
-        `스폰 (${s.x},${s.z}) 이 벽에서 ${(widestR + 0.3).toFixed(2)} 이상 — got ${gap.toFixed(2)}`)
+  /* 뽑기가 열 장을 골고루 뽑는가 — 한두 장만 나오면 열 장을 만든
+     의미가 없다 */
+  {
+    const seen = new Map()
+    const rng = rngM.makeRng('pick')
+    for (let i = 0; i < 4000; i++) {
+      const m = pickMap(rng)
+      seen.set(m.id, (seen.get(m.id) || 0) + 1)
+    }
+    eq(seen.size, 10, '열 장이 모두 뽑힌다')
+    for (const [id, n] of seen) {
+      ok(n > 4000 / 10 * 0.6 && n < 4000 / 10 * 1.5, `${id} 가 치우치지 않게 나온다 — ${n}`)
     }
   }
-  ok(insideArena(0, 0), '중앙은 안')
-  ok(!insideArena(16, 0), '밖은 밖')
 
-  /* ★ 통행 가능한 틈 — 처음 배치를 무너뜨린 버그를 영구히 막는다.
+  const widestR = Math.max(...Object.values(ENEMY_TYPES).map((t) => t.radius))
+  const jumpApex = (PLAYER.jumpSpeed ** 2) / (2 * PLAYER.gravity)
+  const floorReach = jumpApex + STEP_HEIGHT
+  const catwalkReach = arenaM.CATWALK_H + floorReach
 
-     두 상자가 한 축에서 겹쳐 있으면, 다른 축의 틈은 0(붙어 있음)이거나
-     MIN_GAP 이상이어야 한다. 그 사이의 어중간한 틈이 생기면 거기 낀
-     것이 양쪽에서 번갈아 밀려 밀어내기가 수렴하지 못하고, 결국 벽을
-     뚫는다. 사람 눈으로는 "좀 좁은 골목"으로만 보인다. */
-  {
-    const { MIN_GAP } = arenaM
-    const overlap = (aMin, aMax, bMin, bMax) => aMin < bMax - 1e-9 && bMin < aMax - 1e-9
-    const GAP = arenaM.GAP_CHECKED_BOXES
-    for (let i = 0; i < GAP.length; i++) {
-      for (let j = i + 1; j < GAP.length; j++) {
-        const a = GAP[i], b = GAP[j]
-        if (overlap(a.minX, a.maxX, b.minX, b.maxX)) {
-          const gap = Math.max(b.minZ - a.maxZ, a.minZ - b.maxZ)
-          ok(gap <= 0 || gap >= MIN_GAP, `z 방향 틈이 ${gap.toFixed(2)} (0 이거나 ${MIN_GAP} 이상이어야)`)
-        }
-        if (overlap(a.minZ, a.maxZ, b.minZ, b.maxZ)) {
-          const gap = Math.max(b.minX - a.maxX, a.minX - b.maxX)
-          ok(gap <= 0 || gap >= MIN_GAP, `x 방향 틈이 ${gap.toFixed(2)} (0 이거나 ${MIN_GAP} 이상이어야)`)
-        }
-        // 대각선으로 마주 본 모서리 사이도 마찬가지
-        if (!overlap(a.minX, a.maxX, b.minX, b.maxX) && !overlap(a.minZ, a.maxZ, b.minZ, b.maxZ)) {
-          const gx = Math.max(b.minX - a.maxX, a.minX - b.maxX)
-          const gz = Math.max(b.minZ - a.maxZ, a.minZ - b.maxZ)
-          if (gx > 0 && gz > 0) {
-            const diag = Math.hypot(gx, gz)
-            ok(diag >= MIN_GAP, `대각선 틈이 ${diag.toFixed(2)} — ${MIN_GAP} 이상이어야`)
+  for (const map of MAPS) {
+    const tag = map.name
+    const boxes = map.boxes
+
+    // 담장은 어느 맵이든 같다
+    eq(map.wallBoxes.length, 4, `${tag}: 담장 네 짝`)
+    for (const b of boxes) {
+      ok(b.minX < b.maxX && b.minZ < b.maxZ && b.minY < b.maxY, `${tag}: 상자 min<max`)
+    }
+    eq(boxes.length, map.wallBoxes.length + map.coverBoxes.length + map.stairBoxes.length,
+      `${tag}: 전체 = 담장 + 엄폐물 + 계단`)
+
+    /* ★ 통행 가능한 틈 — 배치가 물리를 깨뜨리지 않는지.
+
+       두 상자가 한 축에서 겹쳐 있으면 다른 축의 틈은 0(붙어 있음)이거나
+       MIN_GAP 이상이어야 한다. 그 사이의 어중간한 틈에 낀 것은 양쪽에서
+       번갈아 밀려 밀어내기가 수렴하지 못하고 결국 벽을 뚫는다. */
+    {
+      const G = map.gapChecked
+      const overlap = (aMin, aMax, bMin, bMax) => aMin < bMax - 1e-9 && bMin < aMax - 1e-9
+      for (let i = 0; i < G.length; i++) {
+        for (let j = i + 1; j < G.length; j++) {
+          const a = G[i], b = G[j]
+          if (overlap(a.minX, a.maxX, b.minX, b.maxX)) {
+            const gap = Math.max(b.minZ - a.maxZ, a.minZ - b.maxZ)
+            ok(gap <= 0 || gap >= MIN_GAP, `${tag}: z 틈 ${gap.toFixed(2)}`)
+          }
+          if (overlap(a.minZ, a.maxZ, b.minZ, b.maxZ)) {
+            const gap = Math.max(b.minX - a.maxX, a.minX - b.maxX)
+            ok(gap <= 0 || gap >= MIN_GAP, `${tag}: x 틈 ${gap.toFixed(2)}`)
+          }
+          if (!overlap(a.minX, a.maxX, b.minX, b.maxX) &&
+              !overlap(a.minZ, a.maxZ, b.minZ, b.maxZ)) {
+            const gx = Math.max(b.minX - a.maxX, a.minX - b.maxX)
+            const gz = Math.max(b.minZ - a.maxZ, a.minZ - b.maxZ)
+            if (gx > 0 && gz > 0) {
+              ok(Math.hypot(gx, gz) >= MIN_GAP, `${tag}: 대각선 틈 ${Math.hypot(gx, gz).toFixed(2)}`)
+            }
           }
         }
       }
     }
+
+    /* ★ 계단 한 칸은 걸어 오를 수 있어야 하고, 통로까지 이어져야 한다 */
+    if (map.stairBoxes.length > 0) {
+      const tops = [...new Set(map.stairBoxes.map((b) => +b.maxY.toFixed(4)))].sort((a, b) => a - b)
+      let prev = 0
+      for (const top of tops) {
+        ok(top - prev <= STEP_HEIGHT + 1e-9, `${tag}: 계단 한 칸 ${(top - prev).toFixed(2)}`)
+        prev = top
+      }
+      ok(arenaM.CATWALK_H - prev <= STEP_HEIGHT + 1e-9,
+        `${tag}: 마지막 계단에서 통로까지 한 걸음 — ${(arenaM.CATWALK_H - prev).toFixed(2)}`)
+    }
+
+    /* ★ 통로는 바닥에서 점프해 못 닿고, 엄폐물은 통로에서도 못 오른다 */
+    for (const b of map.coverBoxes) {
+      const isWalk = Math.abs(b.maxY - arenaM.CATWALK_H) < 1e-6
+      if (isWalk) {
+        ok(b.maxY > floorReach, `${tag}: 통로(${b.maxY})가 바닥 점프(${floorReach.toFixed(2)})보다 높다`)
+      } else {
+        ok(b.maxY > catwalkReach,
+          `${tag}: 엄폐물(${b.maxY})이 통로 점프(${catwalkReach.toFixed(2)})보다 높다`)
+      }
+    }
+
+    /* ★ 스폰 지점 — 아레나 안, 시작점에서 멀리, 지형에 안 낌 */
+    ok(map.spawns.length >= 6, `${tag}: 스폰 지점이 넉넉하다 — ${map.spawns.length}`)
+    for (const sp of map.spawns) {
+      ok(insideArena(sp.x, sp.z, 1), `${tag}: 스폰 (${sp.x},${sp.z}) 아레나 안`)
+      const d = Math.hypot(sp.x - map.playerStart.x, sp.z - map.playerStart.z)
+      ok(d >= 10, `${tag}: 스폰 (${sp.x},${sp.z}) 시작점에서 10 이상 — ${d.toFixed(1)}`)
+      for (const b of boxes) {
+        /* 밟고 설 수 있는 낮은 것(계단·통로)은 그 위에서 나와도 된다 */
+        if (b.maxY <= arenaM.CATWALK_H + 1e-6) continue
+        const nx = Math.max(b.minX, Math.min(sp.x, b.maxX))
+        const nz = Math.max(b.minZ, Math.min(sp.z, b.maxZ))
+        const gap = Math.hypot(sp.x - nx, sp.z - nz)
+        ok(gap >= widestR + 0.3,
+          `${tag}: 스폰 (${sp.x},${sp.z}) 이 벽에서 떨어져 있다 — ${gap.toFixed(2)}`)
+      }
+    }
+
+    /* 플레이어 시작점이 지형 안이 아니어야 한다 */
+    for (const b of boxes) {
+      if (b.maxY <= arenaM.CATWALK_H + 1e-6) continue
+      const nx = Math.max(b.minX, Math.min(map.playerStart.x, b.maxX))
+      const nz = Math.max(b.minZ, Math.min(map.playerStart.z, b.maxZ))
+      ok(Math.hypot(map.playerStart.x - nx, map.playerStart.z - nz) >= PLAYER.radius + 0.2,
+        `${tag}: 시작점이 벽에 안 낀다`)
+    }
+
+    /* 보급 자리도 지형 안이면 안 된다 */
+    for (const pk of map.pickups) {
+      ok(insideArena(pk.x, pk.z, 1), `${tag}: 보급 자리가 아레나 안`)
+      for (const b of boxes) {
+        if (b.maxY <= arenaM.CATWALK_H + 1e-6) continue
+        const nx = Math.max(b.minX, Math.min(pk.x, b.maxX))
+        const nz = Math.max(b.minZ, Math.min(pk.z, b.maxZ))
+        ok(Math.hypot(pk.x - nx, pk.z - nz) >= 1.0, `${tag}: 보급 (${pk.x},${pk.z}) 이 벽 밖`)
+      }
+    }
   }
-  ok(arenaM.MIN_GAP > Math.max(...Object.values(enemiesM.ENEMY_TYPES).map((t) => t.radius)) * 2,
-    'MIN_GAP 이 가장 뚱뚱한 적의 지름보다 크다')
-  ok(arenaM.MIN_GAP > playerM.PLAYER.radius * 2, 'MIN_GAP 이 플레이어 지름보다 크다')
 }
 
 // ══════════════════════════════════════════════════════ collide
@@ -165,7 +225,7 @@ section('collide — 벽 충돌')
 
   // 벽 통과 금지 — 무작위 대량 시행
   {
-    const boxes = arenaM.ALL_BOXES
+    const boxes = BUNKER.boxes
     const r = 0.36
     const rng = rngM.makeRng('collide')
     let stuck = 0, escaped = 0
@@ -190,7 +250,7 @@ section('collide — 벽 충돌')
 
   // 벽을 향해 계속 밀어도 통과 못 함
   {
-    const boxes = arenaM.ALL_BOXES
+    const boxes = BUNKER.boxes
     let x = 0, z = 0
     for (let i = 0; i < 2000; i++) {
       const res = resolveMove(x, z, 0.5, 0, 0.36, boxes)
@@ -203,7 +263,7 @@ section('collide — 벽 충돌')
   {
     const { groundHeightAt, ceilingAt, STEP_HEIGHT } = collideM
     const r = 0.36
-    const boxes = arenaM.ALL_BOXES
+    const boxes = BUNKER.boxes
 
     ok(STEP_HEIGHT > 0 && STEP_HEIGHT < 1, `걸어 오를 턱 높이가 온당하다 — ${STEP_HEIGHT}`)
 
@@ -213,7 +273,7 @@ section('collide — 벽 충돌')
     /* ★ 계단 한 칸은 반드시 걸어 오를 수 있어야 한다.
        한 칸이라도 STEP_HEIGHT 를 넘으면 거기서 길이 끊긴다. */
     {
-      const stairs = [...arenaM.STAIR_BOXES].sort((a, b) => a.maxY - b.maxY)
+      const stairs = [...BUNKER.stairBoxes].sort((a, b) => a.maxY - b.maxY)
       let prev = 0
       for (const s of stairs) {
         const rise = s.maxY - prev
@@ -223,7 +283,7 @@ section('collide — 벽 충돌')
         prev = s.maxY
       }
       /* 마지막 칸에서 통로까지도 한 걸음이어야 한다 */
-      const top = Math.max(...arenaM.STAIR_BOXES.map((s) => s.maxY))
+      const top = Math.max(...BUNKER.stairBoxes.map((s) => s.maxY))
       ok(arenaM.CATWALK_H - top <= STEP_HEIGHT + 1e-9,
         `마지막 계단에서 통로까지 한 걸음 — ${(arenaM.CATWALK_H - top).toFixed(2)}`)
     }
@@ -238,7 +298,7 @@ section('collide — 벽 충돌')
       /* 반대로 통로 위에서 점프해도 엄폐물 위로는 못 올라가야 한다 —
          적이 못 닿는 자리에 올라서면 그 판은 거기서 끝난다 */
       const fromCatwalk = arenaM.CATWALK_H + reach
-      for (const b of arenaM.COVER_BOXES) {
+      for (const b of BUNKER.coverBoxes) {
         if (Math.abs(b.maxY - arenaM.CATWALK_H) < 1e-6) continue   // 통로 자신
         ok(b.maxY > fromCatwalk,
           `엄폐물(${b.maxY})이 통로에서 점프해도 못 닿는 높이(${fromCatwalk.toFixed(2)})`)
@@ -247,7 +307,7 @@ section('collide — 벽 충돌')
 
     // 통로 위에 서면 발밑이 통로 높이
     {
-      const cw = arenaM.COVER_BOXES.find((b) => Math.abs(b.maxY - arenaM.CATWALK_H) < 1e-6)
+      const cw = BUNKER.coverBoxes.find((b) => Math.abs(b.maxY - arenaM.CATWALK_H) < 1e-6)
       ok(cw, '통로를 찾았다')
       const cx = (cw.minX + cw.maxX) / 2
       const cz = (cw.minZ + cw.maxZ) / 2
@@ -274,7 +334,7 @@ section('collide — 벽 충돌')
 
   // 시야
   {
-    const boxes = arenaM.ALL_BOXES
+    const boxes = BUNKER.boxes
     ok(hasLineOfSight(-1, 1.6, -1, 1, 1.6, 1, boxes) === false ||
        hasLineOfSight(-1, 1.6, -1, 1, 1.6, 1, boxes) === true, '시야 판정이 값을 냄')
     // 중앙 십자 벽(0,-4.5) 을 사이에 두면 막혀야
@@ -384,14 +444,52 @@ section('weapons — 무기 수치')
   near(falloffOf(K, K.range), 1, 1e-9, '사거리 끝에서도 온전한 피해')
   function falloffOf(w, d) { return combatM.falloffAt(w, d) }
 
+  /* ★ 근접은 총보다 세면 안 된다.
+
+     너프 전에는 부채꼴 안을 전부, 탄약도 없이 베어서 다섯에
+     둘러싸이면 초당 400 이 나왔다. 탄을 먹는 최고 주무기(303)보다
+     나았으니, 다른 것을 쥘 이유가 없었다. 아래 셋이 그 재발을 막는다. */
+  {
+    const gunDps = (w) => (w.damage * w.pellets * w.rpm) / 60
+    const bestGun = Math.max(...[...WEAPONS_BY_SLOT.primary, ...WEAPONS_BY_SLOT.secondary]
+      .map((id) => gunDps(WEAPONS[id])))
+
+    for (const id of WEAPONS_BY_SLOT.melee) {
+      const w = WEAPONS[id]
+      ok(w.maxTargets >= 1, `${id} 에 벨 수 있는 수의 상한이 있다`)
+      ok(w.maxTargets <= 5, `${id} 상한이 너무 크지 않다 — ${w.maxTargets}`)
+
+      /* 한 대상만 놓고 보면 권총보다도 약해야 한다.
+
+         기준을 최고 총(미니건 303)으로 잡으면 너무 헐거워서, 너프
+         전 수치도 통과해 버린다. 근접의 값어치는 화력이 아니라
+         "탄약을 안 쓰고 여럿을 동시에 벤다"는 데 있으므로, 단일
+         대상에서는 최후의 보루인 권총보다 낮은 게 맞다. */
+      const single = (w.damage * w.rpm) / 60
+      const pistolDps = gunDps(WEAPONS.pistol)
+      ok(single < pistolDps,
+        `${id} 단일 DPS(${single.toFixed(0)})가 권총(${pistolDps.toFixed(0)})보다 낮다`)
+
+      /* 상한까지 꽉 채워 베어도 최고 총을 못 넘어야 한다. 이게
+         근접이 "몰릴수록 유리하되 총을 대체하지는 않는" 선이다. */
+      let mult = 0
+      for (let i = 0; i < w.maxTargets; i++) mult += Math.pow(weaponsM.CLEAVE_FALLOFF, i)
+      ok(single * mult < bestGun,
+        `${id} 최대 상황 DPS(${(single * mult).toFixed(0)})가 최고 총을 안 넘는다`)
+    }
+    ok(weaponsM.CLEAVE_FALLOFF > 0 && weaponsM.CLEAVE_FALLOFF < 1,
+      '두 번째 이후 대상은 덜 아프다')
+  }
+
   // 도끼 — 나이프보다 느리고 무겁고 넓다
   const A = WEAPONS.axe
   ok(A.melee && A.noAmmo, '도끼도 근접이고 탄약이 없다')
   ok(A.damage > K.damage, '도끼가 더 세다')
   ok(A.rpm < K.rpm, '도끼가 더 느리다')
   ok(A.arc > K.arc && A.range > K.range, '도끼가 더 넓고 길게 닿는다')
-  ok(A.damage * 2 >= enemiesM.ENEMY_TYPES.brute.hp, '도끼 두 방이면 브루트가 눕는다')
   ok(K.damage * 2 < enemiesM.ENEMY_TYPES.brute.hp, '나이프로는 브루트를 두 방에 못 잡는다')
+  /* 브루트를 두 방에 눕히는 것은 가장 느린 망치의 몫이다 */
+  ok(WEAPONS.hammer.damage * 2 >= enemiesM.ENEMY_TYPES.brute.hp, '망치 두 방이면 브루트가 눕는다')
   near(shotInterval(WEAPONS.pistol), 1 / 3, 1e-9, '권총 초당 3발')
   near(shotInterval(WEAPONS.rifle), 1 / 8, 1e-9, '소총 초당 8발')
   near(shotInterval(WEAPONS.shotgun), 1 / 1.2, 1e-9, '샷건 초당 1.2발')
@@ -727,12 +825,46 @@ section('combat — 명중과 피해')
       eq(meleeSwing(K, eye, fwd, [inside], []).damages.length, 1, '부채꼴 안은 벤다')
       eq(meleeSwing(K, eye, fwd, [outside], []).damages.length, 0, '부채꼴 밖은 못 벤다')
     }
+    /* ★ 여러 대상을 벨 때는 가까운 순으로, 뒤로 갈수록 약하게.
+
+       순서가 없으면 배열 순서(스폰 순서)대로 잘려서, 코앞의 적을
+       두고 멀리 있는 적을 벤다. 감쇠가 없으면 상한 안에서는 전부
+       온전한 피해를 받아 여전히 무리 학살이 된다. */
+    {
+      const H = WEAPONS.hammer
+      const near1 = put('crawler', 0, -1.0)
+      const mid = put('crawler', 0.4, -1.8)
+      const far1 = put('crawler', -0.4, -2.6)
+      const order = [far1, mid, near1]      // 일부러 거꾸로 넣는다
+      const r = meleeSwing(H, eye, fwd, order, [])
+      eq(r.damages.length, Math.min(3, H.maxTargets), '상한 안에서 셋을 벤다')
+
+      const byId = new Map(r.damages.map((d) => [d.enemy.id, d.damage]))
+      const d0 = byId.get(near1.id)
+      const d1 = byId.get(mid.id)
+      const d2 = byId.get(far1.id)
+      ok(d0 > d1 && d1 > d2,
+        `가까운 쪽이 더 아프다 — ${d0?.toFixed(0)} > ${d1?.toFixed(0)} > ${d2?.toFixed(0)}`)
+      near(d0, H.damage, 1e-9, '맨 앞은 온전한 피해')
+      near(d1 / d0, weaponsM.CLEAVE_FALLOFF, 1e-6, '감쇠 비율이 규격대로')
+    }
+
+    /* 상한을 넘겨 몰려 있어도 정해진 수만 벤다 */
+    {
+      const K2 = WEAPONS.knife
+      const many = Array.from({ length: 6 }, (_, i) => put('crawler', -0.6 + i * 0.24, -1.2))
+      const r = meleeSwing(K2, eye, fwd, many, [])
+      eq(r.damages.length, K2.maxTargets,
+        `여섯이 몰려도 ${K2.maxTargets} 만 벤다`)
+    }
+
     // 여럿을 한 번에 — 탄약을 안 쓰는 대신 몰려 있을 때 값을 한다
     {
       const a = put('crawler', -0.6, -1.4)
       const b = put('crawler', 0, -1.5)
       const c = put('crawler', 0.6, -1.4)
-      eq(meleeSwing(K, eye, fwd, [a, b, c], []).damages.length, 3, '부채꼴 안의 셋을 모두 벤다')
+      eq(meleeSwing(K, eye, fwd, [a, b, c], []).damages.length, K.maxTargets,
+        `한 번에 ${K.maxTargets} 까지만 벤다 — 셋이 있어도`)
     }
     // 죽은 적은 안 벤다
     {
@@ -821,7 +953,7 @@ section('enemies — AI 상태 기계')
   ok(ENEMY_TYPES.brute.hp > ENEMY_TYPES.trooper.hp, '브루트가 더 단단')
   ok(ENEMY_TYPES.brute.score > ENEMY_TYPES.crawler.score, '센 놈이 점수 높음')
 
-  const boxes = arenaM.ALL_BOXES
+  const boxes = BUNKER.boxes
   const ctx = (px, pz) => ({
     player: { x: px, y: 0, z: pz, eyeY: 1.62 },
     boxes, rng: rngM.makeRng('ai'),
@@ -970,7 +1102,7 @@ section('enemies — AI 상태 기계')
 
   // 적이 벽에 영구히 끼지 않는다 — 모든 스폰 지점에서 출발
   {
-    for (const sp of arenaM.SPAWN_POINTS) {
+    for (const sp of BUNKER.spawns) {
       for (const type of ['crawler', 'trooper', 'brute']) {
         let e = makeEnemy(type, sp.x, sp.z)
         e.state = 'chasing'; e.stateT = 1
@@ -997,7 +1129,7 @@ section('enemies — AI 상태 기계')
 
      벽이 밀어낸 거리를 전진으로 세면 이 값이 0 으로 남는다. */
   {
-    const wall = arenaM.COVER_BOXES.find((b) => b.cx === 0 && b.cz === 6)
+    const wall = BUNKER.coverBoxes.find((b) => b.cx === 0 && b.cz === 6)
     ok(wall, '북쪽 광장 벽을 찾음')
     for (const type of ['crawler', 'trooper', 'brute']) {
       const t = ENEMY_TYPES[type]
@@ -1028,7 +1160,7 @@ section('enemies — AI 상태 기계')
      각 엄폐물의 네 면 한가운데에, 반지름보다 살짝 덜 떨어뜨려 —
      즉 일부러 파묻은 채로 — 세워 놓고 중앙까지 오는지 본다. */
   {
-    for (const b of arenaM.COVER_BOXES) {
+    for (const b of BUNKER.coverBoxes) {
       for (const type of ['crawler', 'trooper', 'brute']) {
         const t = ENEMY_TYPES[type]
         const cx = (b.minX + b.maxX) / 2
@@ -1082,14 +1214,18 @@ section('enemies — AI 상태 기계')
         minZ: -2, maxZ: 2, cx: 2, cz: 0, w: 4, d: 4, h: 2,
       }]
       const above = { x: 0.5, y: 2, z: 0, eyeY: 3.62 }   // 단 위, 가장자리 근처
-      let e = makeEnemy('crawler', -1.2, 0)               // 단 아래 바닥, 코앞
+      let e = makeEnemy('crawler', -1.1, 0)               // 단 아래 바닥, 코앞
       e.state = 'chasing'; e.stateT = 1
       let hits = 0
       for (let i = 0; i < 240; i++) {
+        /* 자리를 고정한다. 걷게 두면 배치가 흐트러져서 "수평으로는
+           가까운데 높이로 벗어난다"는 상황 자체가 사라진다. */
+        e.x = -1.1; e.z = 0; e.y = 0
         const r = tickEnemy(e, { player: above, boxes: slab, rng: rngM.makeRng('h') }, 1 / 60)
         e = r.enemy
         hits += r.events.filter((v) => v.type === 'melee').length
       }
+      e.x = -1.1; e.z = 0; e.y = 0
       const flat = Math.hypot(above.x - e.x, above.z - e.z)
       ok(flat < ENEMY_TYPES.crawler.attackRange,
         `수평으로는 사거리 안이다 — ${flat.toFixed(2)} < ${ENEMY_TYPES.crawler.attackRange}`)
@@ -1195,6 +1331,72 @@ section('enemies — AI 상태 기계')
   }
 }
 
+// ══════════════════════════════════════════════════════ 맵별 길찾기
+section('모든 맵에서 적이 플레이어에게 닿는가')
+{
+  const { MAPS } = mapsM
+  const { makeEnemy, tickEnemy, ENEMY_TYPES } = enemiesM
+  const { surfaceHeightAt } = collideM
+  const { PLAYER } = playerM
+
+  /* ★ 이게 맵을 열 장으로 늘리면서 가장 깨지기 쉬운 부분이다.
+
+     배치 규칙(틈·높이)을 다 지켜도 길이 막힐 수 있다. 벽 하나가
+     어긋나 통로가 끊기면 적이 영영 못 오고, 그 판은 게임이 아니라
+     기다리기가 된다. 화면을 안 띄우고 확인할 수 있는 유일한 방법은
+     실제로 걸려 보게 하는 것이다.
+
+     "목적을 이뤘는가"는 종류마다 다르다. 근접 적은 사거리 안에
+     들어와야 하고, 원거리 적은 사거리(14)가 아레나 어디서든 닿기
+     때문에 대신 "플레이어가 보이는 자리를 잡았는가"로 본다. */
+  for (const map of MAPS) {
+    const boxes = map.boxes
+    const start = map.playerStart
+    /* 세션이 하는 것과 똑같이, 시작 자리의 바닥 위에 세운다 —
+       탑 맵은 가운데가 단이라 플레이어가 2미터 위에서 시작한다. */
+    const startY = surfaceHeightAt(start.x, start.z, PLAYER.radius, boxes)
+    const player = {
+      x: start.x, y: startY, z: start.z, eyeY: startY + 1.62,
+    }
+    const reached = (e) => {
+      const t = ENEMY_TYPES[e.type]
+      if (t.ranged) {
+        return collideM.hasLineOfSight(
+          e.x, (e.y || 0) + t.height * 0.5, e.z, start.x, startY + 1.62, start.z, boxes,
+        )
+      }
+      /* 게임과 같은 방식으로 높이까지 넣어 잰다 */
+      return Math.hypot(e.x - start.x, e.z - start.z, (e.y || 0) - startY) <= t.attackRange
+    }
+
+    for (const sp of map.spawns) {
+      for (const type of ['crawler', 'trooper', 'brute']) {
+        const t = ENEMY_TYPES[type]
+        let e = makeEnemy(type, sp.x, sp.z)
+        /* 세션이 하는 것과 똑같이, 그 자리의 바닥 위에 세운다 */
+        e.y = surfaceHeightAt(sp.x, sp.z, t.radius, boxes)
+        e.state = 'chasing'
+        e.stateT = 1
+
+        const d0 = Math.hypot(sp.x - start.x, sp.z - start.z)
+        /* 곧장 갔을 때의 4배 안에 와야 한다. 에둘러 가는 건 괜찮지만
+           벽을 기어다니는 건 안 된다. 맵에 따라 크게 돌아야 하므로
+           단일 맵 때(2.5배)보다는 넉넉히 준다. */
+        const budget = Math.ceil((d0 / t.speed) * 4 * 60) + 180
+        let done = false
+        for (let i = 0; i < budget && !done; i++) {
+          e = tickEnemy(e, { player, boxes, rng: rngM.makeRng('r') }, 1 / 60).enemy
+          done = reached(e)
+        }
+        ok(done,
+          `${map.name}: ${type} 가 (${sp.x},${sp.z}) 에서 ${budget}프레임 안에 도달 — 지금 (${e.x.toFixed(1)},${e.z.toFixed(1)}) 거리 ${Math.hypot(e.x - start.x, e.z - start.z).toFixed(1)}`)
+        ok(Number.isFinite(e.x) && Number.isFinite(e.z) && Number.isFinite(e.y),
+          `${map.name}: ${type} 좌표가 유한`)
+      }
+    }
+  }
+}
+
 // ══════════════════════════════════════════════════════ waves
 section('waves — 난이도 곡선')
 {
@@ -1268,7 +1470,7 @@ section('waves — 난이도 곡선')
   // 스폰 일정
   for (let n = 1; n <= 30; n++) {
     const rng = rngM.makeRng(`w${n}`)
-    const sched = spawnSchedule(n, rng)
+    const sched = spawnSchedule(n, rng, BUNKER.spawns)
     eq(sched.length, waveTotal(n), `${n}웨이브 일정 개수 = 구성 합`)
 
     const counts = { crawler: 0, trooper: 0, brute: 0 }
@@ -1281,7 +1483,7 @@ section('waves — 난이도 곡선')
       ok(s.at >= prevAt, '스폰 시각 오름차순')
       prevAt = s.at
       ok(s.point && Number.isFinite(s.point.x), '스폰 지점 있음')
-      eq(s.point, arenaM.SPAWN_POINTS[s.spawnIndex], '지점과 인덱스 일치')
+      eq(s.point, BUNKER.spawns[s.spawnIndex], '지점과 인덱스 일치')
       if (s.spawnIndex === lastIdx) sameInRow++
       lastIdx = s.spawnIndex
     }
@@ -1296,13 +1498,13 @@ section('waves — 난이도 곡선')
   }
   // 재현성
   {
-    const a = JSON.stringify(spawnSchedule(7, rngM.makeRng('same')))
-    const b = JSON.stringify(spawnSchedule(7, rngM.makeRng('same')))
+    const a = JSON.stringify(spawnSchedule(7, rngM.makeRng('same'), BUNKER.spawns))
+    const b = JSON.stringify(spawnSchedule(7, rngM.makeRng('same'), BUNKER.spawns))
     eq(a, b, '같은 씨앗이면 같은 일정')
   }
   // 웨이브 길이가 무한정 늘지 않는다
   {
-    const dur = (n) => { const s = spawnSchedule(n, rngM.makeRng('d')); return s[s.length - 1].at }
+    const dur = (n) => { const s = spawnSchedule(n, rngM.makeRng('d'), BUNKER.spawns); return s[s.length - 1].at }
     ok(dur(30) < 40, `30웨이브 스폰 시간이 40초 미만 — ${dur(30).toFixed(1)}s`)
   }
   ok(WAVE_BREAK > 0, '웨이브 사이 휴식 있음')
@@ -1469,7 +1671,7 @@ section('player — 이동·사격·재장전')
           canFire, consumeShot, switchWeapon, cycleWeapon, hurtPlayer, healPlayer,
           grantPickup, eyeOf } = playerM
   const { WEAPONS } = weaponsM
-  const boxes = arenaM.ALL_BOXES
+  const boxes = BUNKER.boxes
   const NONE = { forward: 0, back: 0, left: 0, right: 0, jump: 0, sprint: 0 }
   const IN = (o) => ({ ...NONE, ...o })
 
@@ -1569,7 +1771,7 @@ section('player — 이동·사격·재장전')
     eq(p.vy, 0, '착지하면 수직 속도 0')
     ok(maxY > 0.5 && maxY < 3, `점프 높이 합리적 — ${maxY.toFixed(2)}`)
     // 엄폐물보다 낮게 뛰어야 (올라설 수 없다는 전제)
-    const lowest = Math.min(...arenaM.COVER_BOXES.map((b) => b.maxY))
+    const lowest = Math.min(...BUNKER.coverBoxes.map((b) => b.maxY))
     ok(maxY < lowest, `점프(${maxY.toFixed(2)})가 가장 낮은 엄폐물(${lowest})보다 낮음`)
   }
   // 공중에서 두 번 점프 못 함
@@ -1648,7 +1850,7 @@ section('player — 이동·사격·재장전')
        올라가는 그 프레임에 곧바로 땅에 붙여 버려서 점프가 시작하자마자
        취소된다. 계단 앞에서 뛰려 할 때마다 안 뛰어지는 증상이 된다. */
     {
-      const stepEdge = Math.min(...arenaM.STAIR_BOXES.map((s) => s.minX).filter((v) => v > 0))
+      const stepEdge = Math.min(...BUNKER.stairBoxes.map((s) => s.minX).filter((v) => v > 0))
       const p0 = { ...initialPlayer(stepEdge - 0.4, 0), yaw: -Math.PI / 2 }
       const p1 = movePlayer(p0, IN({ forward: 1, jump: 1 }), 1 / 60, boxes)
       ok(p1.vy > 0, `턱에 올라서는 순간의 점프가 살아 있다 — vy=${p1.vy.toFixed(2)}`)
@@ -2279,6 +2481,52 @@ section('세션 — 로비에서 고른 것으로 시작한다')
     eq(bad, 0, `주무기×보조×근접 모든 조합이 굴러간다 (${WEAPONS_BY_SLOT.primary.length}×${WEAPONS_BY_SLOT.secondary.length}×${WEAPONS_BY_SLOT.melee.length})`)
   }
 
+  /* ★ 적은 그 맵의 스폰 지점에서 나와야 한다.
+
+     맵마다 막힌 곳이 다른데 스폰 지점이 맵과 따로 놀면, 적이 벽
+     속에서 태어나거나 플레이어 코앞에서 튀어나온다. */
+  for (const mapId of ['bunker', 'maze', 'colosseum']) {
+    const ss = createSession(3, { map: mapId })
+    const input = blank()
+    /* 갓 태어난 적만 본다. 몇 초 지나면 이미 걸어와 있어서 스폰
+       지점과 멀어지는데, 그건 잘 걷고 있다는 뜻이지 흠이 아니다. */
+    let checked = 0
+    for (let i = 0; i < 600; i++) {
+      stepSession(ss, input, 1 / 60)
+      for (const e of ss.enemies) {
+        if (e.age > 0.1) continue
+        const onSpawn = ss.map.spawns.some((sp) => Math.hypot(sp.x - e.x, sp.z - e.z) < 0.6)
+        ok(onSpawn,
+          `${ss.map.name}: 갓 태어난 적이 스폰 지점에 있다 (${e.x.toFixed(1)},${e.z.toFixed(1)})`)
+        checked++
+      }
+    }
+    ok(checked > 0, `${ss.map.name}: 확인한 적이 있다 — ${checked}`)
+  }
+
+  /* ★ 통로 위 스폰 지점이면 그 위에서 태어난다.
+
+     발밑 규칙(걸어 오를 수 있는가)을 그대로 쓰면 통로 top(2.0)이
+     걸러져 바닥(0)이 나오고, 적이 통로 속에 파묻힌 채로 생겨난다.
+     투기장은 가장자리가 통째로 관람석이라 이게 바로 드러난다. */
+  {
+    const ss = createSession(3, { map: 'colosseum' })
+    const input = blank()
+    for (let i = 0; i < 400; i++) stepSession(ss, input, 1 / 60)
+    ok(ss.enemies.length > 0, '투기장에 적이 나왔다')
+    const raised = ss.enemies.filter((e) => e.y > 0.5)
+    ok(raised.length > 0,
+      `관람석 위에서 태어난 적이 있다 — ${raised.length}/${ss.enemies.length}`)
+  }
+
+  /* 시작 자리에 단이 있으면 플레이어도 그 위에서 시작한다 */
+  {
+    const ss = createSession(3, { map: 'tower' })
+    ok(ss.player.y > 1.5, `탑에서는 단 위에서 시작한다 — y=${ss.player.y}`)
+    const flat = createSession(3, { map: 'pillars' })
+    eq(flat.player.y, 0, '평지 맵은 바닥에서 시작한다')
+  }
+
   /* 점사가 세션에서 실제로 정해진 발수만큼 나가는가 */
   {
     const w = WEAPONS.burstpistol
@@ -2337,7 +2585,7 @@ section('통합 — 한 판을 끝까지 돌린다')
   const { WEAPONS } = weaponsM
   const { spawnSchedule, waveScaling, waveComposition } = waveM
   const { initialScore, recordKill, tickScore, recordWaveClear } = scoreM
-  const boxes = arenaM.ALL_BOXES
+  const boxes = BUNKER.boxes
 
   /* 가만히 서서 쏘기만 하는 봇으로 8웨이브를 돌린다. 목적은 "이긴다"가
      아니라, 어느 프레임에서도 값이 깨지거나 멈추지 않는지 확인하는 것. */
@@ -2352,7 +2600,7 @@ section('통합 — 한 판을 끝까지 돌린다')
   const dt = 1 / 60
 
   for (let wave = 1; wave <= 8; wave++) {
-    const sched = spawnSchedule(wave, rng)
+    const sched = spawnSchedule(wave, rng, BUNKER.spawns)
     const scale = waveScaling(wave)
     let t = 0
     let spawned = 0

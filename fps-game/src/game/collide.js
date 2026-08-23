@@ -71,6 +71,22 @@ export function groundHeightAt(x, z, radius, boxes, feetY) {
   return best
 }
 
+/* 지금 (x,z) 에 서 있는 것의 맨 윗면. 아무것도 없으면 0.
+
+   groundHeightAt 과 달리 "걸어 올라갈 수 있는가"를 안 따진다.
+   태어나는 자리를 정할 때 쓴다 — 통로 위 스폰 지점에 발밑 규칙을
+   적용하면 통로 top(2.0)이 걸러져서 바닥(0)이 나오고, 적이 통로
+   속에 파묻힌 채로 생겨난다. */
+export function surfaceHeightAt(x, z, radius, boxes) {
+  let best = 0
+  for (const b of boxes) {
+    if (b.maxY <= best) continue
+    if (!overlapsXZ(x, z, radius, b)) continue
+    best = b.maxY
+  }
+  return best
+}
+
 /* 머리가 부딪히는 천장 높이. 없으면 Infinity.
    통로 밑에서 뛰었을 때 통로를 뚫고 올라가지 않게 한다. */
 export function ceilingAt(x, z, radius, boxes, feetY) {

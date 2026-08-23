@@ -8,6 +8,7 @@
    ================================================================== */
 import { rayBox, hasLineOfSight } from './collide.js'
 import { ENEMY_TYPES } from './enemies.js'
+import { CLEAVE_FALLOFF } from './weapons.js'
 
 export const HEADSHOT_MULTIPLIER = 2.0
 
@@ -219,7 +220,10 @@ export function meleeSwing(weapon, origin, aimDir, enemies, boxes) {
   const az = aimDir.z
   const aLen = Math.hypot(ax, az)
 
-  const damages = []
+  /* 가까운 순으로 정렬해 앞에서부터 maxTargets 명까지만 벤다.
+     정렬이 없으면 배열 순서(스폰 순서)대로 잘려서, 코앞의 적을 두고
+     멀리 있는 적을 베는 일이 생긴다. */
+  const reach = []
   for (const e of enemies) {
     if (e.state === 'dead') continue
     const t = ENEMY_TYPES[e.type]
@@ -246,10 +250,22 @@ export function meleeSwing(weapon, origin, aimDir, enemies, boxes) {
        그 벽이 왜 있는지 알 수 없게 된다. */
     if (!hasLineOfSight(origin.x, origin.y, origin.z, e.x, cy, e.z, boxes)) continue
 
-    /* 근접은 헤드샷을 따지지 않는다. 부채꼴로 여럿을 동시에 베는데
-       그중 누구는 머리고 누구는 몸통이라고 하면, 같은 동작의 결과가
-       설명되지 않는다. */
-    damages.push({ enemy: e, damage: weapon.damage, isHeadshot: false })
+    reach.push({ enemy: e, dist })
+  }
+
+  reach.sort((a, b) => a.dist - b.dist)
+
+  /* 근접은 헤드샷을 따지지 않는다. 부채꼴로 여럿을 동시에 베는데
+     그중 누구는 머리고 누구는 몸통이라고 하면, 같은 동작의 결과가
+     설명되지 않는다. */
+  const limit = Math.min(reach.length, weapon.maxTargets ?? reach.length)
+  const damages = []
+  for (let i = 0; i < limit; i++) {
+    damages.push({
+      enemy: reach[i].enemy,
+      damage: weapon.damage * Math.pow(CLEAVE_FALLOFF, i),
+      isHeadshot: false,
+    })
   }
 
   return { hits: [], damages }

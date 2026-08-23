@@ -10,7 +10,7 @@
    ================================================================== */
 import { useMemo, useEffect } from 'react'
 import * as THREE from 'three'
-import { ARENA, COVER_BOXES, WALL_BOXES, STAIR_BOXES, CATWALK_H } from '../game/arena.js'
+import { ARENA, CATWALK_H } from '../game/arena.js'
 
 /* 바닥 격자. 어두운 바탕에 옅은 선 — 넓은 평면은 무늬가 없으면
    내가 움직이는지 알 수 없다. 속도감은 이 선들에서 나온다. */
@@ -82,7 +82,8 @@ function Block({ box, color, trim }) {
   )
 }
 
-export default function Arena() {
+export default function Arena({ map }) {
+  const { coverBoxes, stairBoxes, wallBoxes } = map
   const floor = useFloorTexture()
   useEffect(() => () => floor.dispose(), [floor])
 
@@ -103,10 +104,10 @@ export default function Arena() {
         <meshStandardMaterial color="#39424f" roughness={1} side={THREE.FrontSide} />
       </mesh>
 
-      {WALL_BOXES.map((b, i) => (
+      {wallBoxes.map((b, i) => (
         <Block key={`w${i}`} box={b} color="#59657a" trim="#7fd4ff" />
       ))}
-      {COVER_BOXES.map((b, i) => {
+      {coverBoxes.map((b, i) => {
         /* 올라설 수 있는 통로는 색과 띠를 다르게 준다. 밟을 수 있는
            것과 못 밟는 것이 한눈에 갈려야, 뛰어올랐다 벽에 부딪히는
            일이 없다. */
@@ -121,7 +122,7 @@ export default function Arena() {
         )
       })}
       {/* 계단 — 통로와 같은 초록 띠로 "밟는 것"임을 알린다 */}
-      {STAIR_BOXES.map((b, i) => (
+      {stairBoxes.map((b, i) => (
         <Block key={`s${i}`} box={b} color="#7d8a9c" trim="#8fe37f" />
       ))}
 

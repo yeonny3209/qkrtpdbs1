@@ -15,6 +15,7 @@ import {
   WEAPONS, WEAPONS_BY_SLOT, SLOTS, SLOT_LABEL, FIRE_MODE_LABEL, fireMode,
 } from '../game/weapons.js'
 import { DIFFICULTIES } from '../game/difficulty.js'
+import { MAPS } from '../game/maps.js'
 
 /* 비교용 초당 피해. 예열·차지·점사는 "최대로 굴렸을 때"로 잰다 —
    무기를 고르는 순간 알고 싶은 것은 잘 썼을 때의 값이다. */
@@ -130,6 +131,25 @@ export default function Lobby({ loadout, difficulty, onPick, onDifficulty, onSta
           <span>{diff.regen > 0 ? `회복 ×${diff.regen}` : '회복 없음'}</span>
         </div>
 
+        {/* ── 맵 ─────────────────────────────────────────────────
+            고를 수는 없지만 무엇이 나올 수 있는지는 알려 준다.
+            들어가서야 처음 보는 것보다, 열 장 중 하나라는 걸 알고
+            들어가는 편이 낫다. */}
+        <h2 className="mt-7 text-xs tracking-[0.3em] text-white/45">
+          맵 — {MAPS.length}장 중 무작위
+        </h2>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {MAPS.map((m) => (
+            <span
+              key={m.id}
+              title={m.blurb}
+              className="rounded bg-white/5 px-2 py-1 text-xs text-white/55 ring-1 ring-white/10"
+            >
+              {m.name}
+            </span>
+          ))}
+        </div>
+
         {/* ── 무기 셋 ────────────────────────────────────────────── */}
         <div className="mt-8 grid gap-5 lg:grid-cols-3">
           {SLOTS.map((slot, i) => (
@@ -174,7 +194,7 @@ export default function Lobby({ loadout, difficulty, onPick, onDifficulty, onSta
             들어가기
           </button>
           <p className="mt-2 text-center text-xs text-white/35">
-            누르면 마우스가 화면에 잠깁니다. Esc 로 언제든 빠져나옵니다.
+  맵은 들어가 봐야 압니다 · 마우스가 화면에 잠깁니다 (Esc 로 해제)
             {best.wave > 0 && ` · 최고 ${best.wave}웨이브 (${best.points.toLocaleString()}점)`}
           </p>
         </div>

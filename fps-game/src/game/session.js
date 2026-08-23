@@ -11,7 +11,8 @@
    걸리기 때문이다. 대신 안에서 부르는 규칙 함수들은 그대로 순수하다 —
    바뀌는 것은 이 그릇 하나뿐이라 어디서 무엇이 변했는지 추적할 수 있다.
    ================================================================== */
-import { ALL_BOXES, PLAYER_START, PICKUP_SPOTS } from './arena.js'
+import { getMap, pickMap } from './maps.js'
+import { surfaceHeightAt } from './collide.js'
 import {
   initialPlayer, movePlayer, tickReload, canFire, consumeShot, startReload,
   switchSlot, cycleWeapon, hurtPlayer, grantPickup, aimDir, eyeOf, PLAYER,
@@ -47,22 +48,33 @@ export function createSession(seed = Date.now(), opts = {}) {
   resetEnemyIds()
   const diff = getDifficulty(opts.difficulty || DEFAULT_DIFFICULTY)
   const loadout = normalizeLoadout(opts.loadout || DEFAULT_LOADOUT)
+  /* 맵은 세션의 난수로 뽑는다 — 같은 씨앗이면 같은 맵이 나와서
+     실패한 판을 그대로 재현할 수 있다. 이름을 주면 그것을 쓴다. */
+  const rng = makeRng(seed)
+  const map = opts.map ? getMap(opts.map) : pickMap(rng)
   return {
     difficulty: diff,
     loadout,
+    map,
     phase: 'ready',        // ready → wave ⇄ break → over
     wave: 0,
     timer: READY_TIME,
     schedule: [],
     spawned: 0,
     waveT: 0,
-    player: initialPlayer(PLAYER_START.x, PLAYER_START.z, { loadout, regenMul: diff.regen }),
+    /* 시작 자리에 단이 있으면 그 위에서 시작한다. 안 그러면 탑
+       한가운데에서 지형 속에 파묻힌 채로 판이 열린다. */
+    player: (() => {
+      const p = initialPlayer(map.playerStart.x, map.playerStart.z, { loadout, regenMul: diff.regen })
+      p.y = surfaceHeightAt(map.playerStart.x, map.playerStart.z, PLAYER.radius, map.boxes)
+      return p
+    })(),
     enemies: [],
     pickups: [],
     score: initialScore(),
     best: loadBest(),
-    rng: makeRng(seed),
-    boxes: ALL_BOXES,
+    rng,
+    boxes: map.boxes,
     time: 0,
     /* 처치 수와 스폰 수를 따로 센다. 웨이브가 끝났는지 판단할 때
        "살아있는 적이 0" 만 보면, 아직 안 나온 적이 남았는데 넘어간다. */
@@ -75,12 +87,13 @@ function beginWave(s, events) {
   s.phase = 'wave'
   s.waveT = 0
   s.spawned = 0
-  s.schedule = spawnSchedule(s.wave, s.rng)
+  s.schedule = spawnSchedule(s.wave, s.rng, s.map.spawns)
 
   /* 보급은 웨이브 시작과 함께 놓인다. 자리는 매번 다르게 골라
      같은 곳만 도는 습관이 안 생기게 한다. */
   for (const p of pickupsForWave(s.wave)) {
-    const spot = PICKUP_SPOTS[Math.floor(s.rng() * PICKUP_SPOTS.length)]
+    const spots = s.map.pickups
+    const spot = spots[Math.floor(s.rng() * spots.length)]
     const jitter = () => (s.rng() - 0.5) * 1.6
     s.pickups.push({
       id: `p${s.wave}-${s.pickups.length}`,
@@ -295,6 +308,9 @@ export function stepSession(s, input, dtRaw) {
          뒤늦게 흔들린다. */
       const scale = combinedScaling(waveScaling(s.wave), s.difficulty)
       const e = makeEnemy(item.type, item.point.x, item.point.z)
+      /* 통로 위 스폰 지점이면 그 위에서 태어난다. 안 그러면 지형
+         속에 파묻힌 채로 생겨나 밀어내기가 엉뚱한 곳으로 밀어낸다. */
+      e.y = surfaceHeightAt(e.x, e.z, ENEMY_TYPES[item.type].radius, s.boxes)
       e.hp = Math.max(1, Math.round(e.hp * scale.hp))
       e.maxHp = e.hp
       e.speedScale = scale.speed
@@ -337,6 +353,7 @@ export function hudSnapshot(s) {
     charging: !!s.player.charging,
     burstLeft: w.burst ? s.player.burstLeft : 0,
     difficulty: { id: s.difficulty.id, name: s.difficulty.name, color: s.difficulty.color },
+    mapName: s.map.name,
     inMag: ammo.inMag,
     reserve: ammo.reserve,
     reloading: s.player.reloading > 0,

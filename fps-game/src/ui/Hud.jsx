@@ -115,6 +115,7 @@ export default function Hud({ hud, banner, hitmarker, hurtKey, floaters }) {
           </span>
           <span className="text-xs tracking-[0.3em] text-white/60">웨이브</span>
         </div>
+        <div className="text-[10px] tracking-widest text-white/40">{hud.mapName}</div>
         <div className="text-3xl font-bold tabular-nums drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
           {hud.wave || '—'}
         </div>

@@ -194,45 +194,62 @@ export const WEAPONS = {
      방어 코드가 아니라, 없으면 바로 깨지는 코드가 된다. */
   knife: {
     id: 'knife', slot: 'melee', name: '전투 나이프', icon: '🔪',
-    blurb: '빠르다. 크롤러는 한 방',
+    blurb: '가장 빠르다. 크롤러는 한 방, 대신 한 번에 둘까지',
     melee: true, noAmmo: true,
-    damage: 46, pellets: 1, rpm: 96, mag: 0, reserve: 0, reload: 0,
-    spread: 0, range: 2.5, arc: 75, auto: true,
-    falloffStart: 2.5, falloffEnd: 2.6, falloffMin: 1, recoil: 1.4,
-  },
-  katana: {
-    id: 'katana', slot: 'melee', name: '카타나', icon: '⚔️',
-    blurb: '멀리서부터 벤다. 빠르기와 길이를 함께 가진다',
-    melee: true, noAmmo: true,
-    damage: 62, pellets: 1, rpm: 78, mag: 0, reserve: 0, reload: 0,
-    spread: 0, range: 3.2, arc: 95, auto: true,
-    falloffStart: 3.2, falloffEnd: 3.3, falloffMin: 1, recoil: 1.7,
+    damage: 32, pellets: 1, rpm: 90, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.3, arc: 70, auto: true,
+    maxTargets: 2,
+    falloffStart: 2.3, falloffEnd: 2.4, falloffMin: 1, recoil: 1.4,
   },
   pipe: {
     id: 'pipe', slot: 'melee', name: '쇠파이프', icon: '🪈',
     blurb: '어디서 주웠는지 모를 쇳덩이. 무난하게 아프다',
     melee: true, noAmmo: true,
-    damage: 58, pellets: 1, rpm: 84, mag: 0, reserve: 0, reload: 0,
-    spread: 0, range: 2.7, arc: 85, auto: true,
-    falloffStart: 2.7, falloffEnd: 2.8, falloffMin: 1, recoil: 1.9,
+    damage: 40, pellets: 1, rpm: 78, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.5, arc: 80, auto: true,
+    maxTargets: 2,
+    falloffStart: 2.5, falloffEnd: 2.6, falloffMin: 1, recoil: 1.9,
+  },
+  katana: {
+    id: 'katana', slot: 'melee', name: '카타나', icon: '⚔️',
+    blurb: '멀리서부터 벤다. 한 번에 셋까지 스친다',
+    melee: true, noAmmo: true,
+    damage: 44, pellets: 1, rpm: 72, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.9, arc: 90, auto: true,
+    maxTargets: 3,
+    falloffStart: 2.9, falloffEnd: 3.0, falloffMin: 1, recoil: 1.7,
   },
   axe: {
     id: 'axe', slot: 'melee', name: '전투 도끼', icon: '🪓',
-    blurb: '느리고 크게 벤다. 브루트도 두 방',
+    blurb: '느리고 크게 벤다. 한 번에 셋까지',
     melee: true, noAmmo: true,
-    damage: 95, pellets: 1, rpm: 48, mag: 0, reserve: 0, reload: 0,
-    spread: 0, range: 2.9, arc: 100, auto: true,
-    falloffStart: 2.9, falloffEnd: 3.0, falloffMin: 1, recoil: 2.4,
+    damage: 66, pellets: 1, rpm: 44, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.7, arc: 95, auto: true,
+    maxTargets: 3,
+    falloffStart: 2.7, falloffEnd: 2.8, falloffMin: 1, recoil: 2.4,
   },
   hammer: {
     id: 'hammer', slot: 'melee', name: '대형 망치', icon: '🔨',
-    blurb: '아주 느리다. 대신 닿는 것은 전부 한 번에 눕는다',
+    blurb: '아주 느리다. 대신 브루트도 두 방이고 넷까지 쓸어낸다',
     melee: true, noAmmo: true,
-    damage: 132, pellets: 1, rpm: 34, mag: 0, reserve: 0, reload: 0,
-    spread: 0, range: 3.0, arc: 120, auto: true,
-    falloffStart: 3.0, falloffEnd: 3.1, falloffMin: 1, recoil: 3.2,
+    damage: 88, pellets: 1, rpm: 30, mag: 0, reserve: 0, reload: 0,
+    spread: 0, range: 2.8, arc: 110, auto: true,
+    maxTargets: 4,
+    falloffStart: 2.8, falloffEnd: 2.9, falloffMin: 1, recoil: 3.2,
   },
 }
+
+/* 한 번 휘둘렀을 때 두 번째 이후 대상이 받는 비율.
+
+   근접이 세던 진짜 이유는 피해량이 아니라 "부채꼴 안을 전부, 탄약도
+   없이" 벤다는 점이었다. 다섯에 둘러싸이면 초당 400 이 나와서, 탄을
+   먹는 최고 주무기(303)보다 나았다. 몰릴수록 유리한 무기가 탄약도
+   안 쓰면 다른 것을 쥘 이유가 없어진다.
+
+   그래서 벨 수 있는 수에 상한(maxTargets)을 두고, 뒤로 갈수록 약해지게
+   했다. 여전히 둘셋을 한 번에 처리하는 무기지만, 무리 한가운데에서
+   무한히 쓸어 담지는 못한다. */
+export const CLEAVE_FALLOFF = 0.6
 
 /* 슬롯별 무기 목록 — 한 슬롯에 여럿이 들어간다 */
 export const WEAPONS_BY_SLOT = SLOTS.reduce((acc, s) => {
