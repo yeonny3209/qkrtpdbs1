@@ -14,7 +14,7 @@ const [rngM, arenaM, collideM, weaponsM, combatM, enemiesM, waveM, scoreM, playe
 const diffM = await load('difficulty.js')
 const mapsM = await load('maps.js')
 
-/* 충돌·이동·적 길찾기 검사는 맵 하나 위에서 돈다. 열 장 전부에
+/* 충돌·이동·적 길찾기 검사는 맵 하나 위에서 돈다. 마흔 장 전부에
    대해서는 위 "맵" 절이 배치 규칙을 보고, 아래 "모든 맵에서 적이
    도달하는가" 절이 길찾기를 본다. 여기서는 대표로 벙커를 쓴다. */
 const BUNKER = mapsM.getMap('bunker')
@@ -61,7 +61,7 @@ section('rng — 결정성')
 }
 
 // ══════════════════════════════════════════════════════ arena
-section('맵 — 열 장이 전부 성립하는가')
+section('맵 — 마흔 장이 전부 성립하는가')
 {
   const { MAPS, getMap, pickMap, DEFAULT_MAP } = mapsM
   const { MIN_GAP, insideArena } = arenaM
@@ -69,24 +69,26 @@ section('맵 — 열 장이 전부 성립하는가')
   const { ENEMY_TYPES } = enemiesM
   const { PLAYER } = playerM
 
-  eq(MAPS.length, 10, '맵이 열 장')
-  eq(new Set(MAPS.map((m) => m.id)).size, 10, '아이디가 서로 다르다')
-  eq(new Set(MAPS.map((m) => m.name)).size, 10, '이름이 서로 다르다')
+  eq(MAPS.length, 40, '맵이 마흔 장')
+  eq(new Set(MAPS.map((m) => m.id)).size, MAPS.length, '아이디가 서로 다르다')
+  eq(new Set(MAPS.map((m) => m.name)).size, MAPS.length, '이름이 서로 다르다')
   for (const m of MAPS) ok(m.name && m.blurb, `${m.id} 에 이름과 설명이 있다`)
   eq(getMap('없는맵').id, DEFAULT_MAP, '모르는 이름은 기본 맵으로')
 
-  /* 뽑기가 열 장을 골고루 뽑는가 — 한두 장만 나오면 열 장을 만든
+  /* 뽑기가 마흔 장을 골고루 뽑는가 — 한두 장만 나오면 마흔 장을 만든
      의미가 없다 */
   {
     const seen = new Map()
     const rng = rngM.makeRng('pick')
-    for (let i = 0; i < 4000; i++) {
+    const draws = MAPS.length * 500
+    const share = draws / MAPS.length
+    for (let i = 0; i < draws; i++) {
       const m = pickMap(rng)
       seen.set(m.id, (seen.get(m.id) || 0) + 1)
     }
-    eq(seen.size, 10, '열 장이 모두 뽑힌다')
+    eq(seen.size, MAPS.length, '마흔 장이 모두 뽑힌다')
     for (const [id, n] of seen) {
-      ok(n > 4000 / 10 * 0.6 && n < 4000 / 10 * 1.5, `${id} 가 치우치지 않게 나온다 — ${n}`)
+      ok(n > share * 0.55 && n < share * 1.6, `${id} 가 치우치지 않게 나온다 — ${n}`)
     }
   }
 
@@ -1331,6 +1333,253 @@ section('enemies — AI 상태 기계')
   }
 }
 
+// ══════════════════════════════════════════════════════ 길찾기 격자
+section('길찾기 격자 — 높이로 읽는 지도')
+{
+  const nav = await load('navgrid.js')
+  const { buildNav, navField, navDistance, navDir, navCol, navCenter, NAV_CELL, NAV_N } = nav
+  const { toBox } = arenaM
+
+  /* 검사용 맵 한 장을 손으로 짓는다. 담장은 없다 — 격자가 지형을
+     어떻게 읽는지만 보려는 것이라, 바깥이 트여 있어도 상관없다. */
+  const mk = (cover, stairs = []) => {
+    const coverBoxes = cover.map(toBox)
+    const stairBoxes = stairs.map(toBox)
+    return { boxes: [...coverBoxes, ...stairBoxes], coverBoxes, stairBoxes }
+  }
+
+  eq(NAV_N * NAV_CELL, 30, '격자가 아레나를 덮는다')
+  ok(NAV_CELL < collideM.STEP_HEIGHT / 0.4 * 0.6,
+    `칸이 계단 한 단보다 촘촘하다 — ${NAV_CELL}`)
+
+  /* ── 높이를 읽는다 ─────────────────────────────────────────── */
+  {
+    const wall = mk([{ x: 0, z: 0, w: 4, d: 4, h: 3.8 }])
+    const g = buildNav(wall, 0.4)
+    const at = (x, z) => navCol(z) * NAV_N + navCol(x)
+    eq(g.stand[at(0, 0)], 0, '벽 한가운데에는 설 수 없다')
+    eq(g.height[at(0, 0)], 3.8, '벽 높이를 그대로 적는다')
+    eq(g.stand[at(10, 10)], 1, '빈 데는 설 수 있다')
+    eq(g.height[at(10, 10)], 0, '빈 데는 높이 0')
+
+    /* 몸이 굵을수록 벽이 두꺼워 보여야 한다 — 벽에 몸이 걸치는
+       자리는 실제로 물리가 밀어내므로 길로 세면 안 된다. */
+    const thin = buildNav(wall, 0.2)
+    const fat = buildNav(wall, 1.2)
+    let thinOpen = 0
+    let fatOpen = 0
+    for (let i = 0; i < NAV_N * NAV_N; i++) { thinOpen += thin.stand[i]; fatOpen += fat.stand[i] }
+    ok(fatOpen < thinOpen, `굵으면 갈 수 있는 칸이 줄어든다 — ${fatOpen} < ${thinOpen}`)
+  }
+
+  /* ── 통로는 계단 없이는 못 오른다 ─────────────────────────── */
+  {
+    const walkOnly = mk([{ x: 0, z: 0, w: 8, d: 8, h: arenaM.CATWALK_H }])
+    const g = buildNav(walkOnly, 0.4)
+    const f = navField(g, 12, 12)                     // 바닥에서 퍼뜨린다
+    ok(!Number.isFinite(navDistance(f, 0, 0)),
+      '계단이 없으면 통로 위는 못 간다')
+    eq(g.stand[navCol(0) * NAV_N + navCol(0)], 1, '통로 위 자체는 설 수 있는 곳이다')
+
+    /* 계단을 붙이면 이어진다. 이게 붙지 않으면 통로가 있는 맵이
+       통째로 막힌다 — 한때 한 걸음보다 낮은 상자를 빼먹어서
+       첫 단(0.4)이 사라지는 바람에 실제로 그렇게 됐다. */
+    const withStair = mk(
+      [{ x: 0, z: 0, w: 8, d: 8, h: arenaM.CATWALK_H }],
+      [0, 1, 2, 3].map((i) => ({
+        x: 4 + 0.3 + i * 0.6, z: 0, w: 0.6, d: 8,
+        h: arenaM.STEP_RISE * (4 - i),
+      })),
+    )
+    const g2 = buildNav(withStair, 0.4)
+    const f2 = navField(g2, 12, 0)
+    ok(Number.isFinite(navDistance(f2, 0, 0)), '계단을 놓으면 통로 위로 갈 수 있다')
+  }
+
+  /* ── 꼭짓점만 맞댄 두 상자 사이로는 못 지난다 ─────────────── */
+  {
+    const corner = mk([
+      { x: -2, z: -2, w: 4, d: 4, h: 3.8 },
+      { x: 2, z: 2, w: 4, d: 4, h: 3.8 },
+    ])
+    const g = buildNav(corner, 0.4)
+    const f = navField(g, -6, 6)                      // 왼쪽 아래 구석
+    /* 대각선으로 빠져나가는 지름길이 있으면 반대쪽 구석까지 짧게
+       닿는다. 격자에서는 틈처럼 보이지만 실제로는 못 지나는 자리다. */
+    const straight = Math.hypot(6 - -6, -6 - 6)
+    const d = navDistance(f, 6, -6)
+    ok(!Number.isFinite(d) || d > straight * 1.3,
+      `꼭짓점 사이를 대각선으로 통과하지 않는다 — ${d.toFixed(1)} vs ${straight.toFixed(1)}`)
+  }
+
+  /* ── 거리밭이 성립하는가 ──────────────────────────────────── */
+  {
+    const open = mk([])
+    const g = buildNav(open, 0.4)
+    const f = navField(g, 0, 0)
+    eq(navDistance(f, 0, 0), 0, '목표 자리는 거리 0')
+
+    /* 격자 거리가 직선 거리보다 짧으면 안 된다. 대각선 비용을 1로
+       세면 30% 짧게 나오는데, 그러면 "돌아가는 길인가"를 잴 때
+       거리를 못 믿는다. */
+    let worst = 0
+    for (let i = 0; i < 2000; i++) {
+      const x = (rngM.makeRng(`x${i}`)() - 0.5) * 28
+      const z = (rngM.makeRng(`z${i}`)() - 0.5) * 28
+      const straight = Math.hypot(x, z)
+      const d = navDistance(f, x, z)
+      ok(d >= straight - NAV_CELL * 1.5,
+        `격자 거리가 직선보다 짧지 않다 — ${d.toFixed(2)} vs ${straight.toFixed(2)}`)
+      worst = Math.max(worst, d - straight)
+    }
+    ok(worst < 2.5, `트인 데서는 격자 거리가 직선에 가깝다 — 최대 +${worst.toFixed(2)}`)
+  }
+
+  /* ── 방향 ─────────────────────────────────────────────────── */
+  {
+    const open = mk([])
+    const g = buildNav(open, 0.4)
+    const f = navField(g, 0, 0)
+    /* 트인 데서는 곧장 목표를 향해야 한다. 여기서 격자 모양으로
+       각지면 아레나에서의 움직임과 그에 맞춰 잰 난이도가 흔들린다. */
+    for (let i = 0; i < 400; i++) {
+      const a = (i / 400) * Math.PI * 2
+      const x = Math.cos(a) * 9
+      const z = Math.sin(a) * 9
+      const d = navDir(g, f, x, z, 0, 0, 0)
+      ok(d !== null, '트인 데서는 방향이 나온다')
+      const want = Math.atan2(-z, -x)
+      const got = Math.atan2(d.z, d.x)
+      let off = Math.abs(want - got)
+      if (off > Math.PI) off = Math.PI * 2 - off
+      ok(off < 0.45, `트인 데서는 목표를 곧장 가리킨다 — ${(off * 57.3).toFixed(0)}도`)
+    }
+
+    /* 벽 너머는 우회해야 한다. 벽을 향해 곧장 가리키면 안 된다. */
+    const split = mk([{ x: 0, z: 0, w: 1.5, d: 20, h: 3.8 }])
+    const g2 = buildNav(split, 0.4)
+    const f2 = navField(g2, -6, 0)
+    const d2 = navDir(g2, f2, 6, 0, -6, 0, 0)
+    ok(d2 !== null && Math.abs(d2.z) > 0.3,
+      `벽이 가로막으면 옆으로 돌아간다 — ${d2 ? d2.z.toFixed(2) : 'null'}`)
+  }
+
+  /* ── 갇힌 곳은 갇혔다고 말한다 ────────────────────────────── */
+  {
+    const sealed = mk([
+      { x: 0, z: -3, w: 6, d: 1.5, h: 3.8 },
+      { x: 0, z: 3, w: 6, d: 1.5, h: 3.8 },
+      { x: -3, z: 0, w: 1.5, d: 6, h: 3.8 },
+      { x: 3, z: 0, w: 1.5, d: 6, h: 3.8 },
+    ])
+    const g = buildNav(sealed, 0.4)
+    const f = navField(g, 0, 0)                        // 상자 안에서 시작
+    ok(!Number.isFinite(navDistance(f, 12, 12)),
+      '완전히 닫힌 방 안에서는 밖으로 못 나간다')
+  }
+
+  /* ── 같은 입력이면 같은 답 ────────────────────────────────── */
+  {
+    const m = mapsM.getMap('labyrinth')
+    const a = buildNav(m, 0.45)
+    const b = buildNav(m, 0.45)
+    let same = true
+    for (let i = 0; i < NAV_N * NAV_N; i++) {
+      if (a.stand[i] !== b.stand[i] || a.height[i] !== b.height[i]) same = false
+    }
+    ok(same, '같은 맵이면 같은 격자')
+    const fa = navField(a, 3, -2)
+    const fb = navField(b, 3, -2)
+    let sameF = true
+    for (let i = 0; i < NAV_N * NAV_N; i++) if (fa[i] !== fb[i]) sameF = false
+    ok(sameF, '같은 격자면 같은 거리밭')
+  }
+
+  /* ── 마흔 장이 전부 성립하는가 ────────────────────────────── */
+  {
+    const { MAPS } = mapsM
+    const { ENEMY_TYPES } = enemiesM
+    const radii = [...new Set(Object.values(ENEMY_TYPES).map((t) => t.radius))]
+    for (const m of MAPS) {
+      for (const radius of radii) {
+        const g = buildNav(m, radius)
+        const f = navField(g, m.playerStart.x, m.playerStart.z)
+
+        /* 이게 이 절의 핵심이다. 스폰에서 플레이어까지 길이 없으면
+           그 판은 게임이 아니라 기다리기가 된다. 걸려 보는 검사와
+           달리 이건 답이 정해져 있어서, 실패했을 때 "AI 가 못 찾은
+           것"과 "길이 아예 없는 것"을 갈라 준다. */
+        for (const sp of m.spawns) {
+          ok(Number.isFinite(navDistance(f, sp.x, sp.z)),
+            `${m.name}: 반지름 ${radius} 가 (${sp.x},${sp.z}) 에서 갈 길이 있다`)
+        }
+      }
+
+      /* 시작 자리와 보급품은 플레이어 몸으로 잰다. 적의 굵기로 재면
+         엉뚱한 것을 묻게 된다 — 브루트가 못 비집는 구석이라도 사람은
+         지나갈 수 있고, 보급품은 사람이 줍는 것이다. */
+      const gp = buildNav(m, playerM.PLAYER.radius)
+      const fp = navField(gp, m.playerStart.x, m.playerStart.z)
+      ok(gp.stand[navCol(m.playerStart.z) * NAV_N + navCol(m.playerStart.x)] === 1,
+        `${m.name}: 시작 자리에 설 수 있다`)
+      for (const pu of m.pickups) {
+        ok(Number.isFinite(navDistance(fp, pu.x, pu.z)),
+          `${m.name}: 보급품 (${pu.x},${pu.z}) 을 주우러 갈 수 있다`)
+      }
+    }
+  }
+
+  /* ── 알려 준 방향으로 실제로 걸어갈 수 있는가 ─────────────── */
+  {
+    /* 이게 이 모듈에서 가장 미끄러운 부분이다.
+
+       지름길은 "기준 칸"에서 재는데 실제로 걷는 것은 적이 선 자리에서다.
+       둘이 어긋나면 기준 칸에서는 뚫려 있는 선이 적에게는 벽을 가로지르는
+       선이 된다. 그러면 길찾기는 멀쩡한 답을 내놓는데 적은 벽만 민다 —
+       계단 위쪽 모서리에 몸을 붙인 적이 딱 그렇게 갇혔다.
+
+       그래서 자리를 잔뜩 흩뿌려 놓고, 알려 준 방향으로 한 걸음
+       내디뎌 본다. 벽에 막혀 못 가면 그 방향은 틀린 것이다. */
+    const { resolveMove, groundHeightAt } = collideM
+    const radius = enemiesM.ENEMY_TYPES.crawler.radius
+    const step = 0.25
+    let checked = 0
+    let stuck = 0
+    for (const id of ['bastion', 'tower', 'terrace', 'bridge', 'labyrinth', 'spiral', 'cloister']) {
+      const m = mapsM.getMap(id)
+      const g = buildNav(m, radius)
+      const f = navField(g, m.playerStart.x, m.playerStart.z)
+      const rng = rngM.makeRng('walk-' + id)
+      for (let i = 0; i < 900; i++) {
+        const x = (rng() - 0.5) * 28
+        const z = (rng() - 0.5) * 28
+        /* 실제로 설 수 있는 자리만 본다. 지형 속에 파묻힌 자리는
+           길찾기가 답할 의무가 없다. */
+        const feetY = groundHeightAt(x, z, radius, m.boxes, 0)
+        const vert = { feetY, headY: feetY + 1.1 }
+        const free = resolveMove(x, z, 0, 0, radius, m.boxes, 8, vert)
+        if (Math.hypot(free.x - x, free.z - z) > 1e-6) continue
+
+        const d = navDir(g, f, x, z, m.playerStart.x, m.playerStart.z, feetY)
+        if (!d) continue
+        checked++
+
+        const moved = resolveMove(x, z, d.x * step, d.z * step, radius, m.boxes, 8, vert)
+        const gained = (moved.x - x) * d.x + (moved.z - z) * d.z
+        if (gained < step * 0.5) stuck++
+      }
+    }
+    ok(checked > 3000, `걸어 볼 자리가 넉넉하다 — ${checked}`)
+    /* 완벽할 수는 없다 — 격자는 반 미터 단위라 모서리에서는 한두
+       프레임 스칠 수 있고, 그건 우회 로직이 받아 준다. 다만 드물어야
+       한다. 흔해지면 적이 벽을 미는 판이 나온다. */
+    ok(stuck / checked < 0.02,
+      `알려 준 방향으로 실제로 갈 수 있다 — 막힌 비율 ${(stuck / checked * 100).toFixed(2)}%`)
+  }
+
+  void navCenter
+}
+
 // ══════════════════════════════════════════════════════ 맵별 길찾기
 section('모든 맵에서 적이 플레이어에게 닿는가')
 {
@@ -1339,7 +1588,7 @@ section('모든 맵에서 적이 플레이어에게 닿는가')
   const { surfaceHeightAt } = collideM
   const { PLAYER } = playerM
 
-  /* ★ 이게 맵을 열 장으로 늘리면서 가장 깨지기 쉬운 부분이다.
+  /* ★ 이게 맵을 마흔 장으로 늘리면서 가장 깨지기 쉬운 부분이다.
 
      배치 규칙(틈·높이)을 다 지켜도 길이 막힐 수 있다. 벽 하나가
      어긋나 통로가 끊기면 적이 영영 못 오고, 그 판은 게임이 아니라
@@ -1349,6 +1598,10 @@ section('모든 맵에서 적이 플레이어에게 닿는가')
      "목적을 이뤘는가"는 종류마다 다르다. 근접 적은 사거리 안에
      들어와야 하고, 원거리 적은 사거리(14)가 아레나 어디서든 닿기
      때문에 대신 "플레이어가 보이는 자리를 잡았는가"로 본다. */
+  /* 세션이 적에게 주는 것과 똑같은 길찾기를 붙인다. 이걸 빼고 재면
+     실제로 굴러가는 것과 다른 코드를 시험하게 된다. */
+  const navM = await load('navgrid.js')
+
   for (const map of MAPS) {
     const boxes = map.boxes
     const start = map.playerStart
@@ -1369,6 +1622,28 @@ section('모든 맵에서 적이 플레이어에게 닿는가')
       return Math.hypot(e.x - start.x, e.z - start.z, (e.y || 0) - startY) <= t.attackRange
     }
 
+    /* 걸려 보기 전에 격자로 먼저 본다. 이건 근사가 아니라 답이 정해진
+       검사다 — 길이 아예 없으면 몇 프레임을 주든 못 온다. 실패했을 때
+       "AI 가 못 찾은 것"과 "길이 없는 것"을 갈라 준다. */
+    const navByRadius = new Map()
+    for (const type of ['crawler', 'trooper', 'brute']) {
+      const t = ENEMY_TYPES[type]
+      if (navByRadius.has(t.radius)) continue
+      const grid = navM.buildNav(map, t.radius)
+      navByRadius.set(t.radius, { grid, field: navM.navField(grid, start.x, start.z) })
+    }
+    for (const sp of map.spawns) {
+      for (const [radius, n] of navByRadius) {
+        ok(Number.isFinite(navM.navDistance(n.field, sp.x, sp.z)),
+          `${map.name}: 반지름 ${radius} 가 (${sp.x},${sp.z}) 에서 갈 길이 아예 없다`)
+      }
+    }
+
+    const navDir = (x, z, radius, feetY) => {
+      const n = navByRadius.get(radius)
+      return n ? navM.navDir(n.grid, n.field, x, z, start.x, start.z, feetY) : null
+    }
+
     for (const sp of map.spawns) {
       for (const type of ['crawler', 'trooper', 'brute']) {
         const t = ENEMY_TYPES[type]
@@ -1385,7 +1660,7 @@ section('모든 맵에서 적이 플레이어에게 닿는가')
         const budget = Math.ceil((d0 / t.speed) * 4 * 60) + 180
         let done = false
         for (let i = 0; i < budget && !done; i++) {
-          e = tickEnemy(e, { player, boxes, rng: rngM.makeRng('r') }, 1 / 60).enemy
+          e = tickEnemy(e, { player, boxes, rng: rngM.makeRng('r'), navDir }, 1 / 60).enemy
           done = reached(e)
         }
         ok(done,
@@ -2433,6 +2708,42 @@ section('세션 — 로비에서 고른 것으로 시작한다')
     yaw: 0, pitch: 0,
   })
 
+  /* ── 거리밭이 플레이어를 따라온다 ─────────────────────────── */
+  {
+    /* 길찾기는 플레이어 자리에서 퍼져 나온다. 그 자리가 안 바뀌면
+       적은 사람이 떠난 지 오래인 데로 몰려간다. 계산이 비싸다는
+       이유로 한 번만 만들고 말기 쉬운 자리라, 따로 못을 박아 둔다. */
+    const nav = await load('navgrid.js')
+    const s0 = createSession('nav-follow', { map: 'plaza' })
+    stepSession(s0, blank(), 1 / 60)
+
+    const radius = enemiesM.ENEMY_TYPES.crawler.radius
+    const near = () => nav.navDistance(s0.nav.byRadius.get(radius).field, s0.player.x, s0.player.z)
+
+    ok(near() < 1.5, `처음부터 플레이어 자리에서 퍼진다 — ${near().toFixed(1)}`)
+
+    /* 사람을 맵 반대편으로 옮겨 가며 본다. 옮길 때마다 그 자리가
+       다시 거리밭의 한가운데가 되어야 한다. */
+    let worst = 0
+    for (const [x, z] of [[8, 0], [-8, 0], [0, 9], [0, -9], [6, -6]]) {
+      s0.player.x = x
+      s0.player.z = z
+      stepSession(s0, blank(), 1 / 60)
+      worst = Math.max(worst, near())
+    }
+    ok(worst < 1.5, `옮겨 다녀도 플레이어가 거리밭의 한가운데다 — 최대 ${worst.toFixed(1)}`)
+
+    /* 같은 칸 안에서 꼼지락거릴 때까지 다시 계산하지는 않는다 */
+    s0.player.x = 0
+    s0.player.z = 0
+    stepSession(s0, blank(), 1 / 60)
+    const before = s0.nav.byRadius.get(radius).field
+    s0.player.x = 0.01
+    stepSession(s0, blank(), 1 / 60)
+    ok(s0.nav.byRadius.get(radius).field === before,
+      '칸을 안 벗어나면 거리밭을 새로 만들지 않는다')
+  }
+
   /* 고른 셋을 그대로 들고 시작한다 */
   {
     const lo = { primary: 'railgun', secondary: 'magnum', melee: 'hammer' }
@@ -2741,9 +3052,10 @@ section('통합 — 한 판을 끝까지 돌린다')
 
 // ══════════════════════════════════════════════════════
 section('결과')
+const MAX_SHOWN = Number(process.env.SHOW_FAILS || 40)
 if (fail) {
-  for (const f of fails.slice(0, 40)) console.log('  ✗ ' + f)
-  if (fails.length > 40) console.log(`  ... 외 ${fails.length - 40}건`)
+  for (const f of fails.slice(0, MAX_SHOWN)) console.log('  ✗ ' + f)
+  if (fails.length > MAX_SHOWN) console.log(`  ... 외 ${fails.length - MAX_SHOWN}건`)
 }
 console.log(`\n${fail === 0 ? '✅' : '❌'}  통과 ${pass} / 실패 ${fail}\n`)
 process.exit(fail ? 1 : 0)

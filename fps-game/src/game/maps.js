@@ -21,6 +21,7 @@
    그래서 좌표를 눈대중으로 흩뿌리지 않고, 아래 helper 로 짠다.
    ================================================================== */
 import { ARENA, CATWALK_H, STEP_RISE, STEP_RUN, toBox, perimeterCover } from './arena.js'
+import { GRID_MAPS } from './mapsGrid.js'
 
 /* ── 조각 만들기 ────────────────────────────────────────────────── */
 
@@ -284,7 +285,9 @@ function build(raw) {
   }
 }
 
-export const MAPS = RAW.map(build)
+/* 손으로 좌표를 찍은 열 장과, 글자 그림을 격자로 옮긴 서른 장.
+   build 를 지나고 나면 둘은 구별되지 않는다 — 만드는 방법만 달랐다. */
+export const MAPS = [...RAW, ...GRID_MAPS].map(build)
 export const MAP_BY_ID = Object.fromEntries(MAPS.map((m) => [m.id, m]))
 export const DEFAULT_MAP = 'bunker'
 

@@ -133,7 +133,7 @@ export default function Lobby({ loadout, difficulty, onPick, onDifficulty, onSta
 
         {/* ── 맵 ─────────────────────────────────────────────────
             고를 수는 없지만 무엇이 나올 수 있는지는 알려 준다.
-            들어가서야 처음 보는 것보다, 열 장 중 하나라는 걸 알고
+            들어가서야 처음 보는 것보다, 어떤 판들이 있는지 알고
             들어가는 편이 낫다. */}
         <h2 className="mt-7 text-xs tracking-[0.3em] text-white/45">
           맵 — {MAPS.length}장 중 무작위

@@ -32,6 +32,7 @@ import {
   initialScore, recordKill, recordWaveClear, tickScore, loadBest, saveBest,
 } from './score.js'
 import { makeRng } from './rng.js'
+import { buildNav, navField, navDir, navCol } from './navgrid.js'
 
 /* 첫 웨이브 전 준비 시간. 조작이 처음인 사람이 둘러보고 마우스
    감도를 느껴 볼 짬은 있어야 한다. */
@@ -104,6 +105,30 @@ function beginWave(s, events) {
     })
   }
   events.push({ type: 'waveStart', wave: s.wave })
+}
+
+/* 길찾기 거리밭 관리.
+
+   밭은 플레이어 자리에서 퍼져 나온다. 매 프레임 다시 깔 필요는 없다 —
+   플레이어가 1미터 칸을 옮겼을 때만 다시 계산하면 된다. 900칸 다익스트라를
+   초당 몇 번 도는 셈이라, 적 한 마리가 상자 목록을 한 번 훑는 것보다 싸다.
+
+   몸 굵기마다 지나갈 수 있는 자리가 달라서 격자도 굵기별로 따로 깐다.
+   종류는 셋뿐이고 맵이 바뀌지 않으니 판 처음에 한 번만 만든다. */
+function refreshNav(s) {
+  if (!s.nav) {
+    s.nav = { byRadius: new Map(), cell: -1 }
+    for (const t of Object.values(ENEMY_TYPES)) {
+      if (s.nav.byRadius.has(t.radius)) continue
+      s.nav.byRadius.set(t.radius, { grid: buildNav(s.map, t.radius), field: null })
+    }
+  }
+  const cell = navCol(s.player.z) * 1000 + navCol(s.player.x)
+  if (cell === s.nav.cell) return
+  s.nav.cell = cell
+  for (const n of s.nav.byRadius.values()) {
+    n.field = navField(n.grid, s.player.x, s.player.z)
+  }
 }
 
 export function stepSession(s, input, dtRaw) {
@@ -235,10 +260,17 @@ export function stepSession(s, input, dtRaw) {
   }
 
   // ── 적 ────────────────────────────────────────────────────────
+  refreshNav(s)
+
   const ctx = {
     player: { x: s.player.x, y: s.player.y, z: s.player.z, eyeY: eyeOf(s.player) },
     boxes: s.boxes,
     rng: s.rng,
+    /* 길찾기가 있으면 적이 물어본다. 돌아가야 할 때만 답이 온다. */
+    navDir: (x, z, radius, feetY) => {
+      const n = s.nav.byRadius.get(radius)
+      return n ? navDir(n.grid, n.field, x, z, s.player.x, s.player.z, feetY) : null
+    },
   }
   const next = []
   let alive = 0
