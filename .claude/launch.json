@@ -75,6 +75,17 @@
         "--strictPort"
       ],
       "port": 5230
+    },
+    {
+      "name": "day100",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "day100"
+      ],
+      "port": 5240
     }
   ]
 }

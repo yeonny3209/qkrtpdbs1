@@ -1,0 +1,34 @@
+[
+  {
+    "id": "calm", "name": "평온한 궤도", "desc": "특별한 것이 없다",
+    "multiplier": 1.0, "effects": {}
+  },
+  {
+    "id": "fog", "name": "짙은 안개", "desc": "시야 반경 40% 감소",
+    "multiplier": 1.3, "effects": { "visionFactor": 0.6 }
+  },
+  {
+    "id": "thin_air", "name": "희박한 대기", "desc": "산소 소모 1.5배",
+    "multiplier": 1.4, "effects": { "oxygenDrainFactor": 1.5 }
+  },
+  {
+    "id": "meteor", "name": "유성우", "desc": "소행성 이벤트가 3일마다",
+    "multiplier": 1.5, "effects": { "asteroidEveryDays": 3 }
+  },
+  {
+    "id": "hungry_night", "name": "굶주린 밤", "desc": "거미 2마리 상시",
+    "multiplier": 1.6, "effects": { "extraSpiders": 1 }
+  },
+  {
+    "id": "metal_poor", "name": "금속 결핍", "desc": "고철 스폰 40% 감소",
+    "multiplier": 1.4, "effects": { "scrapSpawnFactor": 0.6 }
+  },
+  {
+    "id": "abundance", "name": "풍요", "desc": "모든 자원 +30%",
+    "multiplier": 0.7, "effects": { "resourceSpawnFactor": 1.3 }
+  },
+  {
+    "id": "long_day", "name": "긴 낮", "desc": "낮 240초 / 밤 60초",
+    "multiplier": 0.6, "effects": { "daySeconds": 240, "nightSeconds": 60 }
+  }
+]
