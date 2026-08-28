@@ -77,15 +77,15 @@
       "port": 5230
     },
     {
-      "name": "day100",
+      "name": "deep99",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "--prefix",
-        "day100"
+        "deep99"
       ],
-      "port": 5240
+      "port": 5250
     }
   ]
 }

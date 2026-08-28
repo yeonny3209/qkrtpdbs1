@@ -10,6 +10,7 @@
    진짜 DOM 을 세워 HTML 을 만들어 본다(시험용 의존성).
    ================================================================== */
 import { parseHTML } from 'linkedom'
+import { readFileSync } from 'node:fs'
 import * as Run from '../src/systems/RunSystem.ts'
 import * as Campfire from '../src/systems/CampfireSystem.ts'
 import * as Raid from '../src/systems/RaidSystem.ts'
@@ -25,6 +26,7 @@ import { Renderer } from '../src/render/Renderer.ts'
 import { addItem, type GameState } from '../src/core/GameState.ts'
 import { CENTER } from '../src/world/Tilemap.ts'
 import { fireLevelDef } from '../src/data/index.ts'
+import { wire as wireOverlayGate, sync as syncOverlayGate } from '../src/ui/OverlayGate.ts'
 
 let pass = 0
 let fail = 0
@@ -424,6 +426,36 @@ section('UI — HTML 이 실제로 만들어지는가')
   }
   ok(ast.asteroid.rocks.length > 0, '소행성이 날아온다')
   ok(ast.asteroid.shipX < 450, '조작이 배를 움직인다')
+}
+
+// ══════════════════════════════════════════════════════
+section('★ 오버레이 클릭 통과 — 실전에서 도끼질이 하나도 안 먹던 버그')
+{
+  /* overlay 가 pointer-events:auto 로 고정돼 있으면, 내용이 비어 있는
+     플레이 화면에서도 캔버스 위에 계속 앉아 클릭을 전부 가로챈다.
+     캔버스가 mousedown 을 한 번도 못 받으니 도끼질도 사격도 안 먹는다.
+     실제 배포본에서 elementFromPoint 로 확인해서 찾은 버그다. */
+  const { document: doc } = parseHTML('<div id="overlay" class="layer"></div>')
+  const ov = doc.getElementById('overlay')!
+
+  ok(!ov.classList.contains('interactive'), '비어 있으면 처음부터 클릭을 통과시킨다')
+
+  wireOverlayGate(ov)
+  ok(!ov.classList.contains('interactive'), 'wire() 직후에도 비어 있으면 통과')
+
+  ov.innerHTML = '<div class="panel">로비</div>'
+  syncOverlayGate(ov)   // linkedom 은 MutationObserver 콜백을 동기 처리하지 않아 직접 맞춘다
+  ok(ov.classList.contains('interactive'), '★ 내용이 생기면 클릭을 받는다 — 로비·창이 눌려야 한다')
+
+  ov.innerHTML = ''
+  syncOverlayGate(ov)
+  ok(!ov.classList.contains('interactive'), '★ 다시 비면 클릭을 통과시킨다 — 플레이 화면에서 캔버스가 받아야 한다')
+
+  /* index.html 자체도 처음부터 'interactive' 로 박혀 있으면 안 된다.
+     main.ts 가 붙기 전 첫 프레임 사이의 틈도 없어야 한다. */
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+  const staticTag = html.match(/<div id="overlay"[^>]*>/)?.[0] ?? ''
+  ok(!staticTag.includes('interactive'), '★ index.html 의 overlay 는 처음부터 interactive 가 아니다')
 }
 
 // ══════════════════════════════════════════════════════

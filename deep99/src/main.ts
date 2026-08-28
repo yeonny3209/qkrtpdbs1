@@ -53,6 +53,7 @@ import { HUD, type HudPrompt } from './ui/HUD.ts'
 import { Panels } from './ui/Inventory.ts'
 import { Lobby } from './ui/Lobby.ts'
 import { Cutscene } from './ui/Cutscene.ts'
+import { wire as wireOverlayGate } from './ui/OverlayGate.ts'
 import { EndScreen } from './ui/DeathScreen.ts'
 
 type Screen = 'lobby' | 'cutscene' | 'play' | 'end'
@@ -68,6 +69,7 @@ const canvas = document.getElementById('game') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
 const hudRoot = document.getElementById('hud') as HTMLElement
 const overlay = document.getElementById('overlay') as HTMLElement
+wireOverlayGate(overlay)
 const asteroidLayer = document.createElement('div')
 asteroidLayer.className = 'layer hidden'
 document.getElementById('app')!.appendChild(asteroidLayer)
