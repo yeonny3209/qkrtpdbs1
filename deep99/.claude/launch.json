@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "deep99", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5250 }
+  ]
+}

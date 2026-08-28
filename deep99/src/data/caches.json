@@ -1,0 +1,18 @@
+{
+  "tiers": [
+    { "id": "common", "name": "일반 보급함", "fireLevel": 2, "color": "#6B7280",
+      "loot": [{ "scrap": [5, 10] }, { "log": [5, 5] }, { "bandage": [1, 2] }] },
+    { "id": "precision", "name": "정밀 보급함", "fireLevel": 3, "color": "#4A8FA8",
+      "loot": [{ "gun": ["pistol"] }, { "scrap": [15, 15] }, { "coal": [3, 3] }] },
+    { "id": "military", "name": "군용 보급함", "fireLevel": 4, "color": "#5A7A4A",
+      "loot": [{ "gun": ["rifle", "shotgun"] }, { "ammo": [12, 12] }, { "oildrum": [1, 1] }] },
+    { "id": "legendary", "name": "전설 보급함", "fireLevel": 5, "color": "#8A5AB0",
+      "loot": [{ "gun": ["rifle", "shotgun"] }, { "scrap": [30, 40] }, { "gastank": [1, 1] }] },
+    { "id": "gold", "name": "금 보급함", "fireLevel": 6, "color": "#D4A017",
+      "loot": [{ "meteorite": [1, 2] }, { "gun": ["railgun"] }, { "ammo": [8, 8] }] },
+    { "id": "red", "name": "적색 보급함", "fireLevel": 0, "color": "#C8235A",
+      "loot": [{ "meteorite": [2, 2] }, { "gun": ["railgun"] }, { "ammo": [10, 10] }] }
+  ],
+  "aggroRadius": 40,
+  "redCacheCount": 2
+}

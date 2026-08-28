@@ -1,0 +1,254 @@
+{
+  "time": {
+    "daySeconds": 180,
+    "nightSeconds": 120,
+    "warnAtDaySecond": 170,
+    "targetDay": 99,
+    "orbitWindowStride": 25,
+    "tutorialDay": 1
+  },
+  "player": {
+    "walkSpeed": 4.0,
+    "runSpeed": 6.0,
+    "radius": 0.38,
+    "maxOxygen": 100,
+    "maxSuit": 100,
+    "maxHunger": 100,
+    "maxStamina": 100,
+    "oxygenDrain": 0.42,
+    "hungerDrainWalk": 0.13,
+    "hungerRunMultiplier": 3.0,
+    "staminaDrain": 33,
+    "staminaRegen": 20,
+    "staminaMinToRun": 8,
+    "suitDrainNoOxygen": 2,
+    "suitDrainNoFood": 1,
+    "aimSlowFactor": 0.7,
+    "inventorySlots": 8,
+    "interactRange": 1.8,
+    "harvestRange": 1.6
+  },
+  "map": {
+    "tileSize": 32,
+    "tiles": 240,
+    "centerTile": 120,
+    "bedPlacementRadius": 15,
+    "maxBeds": 4
+  },
+  "zones": [
+    {
+      "id": 1,
+      "name": "착륙 평원",
+      "innerRadius": 0,
+      "outerRadius": 25,
+      "requiredLevel": 1,
+      "ground": "#2B3A34",
+      "accent": "#374C42"
+    },
+    {
+      "id": 2,
+      "name": "균열 지대",
+      "innerRadius": 25,
+      "outerRadius": 45,
+      "requiredLevel": 2,
+      "ground": "#2A3540",
+      "accent": "#35434F"
+    },
+    {
+      "id": 3,
+      "name": "포자 숲",
+      "innerRadius": 45,
+      "outerRadius": 65,
+      "requiredLevel": 3,
+      "ground": "#243A38",
+      "accent": "#2E4A45"
+    },
+    {
+      "id": 4,
+      "name": "검은 분지",
+      "innerRadius": 65,
+      "outerRadius": 85,
+      "requiredLevel": 4,
+      "ground": "#1B2026",
+      "accent": "#252C33"
+    },
+    {
+      "id": 5,
+      "name": "소멸지",
+      "innerRadius": 85,
+      "outerRadius": 9999,
+      "requiredLevel": 5,
+      "ground": "#171320",
+      "accent": "#221C2E"
+    }
+  ],
+  "decay": {
+    "woodDecaySeconds": 600,
+    "saplingGrowSeconds": 300,
+    "storageCapacity": 25,
+    "capsuleCooldownSeconds": 900,
+    "warpBeaconCooldownSeconds": 360
+  },
+  "farm": {
+    "growDays": 2,
+    "growDaysWithBotanist": 1.5,
+    "carrotChance": 0.6
+  },
+  "spider": {
+    "speed": 3.6,
+    "speedHungry": 6.5,
+    "spawnDistance": 30,
+    "countNormal": 1,
+    "countHungry": 2,
+    "flashlightConeDegrees": 60,
+    "flashlightRange": 12,
+    "flashlightBatterySeconds": 30,
+    "hungryStunChance": 0.5,
+    "hungryStunRollSeconds": 0.5,
+    "torchRadius": 6,
+    "torchStunSeconds": 5,
+    "torchUsesPerPickup": 5,
+    "suppressorSlowFactor": 0.65
+  },
+  "raid": {
+    "everyDays": 4,
+    "spawnRadius": 34,
+    "waves": [
+      {
+        "from": 1,
+        "axe": 2,
+        "spear": 0,
+        "bow": 0,
+        "giant": 0
+      },
+      {
+        "from": 2,
+        "axe": 0,
+        "spear": 4,
+        "bow": 2,
+        "giant": 0
+      },
+      {
+        "from": 3,
+        "axe": 4,
+        "spear": 4,
+        "bow": 3,
+        "giant": 0
+      },
+      {
+        "from": 6,
+        "axe": 0,
+        "spear": 6,
+        "bow": 4,
+        "giant": 1
+      },
+      {
+        "from": 13,
+        "axe": 0,
+        "spear": 6,
+        "bow": 4,
+        "giant": 2
+      }
+    ]
+  },
+  "asteroid": {
+    "days": [
+      25,
+      50,
+      75,
+      99
+    ],
+    "durationSeconds": 90,
+    "allowedFailures": 5,
+    "fragmentReward": 2,
+    "tiers": [
+      {
+        "density": 1.0,
+        "speed": 1.0
+      },
+      {
+        "density": 1.5,
+        "speed": 1.4
+      },
+      {
+        "density": 2.1,
+        "speed": 1.8
+      },
+      {
+        "density": 2.9,
+        "speed": 2.3
+      }
+    ],
+    "shipSpeed": 260,
+    "shipRadius": 13,
+    "fieldWidth": 900,
+    "fieldHeight": 560
+  },
+  "weather": {
+    "chancePerDay": 0.3,
+    "lateGameMultiplier": 2.0,
+    "lateGameDay": 50,
+    "minSeconds": 45,
+    "maxSeconds": 110,
+    "acidSuitDrain": 0.3,
+    "stormStillSeconds": 5,
+    "stormWarnSeconds": 1.5,
+    "stormDamage": 35,
+    "fogVisionFactor": 0.5
+  },
+  "salvage": {
+    "cycleSeconds": 1.6,
+    "levels": [
+      {
+        "perfect": 0.06,
+        "good": 0.2
+      },
+      {
+        "perfect": 0.09,
+        "good": 0.27
+      },
+      {
+        "perfect": 0.13,
+        "good": 0.34
+      }
+    ],
+    "successToLevelUp": [
+      12,
+      30
+    ],
+    "perfectScrap": 4,
+    "goodScrap": 2,
+    "missCooldown": 3,
+    "successCooldown": 3.0
+  },
+  "ranks": [
+    {
+      "rank": "S",
+      "maxMinutes": 45
+    },
+    {
+      "rank": "A",
+      "maxMinutes": 60
+    },
+    {
+      "rank": "B",
+      "maxMinutes": 75
+    },
+    {
+      "rank": "C",
+      "maxMinutes": 95
+    },
+    {
+      "rank": "D",
+      "maxMinutes": 99999
+    }
+  ],
+  "blackbox": {
+    "perDay": 2,
+    "perCrew": 60,
+    "perCraftLevel": 25,
+    "perFireLevel": 20,
+    "escapeBonus": 400,
+    "rerollCost": 40
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "moduleUpgrade": {
+    "2": { "log": 10, "scrap": 5 },
+    "3": { "log": 20, "scrap": 15 },
+    "4": { "log": 40, "scrap": 40 },
+    "5": { "log": 60, "scrap": 80, "meteorite": 2 }
+  },
+  "recipes": {
+    "farm": { "name": "밭", "level": 1, "cost": { "log": 10 }, "kind": "building", "desc": "2일마다 채소 1개" },
+    "bear_trap": { "name": "곰 덫", "level": 1, "cost": { "scrap": 3 }, "kind": "building", "desc": "25 피해 + 2초 속박. 1회용" },
+    "rabbit_trap": { "name": "토끼 덫", "level": 1, "cost": { "log": 5 }, "kind": "building", "desc": "토끼 즉사 → 작은 고기 3개" },
+    "bed": { "name": "침대", "level": 1, "cost": { "log": 20 }, "kind": "building", "desc": "날짜 +1", "dayRateBonus": 1, "bedFamily": true },
+    "map": { "name": "지도", "level": 1, "cost": { "log": 3 }, "kind": "unlock", "desc": "M 키로 미니맵", "flag": "hasMap" },
+    "wood_storage": { "name": "나무 저장고", "level": 1, "cost": { "scrap": 2, "log": 3 }, "kind": "building", "desc": "통나무 25개 부패 방지" },
+    "axe_iron": { "name": "철 도끼", "level": 1, "cost": { "scrap": 8 }, "kind": "item", "gives": { "axe_iron": 1 }, "desc": "작은 나무 6타" },
+    "wall_wood": { "name": "나무 벽", "level": 1, "cost": { "log": 4 }, "kind": "building", "desc": "습격 방어용. HP 200", "wallHp": 200 },
+
+    "recovery_capsule": { "name": "회복 캡슐", "level": 2, "cost": { "scrap": 25 }, "kind": "building", "desc": "우주복·산소 100% 회복. 쿨타임 15분", "maxCount": 1 },
+    "bed_scrap": { "name": "침대 (고철식)", "level": 2, "cost": { "scrap": 10, "log": 10 }, "kind": "building", "desc": "날짜 +1", "dayRateBonus": 1, "bedFamily": true },
+    "clock": { "name": "시계", "level": 2, "cost": { "scrap": 6, "log": 4 }, "kind": "unlock", "desc": "낮/밤 잔여 시간 표시", "flag": "hasClock" },
+    "compass": { "name": "나침반", "level": 2, "cost": { "scrap": 5 }, "kind": "unlock", "desc": "가장 가까운 미공략 연구소 방향", "flag": "hasCompass" },
+    "cooking_pot": { "name": "조리 냄비", "level": 2, "cost": { "scrap": 12, "log": 10 }, "kind": "building", "desc": "스튜 제작 (고기 2 + 채소 2)", "maxCount": 1 },
+    "battery": { "name": "손전등 배터리", "level": 2, "cost": { "scrap": 3 }, "kind": "item", "gives": { "battery": 1 }, "desc": "손전등 충전 +100%" },
+    "supply_beacon": { "name": "보급 신호기", "level": 2, "cost": { "scrap": 15 }, "kind": "beacon", "desc": "랜덤 보급함을 캠프 옆으로 호출 (1회용)" },
+
+    "axe_alloy": { "name": "합금 도끼", "level": 3, "cost": { "scrap": 20, "log": 10 }, "kind": "item", "gives": { "axe_alloy": 1 }, "desc": "작은 나무 3타" },
+    "suit_upgrade": { "name": "강화 우주복", "level": 3, "cost": { "scrap": 30, "log": 15 }, "kind": "upgrade", "desc": "우주복 최대 100 → 150", "maxCount": 1, "maxSuit": 150 },
+    "oxygen_compressor": { "name": "산소 압축기", "level": 3, "cost": { "scrap": 35 }, "kind": "upgrade", "desc": "산소 최대 100 → 160", "maxCount": 1, "maxOxygen": 160 },
+    "turret": { "name": "자동 포탑", "level": 3, "cost": { "scrap": 45, "log": 20 }, "kind": "building", "desc": "반경 10타일 초당 30 피해. 고철 1/10초" },
+    "ammo_press": { "name": "탄약 압착기", "level": 3, "cost": { "scrap": 18 }, "kind": "building", "desc": "고철 4 → 탄약 6발", "maxCount": 1 },
+    "observatory": { "name": "관측기", "level": 3, "cost": { "scrap": 12, "log": 8 }, "kind": "unlock", "desc": "다음 소행성 밤까지 남은 일수", "flag": "hasObservatory" },
+    "bed_alloy": { "name": "침대 (합금식)", "level": 3, "cost": { "scrap": 20 }, "kind": "building", "desc": "날짜 +1", "dayRateBonus": 1, "bedFamily": true },
+
+    "spider_suppressor": { "name": "거미 억제 송신기", "level": 4, "cost": { "scrap": 60, "gastank": 1 }, "kind": "upgrade", "desc": "거미 속도 -35% (영구)", "maxCount": 1 },
+    "warp_beacon": { "name": "워프 비콘", "level": 4, "cost": { "scrap": 50, "log": 30 }, "kind": "building", "desc": "캠프 순간이동. 쿨타임 6분. 밤 불가", "maxCount": 1 },
+    "cargo_drone": { "name": "화물 드론", "level": 4, "cost": { "scrap": 70, "log": 20 }, "kind": "upgrade", "desc": "인벤토리 8칸 추가", "maxCount": 1 },
+    "repair_dock": { "name": "탈출선 정비 도크", "level": 4, "cost": { "scrap": 80, "log": 60 }, "kind": "building", "desc": "탈출 장비 설치 필수 시설", "maxCount": 1 },
+    "wall_steel": { "name": "강철 벽", "level": 4, "cost": { "scrap": 6 }, "kind": "building", "desc": "HP 600", "wallHp": 600 },
+
+    "time_accelerator": { "name": "시간 가속기", "level": 5, "cost": { "scrap": 100, "meteorite": 3 }, "kind": "building", "desc": "날짜 증가량 +3", "maxCount": 1, "dayRateBonus": 3 },
+    "weather_stabilizer": { "name": "기상 안정기", "level": 5, "cost": { "scrap": 80, "meteorite": 2 }, "kind": "upgrade", "desc": "산성비·자기폭풍 무효", "maxCount": 1 },
+    "recycler": { "name": "재활용기", "level": 5, "cost": { "scrap": 60, "log": 40 }, "kind": "building", "desc": "불필요한 아이템 → 고철 50% 환급", "maxCount": 1 },
+    "cutter": { "name": "절단기", "level": 5, "cost": { "scrap": 40, "meteorite": 2 }, "kind": "item", "gives": { "cutter": 1 }, "desc": "최상급 도끼. 작은 나무 1타" },
+
+    "escape_radar": { "name": "레이더", "level": 1, "cost": { "core_radar": 1, "scrap": 50, "log": 30 }, "kind": "escape", "desc": "탈출 장비 1/4" },
+    "escape_landing": { "name": "착륙 장치", "level": 1, "cost": { "core_landing": 1, "scrap": 40, "log": 60 }, "kind": "escape", "desc": "탈출 장비 2/4" },
+    "escape_launch": { "name": "이륙 장치", "level": 1, "cost": { "core_launch": 1, "scrap": 80, "log": 50 }, "kind": "escape", "desc": "탈출 장비 3/4" },
+    "escape_fuel": { "name": "초대형 연료 통", "level": 1, "cost": { "core_fuel": 1, "scrap": 100, "oildrum": 3, "gastank": 2 }, "kind": "escape", "desc": "탈출 장비 4/4" }
+  }
+}

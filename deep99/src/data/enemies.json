@@ -1,0 +1,60 @@
+{
+  "rabbit": {
+    "name": "우주 토끼", "hp": 40, "speed": 5.0, "damage": 5, "radius": 0.32,
+    "senseRange": 8, "behavior": "flee", "fireLevel": 0, "zone": 1,
+    "drops": { "meat_small_raw": 2 }, "color": "#8FD9C0", "size": 9
+  },
+  "wolf": {
+    "name": "우주 늑대", "hp": 100, "speed": 4.2, "damage": 20, "radius": 0.40,
+    "senseRange": 12, "behavior": "dart", "fireLevel": 2, "zone": 2,
+    "drops": { "meat_large_raw": 2 }, "color": "#7FA894", "size": 12
+  },
+  "mutant_wolf": {
+    "name": "우주 변이 늑대", "hp": 300, "speed": 4.8, "damage": 35, "radius": 0.46,
+    "senseRange": 14, "behavior": "dart", "fireLevel": 3, "zone": 3,
+    "drops": { "meat_large_raw": 3, "scrap": 2 }, "color": "#5FF2C8", "size": 14
+  },
+  "bear": {
+    "name": "우주 곰", "hp": 800, "speed": 3.5, "damage": 50, "radius": 0.62,
+    "senseRange": 15, "behavior": "charge", "fireLevel": 4, "zone": 4,
+    "drops": { "meat_large_raw": 5, "scrap": 6 }, "color": "#9A7FBF", "size": 19
+  },
+  "tiger": {
+    "name": "우주 호랑이", "hp": 1500, "speed": 5.5, "damage": 70, "radius": 0.56,
+    "senseRange": 25, "behavior": "patrol", "fireLevel": 5, "zone": 5,
+    "drops": { "scrap": 15, "oildrum": 1 }, "color": "#E0603A", "size": 17
+  },
+  "abyssal": {
+    "name": "심연 개체", "hp": 2500, "speed": 4.0, "damage": 90, "radius": 0.7,
+    "senseRange": 30, "behavior": "charge", "fireLevel": 6, "zone": 5,
+    "drops": { "meteorite": 1, "gastank": 1 }, "color": "#B03CE8", "size": 22
+  },
+
+  "raider_axe": {
+    "name": "약탈자(도끼)", "hp": 120, "speed": 4.0, "damage": 15, "radius": 0.40,
+    "senseRange": 999, "behavior": "raid", "fireLevel": 0, "zone": 0,
+    "drops": { "scrap": 3 }, "color": "#8B6F47", "size": 12
+  },
+  "raider_spear": {
+    "name": "약탈자(창)", "hp": 180, "speed": 3.8, "damage": 25, "radius": 0.42,
+    "senseRange": 999, "behavior": "raid", "fireLevel": 0, "zone": 0,
+    "drops": { "scrap": 4 }, "color": "#9C7E52", "size": 13
+  },
+  "raider_bow": {
+    "name": "약탈자(석궁)", "hp": 100, "speed": 3.5, "damage": 30, "radius": 0.38,
+    "senseRange": 999, "behavior": "raidRanged", "fireLevel": 0, "zone": 0,
+    "drops": { "scrap": 5, "ammo_pistol": 2 }, "color": "#7A6040", "size": 12,
+    "attackRange": 11
+  },
+  "raider_giant": {
+    "name": "거대 약탈자", "hp": 900, "speed": 3.2, "damage": 45, "radius": 0.72,
+    "senseRange": 999, "behavior": "raid", "fireLevel": 0, "zone": 0,
+    "drops": { "scrap": 14 }, "color": "#6B5236", "size": 21
+  },
+
+  "spider": {
+    "name": "외계 거미", "hp": -1, "speed": 3.6, "damage": -1, "radius": 0.44,
+    "senseRange": 9999, "behavior": "hunt", "fireLevel": 0, "zone": 0,
+    "drops": {}, "color": "#C8235A", "size": 15
+  }
+}

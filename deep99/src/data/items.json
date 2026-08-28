@@ -1,0 +1,51 @@
+{
+  "log": { "name": "통나무", "kind": "fuel", "stack": 50, "decays": true, "icon": "🪵" },
+  "coal": { "name": "석탄", "kind": "fuel", "stack": 30, "icon": "🪨" },
+  "oildrum": { "name": "기름 통", "kind": "fuel", "stack": 10, "icon": "🛢️" },
+  "gastank": { "name": "대량 가스 통", "kind": "fuel", "stack": 6, "icon": "⛽" },
+
+  "scrap": { "name": "고철", "kind": "resource", "stack": 99, "icon": "🔩" },
+  "sapling": { "name": "묘목", "kind": "resource", "stack": 20, "icon": "🌱" },
+  "meteorite": { "name": "운석 파편", "kind": "resource", "stack": 20, "icon": "☄️" },
+  "bandage": { "name": "붕대", "kind": "resource", "stack": 10, "icon": "🩹" },
+
+  "junk_screw": { "name": "나사", "kind": "junk", "stack": 1, "scrapValue": 1, "icon": "🔧" },
+  "junk_fan": { "name": "손선풍기", "kind": "junk", "stack": 1, "scrapValue": 2, "icon": "🌀" },
+  "junk_mouse": { "name": "마우스", "kind": "junk", "stack": 1, "scrapValue": 2, "icon": "🖱️" },
+  "junk_tire": { "name": "타이어", "kind": "junk", "stack": 1, "scrapValue": 3, "icon": "🛞" },
+  "junk_laptop": { "name": "노트북", "kind": "junk", "stack": 1, "scrapValue": 3, "icon": "💻" },
+  "junk_fridge": { "name": "미니 냉장고", "kind": "junk", "stack": 1, "scrapValue": 4, "icon": "🧊" },
+  "junk_engine": { "name": "자동차 엔진", "kind": "junk", "stack": 1, "scrapValue": 4, "icon": "⚙️" },
+
+  "meat_small_raw": { "name": "작은 고기(날것)", "kind": "food", "stack": 10, "hunger": 10, "suitCost": 5, "icon": "🥩" },
+  "meat_large_raw": { "name": "큰 고기(날것)", "kind": "food", "stack": 10, "hunger": 18, "suitCost": 5, "icon": "🍖" },
+  "meat_small_cooked": { "name": "작은 고기(구움)", "kind": "food", "stack": 10, "hunger": 30, "icon": "🍗" },
+  "meat_large_cooked": { "name": "큰 고기(구움)", "kind": "food", "stack": 10, "hunger": 55, "icon": "🍖" },
+  "carrot": { "name": "당근", "kind": "food", "stack": 20, "hunger": 25, "icon": "🥕" },
+  "corn": { "name": "옥수수", "kind": "food", "stack": 20, "hunger": 45, "icon": "🌽" },
+  "stew": { "name": "스튜", "kind": "food", "stack": 5, "hunger": 100, "oxygen": 20, "icon": "🍲" },
+
+  "axe_old": { "name": "낡은 도끼", "kind": "tool", "stack": 1, "chopSmall": 13, "chopLarge": 30, "melee": 15, "durability": 60, "icon": "🪓" },
+  "axe_iron": { "name": "철 도끼", "kind": "tool", "stack": 1, "chopSmall": 6, "chopLarge": 14, "melee": 30, "icon": "🪓" },
+  "axe_alloy": { "name": "합금 도끼", "kind": "tool", "stack": 1, "chopSmall": 3, "chopLarge": 7, "melee": 55, "icon": "🪓" },
+  "cutter": { "name": "절단기", "kind": "tool", "stack": 1, "chopSmall": 1, "chopLarge": 3, "melee": 90, "icon": "⚡" },
+
+  "pistol": { "name": "권총", "kind": "gun", "stack": 1, "mag": 6, "damage": 60, "pellets": 1, "reloadSec": 1.5, "fireSec": 0.28, "spread": 0.03, "icon": "🔫" },
+  "rifle": { "name": "소총", "kind": "gun", "stack": 1, "mag": 1, "damage": 280, "pellets": 1, "reloadSec": 1.8, "fireSec": 2.0, "spread": 0.012, "icon": "🎯" },
+  "shotgun": { "name": "샷건", "kind": "gun", "stack": 1, "mag": 3, "damage": 75, "pellets": 10, "reloadSec": 2.4, "fireSec": 0.9, "spread": 0.16, "icon": "💥" },
+  "railgun": { "name": "레일건", "kind": "gun", "stack": 1, "mag": 2, "damage": 900, "pellets": 1, "reloadSec": 2.8, "fireSec": 1.4, "spread": 0.005, "pierce": true, "icon": "🌀" },
+
+  "ammo_pistol": { "name": "권총 탄약", "kind": "ammo", "stack": 90, "icon": "🔸" },
+  "ammo_rifle": { "name": "소총 탄약", "kind": "ammo", "stack": 40, "icon": "🔹" },
+  "ammo_shotgun": { "name": "샷건 탄약", "kind": "ammo", "stack": 60, "icon": "🔺" },
+  "ammo_railgun": { "name": "레일건 탄약", "kind": "ammo", "stack": 20, "icon": "🔻" },
+
+  "flashlight": { "name": "손전등", "kind": "gear", "stack": 1, "icon": "🔦" },
+  "torch": { "name": "횃불", "kind": "gear", "stack": 5, "icon": "🔥" },
+  "battery": { "name": "손전등 배터리", "kind": "gear", "stack": 10, "icon": "🔋" },
+
+  "core_radar": { "name": "레이더 핵심 부품", "kind": "core", "stack": 1, "icon": "📡" },
+  "core_landing": { "name": "착륙 장치 핵심 부품", "kind": "core", "stack": 1, "icon": "🦿" },
+  "core_launch": { "name": "이륙 장치 핵심 부품", "kind": "core", "stack": 1, "icon": "🚀" },
+  "core_fuel": { "name": "초대형 연료 핵심 부품", "kind": "core", "stack": 1, "icon": "🔋" }
+}

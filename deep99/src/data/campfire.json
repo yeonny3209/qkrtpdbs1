@@ -1,0 +1,22 @@
+{
+  "levels": [
+    { "lv": 1, "min": 1,    "drain": 0.5, "safeRadius": 8,  "openRadius": 25 },
+    { "lv": 2, "min": 100,  "drain": 0.8, "safeRadius": 12, "openRadius": 45 },
+    { "lv": 3, "min": 250,  "drain": 1.2, "safeRadius": 16, "openRadius": 65 },
+    { "lv": 4, "min": 500,  "drain": 1.8, "safeRadius": 20, "openRadius": 85 },
+    { "lv": 5, "min": 900,  "drain": 2.4, "safeRadius": 25, "openRadius": 105 },
+    { "lv": 6, "min": 1500, "drain": 3.0, "safeRadius": 30, "openRadius": 999 }
+  ],
+  "fuels": {
+    "log":     { "heat": 10,  "unlockLevel": 0 },
+    "coal":    { "heat": 40,  "unlockLevel": 1 },
+    "oildrum": { "heat": 120, "unlockLevel": 2 },
+    "gastank": { "heat": 350, "unlockLevel": 3 }
+  },
+  "raidFailMultiplier": 2.0,
+  "acidRainMultiplier": 1.5,
+  "oxygenRegen": 0.83,
+  "cookSmallSeconds": 20,
+  "cookLargeSeconds": 35,
+  "flashlightRechargeSeconds": 20
+}

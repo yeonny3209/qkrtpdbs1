@@ -1,0 +1,26 @@
+[
+  {
+    "id": "rohan", "name": "기관사 로한", "role": "화부",
+    "desc": "저장고의 연료를 캠프파이어에 자동 투입 (30초마다 1개)",
+    "core": "core_radar", "labTier": 1,
+    "stokeSeconds": 30, "color": "#D8A15A"
+  },
+  {
+    "id": "mira", "name": "식물학자 미라", "role": "농부",
+    "desc": "밭 자동 수확 + 성장 주기 2일 → 1.5일",
+    "core": "core_landing", "labTier": 2,
+    "color": "#7FD8A0"
+  },
+  {
+    "id": "kai", "name": "보안관 카이", "role": "경비",
+    "desc": "밤에 캠프 방어. 습격 시 함께 싸움 (권총)",
+    "core": "core_launch", "labTier": 3,
+    "guardDamage": 60, "guardRange": 12, "guardCooldown": 0.9, "color": "#C8D8E0"
+  },
+  {
+    "id": "ellen", "name": "통신사 엘렌", "role": "관제",
+    "desc": "보급함·연구소 위치를 지도에 표시",
+    "core": "core_fuel", "labTier": 4,
+    "color": "#8FC8F0"
+  }
+]
