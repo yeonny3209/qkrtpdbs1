@@ -120,9 +120,29 @@ section('그리기 — 모든 국면을 한 번씩')
   Spider.spawnForNight(night)
   const nightRec = drawOnce(night, '밤')
   ok((nightRec.calls.createRadialGradient ?? 0) > 0, '밤에는 광원 그라디언트를 쓴다')
-  ok(Lighting.darkness(night) > 0.9, '밤은 어둡다')
+  /* ★ 예전엔 0.94 였다. 그 짙기에서 플레이어 개인 시야 구멍이 중심부도
+     15%만 지워 사실상 화면 전체가 암전이었다 — "밤에는 아무것도 안
+     보인다" 는 실제 신고였다. 어두워지되 형체는 보이게 낮췄다. 여전히
+     밤답게 어두워야 하니 완전히 밝지도 않다. */
+  ok(Lighting.darkness(night) > 0.5, '밤은 어둡다')
+  ok(Lighting.darkness(night) < 0.85, '★ 하지만 예전처럼 암전은 아니다')
   ok(Lighting.darkness(day) === 0, '낮은 안 어둡다')
   ok(Lighting.collectLights(night).some((l) => l.warm), '불이 있으면 따뜻한 광원')
+
+  /* ★ 거미가 어둠 속에서도 옅게 보이는가 — "보이기 전부터 들림"(§20.4)
+     다음 단계인 "가까이 오면 형체가 보임"이 실제로 그려지는지 잰다.
+     spiders 를 지운 같은 밤과 비교해, 거미 수만큼 그라디언트가 늘어야
+     drawSpiderGlow 가 빠짐없이 도는 것이다. */
+  const { state: quietNight } = mk()
+  light(quietNight, 3)
+  quietNight.day = 5
+  quietNight.phase = 'night'
+  quietNight.phaseT = 40
+  const quietRec = drawOnce(quietNight, '거미 없는 밤')
+  const withSpiders = nightRec.calls.createRadialGradient ?? 0
+  const without = quietRec.calls.createRadialGradient ?? 0
+  ok(night.spiders.length > 0, '이 밤엔 거미가 있다')
+  ok(withSpiders - without === night.spiders.length, `★ 거미 한 마리당 어둠 속 그라디언트가 하나씩 더 그려진다 — got ${withSpiders - without}, want ${night.spiders.length}`)
 
   /* ★ 불이 꺼진 밤 */
   const { state: out } = mk()
